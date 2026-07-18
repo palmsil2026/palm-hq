@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>ละกอน 📋 งานบ้านเรา</title>
+
+  <!-- ⚠️ แก้ค่าด้านล่างก่อน deploy -->
+  <script>
+    const GAS_URL = "PUT_YOUR_GAS_WEB_APP_URL_HERE";
+    const LIFF_ID = "PUT_YOUR_LIFF_ID_HERE";
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy: #1B3558;
+      --navy-dark: #122540;
+      --navy-light: #EAF0F7;
+      --gold: #C8A96E;
+      --gold-light: #F5EDD9;
+      --teal: #5B9BA0;
+      --teal-light: #E0EEEF;
+      --cream: #F8F5EF;
+      --cream-dark: #EDE8DB;
+      --text: #1B2B3B;
+      --sub: #7A8A9B;
+      --border: #D8D0C4;
+      --white: #FFFFFF;
+      --green: #3D9970;
+      --green-light: #D8F0E8;
+      --orange: #C8842A;
+      --orange-light: #FBEEDA;
+      --red: #C0392B;
+      --red-light: #FBE3E0;
+      --brown: #8B5E3C;
+      --brown-light: #F0E4D8;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: 'Sarabun', sans-serif;
+      background: linear-gradient(160deg, #D6EAF2 0%, #F5EDD9 48%, #E0EDE6 100%);
+      background-attachment: fixed;
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed; top: -80px; right: -60px;
+      width: 300px; height: 300px; border-radius: 50%;
+      background: rgba(91,155,160,0.13);
+      pointer-events: none; z-index: 0;
+    }
+    body::after {
+      content: '';
+      position: fixed; bottom: 40px; left: -60px;
+      width: 240px; height: 240px; border-radius: 50%;
+      background: rgba(200,169,110,0.11);
+      pointer-events: none; z-index: 0;
+    }
+
+    .screen { display: none; min-height: 100vh; flex-direction: column; }
+    .screen.active { display: flex; }
+
+    /* ── Header ── */
+    .header {
+      background: rgba(27,53,88,0.85);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      color: var(--white);
+      padding: 14px 16px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 2px 16px rgba(27,53,88,.2);
+    }
+    .header::after {
+      content: '';
+      position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    }
+    .header-title { font-size: 19px; font-weight: 500; color: var(--gold); letter-spacing: .5px; }
+    .header-sub   { font-size: 12px; color: rgba(200,169,110,.65); margin-top: 2px; letter-spacing: .3px; }
+    .header-btn {
+      background: rgba(200,169,110,.15);
+      border: 1px solid rgba(200,169,110,.3); color: var(--gold);
+      font-family: 'Sarabun', sans-serif;
+      font-size: 13px; font-weight: 500;
+      padding: 6px 12px; border-radius: 20px;
+      cursor: pointer; white-space: nowrap;
+      transition: background .2s;
+    }
+    .header-btn:hover { background: rgba(200,169,110,.28); }
+
+    /* ── Forms ── */
+    .form-body  { padding: 20px 16px; flex: 1; overflow-y: auto; }
+    .form-group { margin-bottom: 16px; }
+    .form-label { font-size: 12px; font-weight: 600; color: var(--sub); margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: .5px; }
+    .form-label span { color: var(--red); }
+    .form-input {
+      width: 100%;
+      border: 1.5px solid rgba(216,208,196,0.7); border-radius: var(--radius);
+      padding: 12px 14px;
+      font-family: 'Sarabun', sans-serif; font-size: 15px; color: var(--text);
+      background: rgba(255,255,255,0.8); outline: none;
+      transition: border-color .2s;
+    }
+    .form-input:focus { border-color: var(--navy); }
+    .form-input::placeholder { color: #C0B8AC; }
+    textarea.form-input { resize: none; }
+    select.form-input { appearance: none; -webkit-appearance: none; }
+    .form-footer { padding: 12px 16px 24px; }
+
+    .btn-primary {
+      width: 100%; background: var(--navy); color: var(--gold);
+      border: 1px solid rgba(200,169,110,.3);
+      font-family: 'Sarabun', sans-serif;
+      font-size: 16px; font-weight: 600;
+      padding: 14px; border-radius: var(--radius);
+      cursor: pointer; transition: background .2s, opacity .2s;
+      letter-spacing: .5px;
+    }
+    .btn-primary:hover    { background: var(--navy-dark); }
+    .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-secondary {
+      width: 100%; background: var(--white); color: var(--navy);
+      border: 1.5px solid var(--border);
+      font-family: 'Sarabun', sans-serif;
+      font-size: 15px; font-weight: 500;
+      padding: 12px; border-radius: var(--radius);
+      cursor: pointer; transition: background .2s, border-color .2s;
+      margin-top: 10px;
+    }
+    .btn-secondary:hover { background: var(--cream-dark); border-color: var(--navy); }
+
+    /* ── Chip pickers (หมวด / ความเร่งด่วน / ผู้ช่วย) ── */
+    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pick-chip {
+      border: 1.5px solid var(--border); border-radius: 20px;
+      background: rgba(255,255,255,0.8); color: var(--text);
+      font-family: 'Sarabun', sans-serif; font-size: 14px; font-weight: 500;
+      padding: 7px 14px; cursor: pointer;
+      transition: all .15s;
+    }
+    .pick-chip.selected { background: var(--navy); border-color: var(--navy); color: var(--gold); }
+
+    /* ── Loading ── */
+    #scLoading {
+      align-items: center; justify-content: center;
+      gap: 16px;
+      background: linear-gradient(160deg, #122540 0%, #1B3558 60%, #1E3D5E 100%);
+    }
+    .loading-emoji { font-size: 52px; animation: bounce 1.2s infinite; }
+    @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid rgba(200,169,110,.25); border-top-color: var(--gold);
+      border-radius: 50%; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loadingText { font-size: 15px; color: rgba(200,169,110,.75); text-align: center; max-width: 240px; }
+    #initError { display: none; text-align: center; padding: 0 24px; }
+    #initError p { color: #FF9580; margin-bottom: 16px; font-size: 14px; }
+    .btn-retry {
+      background: var(--gold); color: var(--navy); border: none;
+      font-family: 'Sarabun', sans-serif; font-size: 15px; font-weight: 600;
+      padding: 10px 28px; border-radius: var(--radius); cursor: pointer;
+    }
+
+    /* ── Register ── */
+    #scRegister { background: var(--cream); }
+    .info-box {
+      background: var(--gold-light); border-radius: var(--radius);
+      border: 1px solid rgba(200,169,110,.35);
+      padding: 12px 14px; margin-bottom: 20px;
+      font-size: 13px; color: #7A5A2A; line-height: 1.5;
+    }
+
+    /* ── Board ── */
+    #scBoard { background: var(--cream); }
+    .board-body { flex: 1; overflow-y: auto; padding: 12px 16px 110px; }
+
+    /* summary strip */
+    .summary-strip { display: flex; gap: 8px; margin-bottom: 12px; }
+    .stat-card {
+      flex: 1;
+      background: rgba(255,255,255,0.72);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      border: 1px solid rgba(216,208,196,0.6); border-radius: var(--radius);
+      padding: 10px 12px; text-align: center;
+    }
+    .stat-num   { font-size: 20px; font-weight: 700; color: var(--navy); }
+    .stat-num.warn { color: var(--red); }
+    .stat-label { font-size: 11px; color: var(--sub); margin-top: 1px; }
+
+    /* per-person chips */
+    .people-scroll {
+      display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 10px;
+      -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    .people-scroll::-webkit-scrollbar { display: none; }
+    .person-chip {
+      flex-shrink: 0; display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,0.72); border: 1px solid rgba(216,208,196,0.6);
+      border-radius: 20px; padding: 5px 12px 5px 6px;
+      font-size: 12px; color: var(--text); white-space: nowrap;
+    }
+    .person-chip .avatar {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--navy); color: var(--gold);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; overflow: hidden; flex-shrink: 0;
+    }
+    .person-chip .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .person-chip b { color: var(--navy); }
+    .person-chip .overdue-mini { color: var(--red); font-weight: 700; }
+
+    /* filter chips */
+    .filter-scroll {
+      display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 4px;
+      -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    .filter-scroll::-webkit-scrollbar { display: none; }
+    .filter-chip {
+      flex-shrink: 0;
+      border: 1.5px solid var(--border); border-radius: 20px;
+      background: rgba(255,255,255,0.8); color: var(--text);
+      font-family: 'Sarabun', sans-serif; font-size: 13px; font-weight: 500;
+      padding: 6px 13px; cursor: pointer; white-space: nowrap;
+      transition: all .15s;
+    }
+    .filter-chip.selected { background: var(--navy); border-color: var(--navy); color: var(--gold); }
+
+    /* tabs */
+    .tabs {
+      display: flex; background: var(--cream-dark);
+      border-radius: var(--radius); padding: 4px; margin-bottom: 12px;
+    }
+    .tab {
+      flex: 1; text-align: center; padding: 8px;
+      font-size: 14px; font-weight: 600; color: var(--sub);
+      border-radius: 9px; cursor: pointer; transition: all .15s;
+    }
+    .tab.active { background: var(--white); color: var(--navy); box-shadow: 0 1px 4px rgba(27,53,88,.12); }
+
+    /* task cards */
+    .task-card {
+      background: rgba(255,255,255,0.72);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      border: 1px solid rgba(216,208,196,0.6); border-radius: var(--radius);
+      padding: 12px 14px 12px 16px; margin-bottom: 10px;
+      position: relative; overflow: hidden; cursor: pointer;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .task-card:hover { border-color: var(--gold); box-shadow: 0 2px 8px rgba(200,169,110,.15); }
+    .task-card::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+    }
+    .task-card.pri-urgent::before { background: var(--red); }
+    .task-card.pri-high::before   { background: var(--orange); }
+    .task-card.pri-normal::before { background: var(--green); }
+    .task-card.is-done { opacity: .72; }
+    .task-card.is-done .task-title { text-decoration: line-through; color: var(--sub); }
+
+    .task-top { display: flex; align-items: flex-start; gap: 8px; }
+    .task-title { flex: 1; font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.35; }
+    .task-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+    .chip {
+      font-size: 11px; font-weight: 600; padding: 2.5px 9px; border-radius: 12px; white-space: nowrap;
+    }
+    .chip-cat-water  { background: var(--teal-light); color: #2A6B70; }
+    .chip-cat-bottle { background: var(--navy-light); color: var(--navy); }
+    .chip-cat-coffee { background: var(--brown-light); color: var(--brown); }
+    .chip-cat-other  { background: var(--cream-dark); color: #6B6152; }
+    .chip-pri-urgent { background: var(--red-light); color: #8B2020; }
+    .chip-pri-high   { background: var(--orange-light); color: #7A5A2A; }
+    .chip-pri-normal { background: var(--green-light); color: #1E6B46; }
+    .chip-status-doing { background: var(--navy-light); color: var(--navy); }
+    .chip-due       { background: var(--cream-dark); color: #6B6152; }
+    .chip-due.today   { background: var(--orange-light); color: #7A5A2A; }
+    .chip-due.overdue { background: var(--red-light); color: #8B2020; }
+
+    .task-people { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--sub); flex-wrap: wrap; }
+    .owner-tag {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: var(--gold-light); border-radius: 14px; padding: 2px 10px 2px 3px;
+      font-size: 12px; font-weight: 600; color: #7A5A2A;
+    }
+    .owner-tag .avatar {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--navy); color: var(--gold);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; overflow: hidden;
+    }
+    .owner-tag .avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+    .empty-state { text-align: center; padding: 60px 24px; color: var(--sub); }
+    .empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
+
+    /* FAB */
+    .fab {
+      position: fixed; right: 18px; bottom: calc(24px + env(safe-area-inset-bottom));
+      width: 58px; height: 58px; border-radius: 50%;
+      background: var(--navy); color: var(--gold);
+      border: 1.5px solid rgba(200,169,110,.45);
+      font-size: 28px; font-weight: 400; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 300;
+      box-shadow: 0 6px 20px rgba(27,53,88,.35);
+      transition: transform .15s, background .2s;
+    }
+    .fab:hover { background: var(--navy-dark); transform: scale(1.05); }
+
+    /* ── Detail ── */
+    #scDetail { background: var(--cream); }
+    .detail-body { flex: 1; overflow-y: auto; padding: 16px 16px 32px; }
+    .detail-card {
+      background: rgba(255,255,255,0.72);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      border: 1px solid rgba(216,208,196,0.6); border-radius: var(--radius);
+      padding: 16px; margin-bottom: 14px;
+    }
+    .detail-title { font-size: 18px; font-weight: 700; color: var(--text); line-height: 1.4; }
+    .detail-desc  { font-size: 14px; color: var(--sub); margin-top: 8px; line-height: 1.6; white-space: pre-wrap; }
+    .detail-row   { display: flex; gap: 10px; margin-top: 12px; font-size: 13px; align-items: flex-start; }
+    .detail-row .k { color: var(--sub); flex-shrink: 0; width: 88px; font-weight: 600; }
+    .detail-row .v { flex: 1; color: var(--text); }
+    .status-btns { display: flex; gap: 8px; margin-top: 4px; }
+    .btn-status {
+      flex: 1; border: none; border-radius: var(--radius);
+      font-family: 'Sarabun', sans-serif; font-size: 14px; font-weight: 600;
+      padding: 12px 8px; cursor: pointer; transition: opacity .2s;
+    }
+    .btn-status:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-start  { background: var(--navy-light); color: var(--navy); }
+    .btn-done   { background: var(--green); color: var(--white); }
+    .btn-reopen { background: var(--cream-dark); color: var(--text); }
+
+    /* notes */
+    .note-item { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid rgba(216,208,196,.45); }
+    .note-item:last-child { border-bottom: none; }
+    .note-txt  { flex: 1; font-size: 13px; color: var(--text); line-height: 1.5; }
+    .note-txt.sys { color: var(--sub); font-style: italic; }
+    .note-meta { font-size: 11px; color: var(--sub); margin-top: 2px; }
+    .note-input-row { display: flex; gap: 8px; margin-top: 10px; }
+    .note-input-row .form-input { flex: 1; padding: 10px 12px; font-size: 14px; }
+    .btn-send-note {
+      background: var(--navy); color: var(--gold); border: none;
+      border-radius: var(--radius); padding: 0 16px; font-size: 16px; cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* ── Form screen ── */
+    #scForm { background: var(--cream); }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 90px; left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--navy); color: var(--gold);
+      border: 1px solid rgba(200,169,110,.3);
+      font-size: 14px; padding: 10px 20px; border-radius: 24px;
+      opacity: 0; pointer-events: none;
+      transition: opacity .3s, transform .3s;
+      z-index: 9999; white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- ══ Screen: Loading ══ -->
+<div id="scLoading" class="screen active">
+  <div class="loading-emoji">📋</div>
+  <div class="spinner"></div>
+  <p id="loadingText">กำลังเริ่มต้น...</p>
+  <div id="initError">
+    <p id="initErrorMsg">เกิดข้อผิดพลาด</p>
+    <button class="btn-retry" onclick="location.reload()">ลองใหม่</button>
+  </div>
+</div>
+
+<!-- ══ Screen: Register ══ -->
+<div id="scRegister" class="screen">
+  <div class="header">
+    <div>
+      <div class="header-title">ละกอน 📋</div>
+      <div class="header-sub">งานบ้านเรา · ลงทะเบียนสมาชิก</div>
+    </div>
+  </div>
+  <div class="form-body">
+    <div class="info-box">📋 กระดานงานส่วนกลางของครอบครัว<br>ตั้งชื่อเล่นให้ทุกคนรู้ว่าเป็นใคร แล้วเริ่มใช้งานได้เลย</div>
+    <div class="form-group">
+      <label class="form-label">ชื่อเล่นในระบบ <span>*</span></label>
+      <input id="regNickname" type="text" class="form-input" placeholder="เช่น ปาล์ม, แม่, พี่เบียร์" maxlength="20" />
+    </div>
+  </div>
+  <div class="form-footer">
+    <button id="btnRegister" class="btn-primary" onclick="submitRegister()">เริ่มใช้งาน →</button>
+  </div>
+</div>
+
+<!-- ══ Screen: Board ══ -->
+<div id="scBoard" class="screen">
+  <div class="header">
+    <div>
+      <div class="header-title">งานบ้านเรา 📋</div>
+      <div class="header-sub" id="boardGreeting">กระดานงานครอบครัว</div>
+    </div>
+    <button class="header-btn" onclick="shareSummary()">แชร์สรุป 📤</button>
+  </div>
+  <div class="board-body">
+    <div class="summary-strip" id="summaryStrip"></div>
+    <div class="people-scroll" id="peopleScroll"></div>
+    <div class="filter-scroll" id="catFilters"></div>
+    <div class="tabs">
+      <div class="tab active" id="tabOpen" onclick="setTab('open')">งานค้าง</div>
+      <div class="tab" id="tabDone" onclick="setTab('done')">เสร็จแล้ว ✅</div>
+    </div>
+    <div id="taskList"></div>
+  </div>
+  <button class="fab" onclick="openForm(null)" title="เพิ่มงานใหม่">+</button>
+</div>
+
+<!-- ══ Screen: Detail ══ -->
+<div id="scDetail" class="screen">
+  <div class="header">
+    <div><div class="header-title">รายละเอียดงาน</div></div>
+    <button class="header-btn" onclick="showScreen('scBoard'); renderBoard()">← กลับ</button>
+  </div>
+  <div class="detail-body" id="detailBody"></div>
+</div>
+
+<!-- ══ Screen: Create/Edit Form ══ -->
+<div id="scForm" class="screen">
+  <div class="header">
+    <div><div class="header-title" id="formTitle">เพิ่มงานใหม่</div></div>
+    <button class="header-btn" onclick="cancelForm()">✕ ยกเลิก</button>
+  </div>
+  <div class="form-body">
+    <div class="form-group">
+      <label class="form-label">ชื่องาน <span>*</span></label>
+      <input id="fTitle" type="text" class="form-input" placeholder="เช่น สั่งฝาขวดล็อตใหม่, ซ่อมเครื่องกรอง" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">รายละเอียด (ถ้ามี)</label>
+      <textarea id="fDetail" class="form-input" rows="3" placeholder="ใส่รายละเอียดเพิ่มเติม เช่น ต้องโทรหาใคร จำนวนเท่าไหร่..."></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">หมวดงาน <span>*</span></label>
+      <div class="chip-row" id="fCatChips"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">ความเร่งด่วน <span>*</span></label>
+      <div class="chip-row" id="fPriChips"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">ผู้รับผิดชอบหลัก <span>*</span></label>
+      <select id="fOwner" class="form-input"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">ผู้ช่วย / มีส่วนร่วม (เลือกได้หลายคน)</label>
+      <div class="chip-row" id="fHelperChips"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">เดดไลน์ (ถ้ามี)</label>
+      <input id="fDeadline" type="date" class="form-input" />
+    </div>
+  </div>
+  <div class="form-footer">
+    <button id="btnSaveTask" class="btn-primary" onclick="submitTask()">บันทึกงาน</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════
+//  Constants & State
+// ══════════════════════════════════════════
+const CATEGORIES = [
+  { key: "โรงน้ำ",   emoji: "💧", chipClass: "chip-cat-water"  },
+  { key: "โรงขวด",   emoji: "🍼", chipClass: "chip-cat-bottle" },
+  { key: "ร้านกาแฟ", emoji: "☕", chipClass: "chip-cat-coffee" },
+  { key: "อื่นๆ",    emoji: "🏠", chipClass: "chip-cat-other"  },
+];
+const PRIORITIES = [
+  { key: "urgent", label: "ด่วนมาก", emoji: "🔥", chipClass: "chip-pri-urgent", weight: 3, color: "#C0392B" },
+  { key: "high",   label: "ด่วน",    emoji: "⚡", chipClass: "chip-pri-high",   weight: 2, color: "#C8842A" },
+  { key: "normal", label: "ปกติ",    emoji: "🌿", chipClass: "chip-pri-normal", weight: 1, color: "#3D9970" },
+];
+const STATUS_LABEL = { todo: "รอทำ", doing: "กำลังทำ 🔨", done: "เสร็จแล้ว ✅", cancelled: "ยกเลิก" };
+
+let lineUserId    = null;
+let lineProfile   = null;   // { displayName, pictureUrl }
+let me            = null;   // member record ของฉัน
+let members       = [];
+let tasks         = [];
+let filterCat     = "all";  // "all" | "mine" | ชื่อหมวด
+let currentTab    = "open"; // "open" | "done"
+let currentTaskId = null;
+let editingTaskId = null;   // null = สร้างใหม่
+let fCat = "โรงน้ำ", fPri = "normal", fHelpers = [];
+
+// ══════════════════════════════════════════
+//  Helpers
+// ══════════════════════════════════════════
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo(0, 0);
+}
+function setLoadingText(msg) { document.getElementById('loadingText').textContent = msg; }
+function showInitError(msg) {
+  document.getElementById('initError').style.display = 'block';
+  document.getElementById('initErrorMsg').textContent = msg;
+  document.getElementById('loadingText').style.display = 'none';
+  document.querySelector('#scLoading .spinner').style.display = 'none';
+}
+function showToast(msg, duration = 2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function catMeta(key) { return CATEGORIES.find(c => c.key === key) || CATEGORIES[CATEGORIES.length - 1]; }
+function priMeta(key) { return PRIORITIES.find(p => p.key === key) || PRIORITIES[2]; }
+function memberName(id) {
+  const m = members.find(x => x.LINE_User_ID === id);
+  return m ? (m.Nickname || m.Display_Name) : "?";
+}
+function memberPic(id) {
+  const m = members.find(x => x.LINE_User_ID === id);
+  return m ? (m.Picture_URL || "") : "";
+}
+function avatarHtml(id) {
+  const pic = memberPic(id);
+  const name = memberName(id);
+  return `<span class="avatar">${pic ? `<img src="${esc(pic)}" alt="" />` : esc(name.charAt(0))}</span>`;
+}
+
+// วันเดดไลน์ → { label, cls, days }
+function deadlineInfo(deadline) {
+  if (!deadline) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = new Date(deadline + "T00:00:00");
+  const days = Math.round((due - today) / 86400000);
+  if (days < 0)   return { label: `⏰ เลยกำหนด ${-days} วัน`, cls: "overdue", days };
+  if (days === 0) return { label: "⏰ วันนี้", cls: "today", days };
+  if (days === 1) return { label: "📅 พรุ่งนี้", cls: "", days };
+  if (days <= 7)  return { label: `📅 อีก ${days} วัน`, cls: "", days };
+  return { label: "📅 " + due.toLocaleDateString('th-TH', { day:'numeric', month:'short' }), cls: "", days };
+}
+function isOverdue(t) {
+  const d = deadlineInfo(t.Deadline);
+  return d && d.days < 0;
+}
+function formatThaiDateTime(raw) {
+  if (!raw) return '—';
+  try {
+    return new Date(raw).toLocaleDateString('th-TH', {
+      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch (_) { return String(raw); }
+}
+
+// ══════════════════════════════════════════
+//  API
+// ══════════════════════════════════════════
+async function apiGet(params) {
+  const url = GAS_URL + "?" + new URLSearchParams(params).toString();
+  const res = await fetch(url);
+  return res.json();
+}
+async function apiPost(body) {
+  // GAS Web App มักมีปัญหา CORS กับ POST ใน LINE webview → ส่งเป็น GET + payload
+  const params = new URLSearchParams({ payload: JSON.stringify(body) });
+  const res = await fetch(GAS_URL + "?" + params.toString(), { redirect: "follow" });
+  return res.json();
+}
+async function refreshTasks() {
+  try {
+    const data = await apiGet({ action: "getTasks" });
+    if (data.tasks) tasks = data.tasks;
+  } catch (e) { console.error(e); }
+}
+
+// ══════════════════════════════════════════
+//  Init
+// ══════════════════════════════════════════
+async function init() {
+  setLoadingText("กำลังเชื่อมต่อ LINE...");
+
+  await new Promise(async (resolve) => {
+    const timer = setTimeout(() => resolve(), 15000);
+    try {
+      await liff.init({ liffId: LIFF_ID });
+      clearTimeout(timer);
+      if (liff.isLoggedIn()) {
+        lineProfile = await liff.getProfile();
+        lineUserId = lineProfile.userId;
+      } else if (liff.isInClient()) {
+        // ใน LINE จะ login อัตโนมัติเสมอ — กรณีนี้แทบไม่เกิด
+      } else {
+        liff.login();
+        return;
+      }
+      resolve();
+    } catch (e) {
+      clearTimeout(timer);
+      console.warn("LIFF fallback dev mode:", e.message);
+      lineUserId = localStorage.getItem("lakon_dev_uid") || ("dev-" + Date.now());
+      localStorage.setItem("lakon_dev_uid", lineUserId);
+      lineProfile = { displayName: "Dev User", pictureUrl: "" };
+      resolve();
+    }
+  });
+
+  setLoadingText("กำลังโหลดข้อมูล...");
+  const data = await apiGet({ action: "getBootstrap", lineUserId });
+  if (!data.success) throw new Error(data.error || "โหลดข้อมูลไม่สำเร็จ");
+
+  me      = data.me;
+  members = data.members || [];
+  tasks   = data.tasks || [];
+
+  if (!me) {
+    document.getElementById('regNickname').value = (lineProfile && lineProfile.displayName) || '';
+    showScreen('scRegister');
+    return;
+  }
+  enterBoard();
+}
+
+function enterBoard() {
+  document.getElementById('boardGreeting').textContent =
+    "สวัสดี " + (me.Nickname || me.Display_Name) + " 👋";
+  renderBoard();
+  showScreen('scBoard');
+}
+
+// ══════════════════════════════════════════
+//  Register
+// ══════════════════════════════════════════
+async function submitRegister() {
+  const nickname = document.getElementById('regNickname').value.trim();
+  if (!nickname) { showToast('กรุณาตั้งชื่อเล่นก่อน'); return; }
+
+  const btn = document.getElementById('btnRegister');
+  btn.disabled = true; btn.textContent = 'กำลังบันทึก...';
+  try {
+    const data = await apiPost({
+      action: "registerMember",
+      lineUserId,
+      displayName: (lineProfile && lineProfile.displayName) || "",
+      nickname,
+      pictureUrl: (lineProfile && lineProfile.pictureUrl) || "",
+    });
+    if (data.success) {
+      const boot = await apiGet({ action: "getBootstrap", lineUserId });
+      me = boot.me; members = boot.members || []; tasks = boot.tasks || [];
+      enterBoard();
+    } else {
+      showToast('เกิดข้อผิดพลาด: ' + (data.error || ''));
+      btn.disabled = false; btn.textContent = 'เริ่มใช้งาน →';
+    }
+  } catch (e) {
+    showToast('ไม่สามารถเชื่อมต่อได้');
+    btn.disabled = false; btn.textContent = 'เริ่มใช้งาน →';
+  }
+}
+
+// ══════════════════════════════════════════
+//  Board
+// ══════════════════════════════════════════
+function setTab(tab) {
+  currentTab = tab;
+  document.getElementById('tabOpen').classList.toggle('active', tab === 'open');
+  document.getElementById('tabDone').classList.toggle('active', tab === 'done');
+  renderTaskList();
+}
+
+function openTasks() {
+  return tasks.filter(t => t.Status === 'todo' || t.Status === 'doing');
+}
+
+function involvesMe(t) {
+  if (!me) return false;
+  if (t.Owner_ID === me.LINE_User_ID) return true;
+  return (t.Helpers || []).some(h => h.id === me.LINE_User_ID);
+}
+
+function renderBoard() {
+  renderSummary();
+  renderPeople();
+  renderCatFilters();
+  renderTaskList();
+}
+
+function renderSummary() {
+  const open = openTasks();
+  const overdue = open.filter(isOverdue).length;
+  const doing = open.filter(t => t.Status === 'doing').length;
+  const mine = open.filter(involvesMe).length;
+  document.getElementById('summaryStrip').innerHTML = `
+    <div class="stat-card"><div class="stat-num">${open.length}</div><div class="stat-label">งานค้าง</div></div>
+    <div class="stat-card"><div class="stat-num ${overdue ? 'warn' : ''}">${overdue}</div><div class="stat-label">เลยกำหนด</div></div>
+    <div class="stat-card"><div class="stat-num">${doing}</div><div class="stat-label">กำลังทำ</div></div>
+    <div class="stat-card"><div class="stat-num">${mine}</div><div class="stat-label">ของฉัน</div></div>`;
+}
+
+function renderPeople() {
+  const open = openTasks();
+  const counts = members.map(m => {
+    const owned = open.filter(t => t.Owner_ID === m.LINE_User_ID);
+    return { m, count: owned.length, overdue: owned.filter(isOverdue).length };
+  }).filter(x => x.count > 0)
+    .sort((a, b) => b.count - a.count);
+
+  document.getElementById('peopleScroll').innerHTML = counts.map(x => `
+    <div class="person-chip">
+      ${avatarHtml(x.m.LINE_User_ID)}
+      <span>${esc(x.m.Nickname || x.m.Display_Name)} <b>${x.count}</b>${x.overdue ? ` <span class="overdue-mini">(เลย ${x.overdue})</span>` : ''}</span>
+    </div>`).join('');
+}
+
+function renderCatFilters() {
+  const chips = [
+    { key: "all", label: "ทั้งหมด" },
+    { key: "mine", label: "🙋 ของฉัน" },
+    ...CATEGORIES.map(c => ({ key: c.key, label: c.emoji + " " + c.key })),
+  ];
+  document.getElementById('catFilters').innerHTML = chips.map(c =>
+    `<button class="filter-chip ${filterCat === c.key ? 'selected' : ''}"
+      onclick="setCatFilter('${c.key}')">${c.label}</button>`).join('');
+}
+
+function setCatFilter(key) {
+  filterCat = key;
+  renderCatFilters();
+  renderTaskList();
+}
+
+function filteredTasks() {
+  let list = tasks.filter(t =>
+    currentTab === 'open' ? (t.Status === 'todo' || t.Status === 'doing') : t.Status === 'done');
+  if (filterCat === 'mine') list = list.filter(involvesMe);
+  else if (filterCat !== 'all') list = list.filter(t => t.Category === filterCat);
+  return list;
+}
+
+function sortOpen(a, b) {
+  // เลยกำหนดขึ้นก่อน → เดดไลน์ใกล้สุด → ด่วนสุด → สร้างล่าสุด
+  const da = a.Deadline ? new Date(a.Deadline).getTime() : Infinity;
+  const db = b.Deadline ? new Date(b.Deadline).getTime() : Infinity;
+  if (da !== db) return da - db;
+  const wa = priMeta(a.Priority).weight, wb = priMeta(b.Priority).weight;
+  if (wa !== wb) return wb - wa;
+  return new Date(b.Created_At) - new Date(a.Created_At);
+}
+
+function renderTaskList() {
+  const container = document.getElementById('taskList');
+  let list = filteredTasks();
+
+  if (!list.length) {
+    container.innerHTML = currentTab === 'open'
+      ? `<div class="empty-state"><div class="empty-icon">🎉</div><p>ไม่มีงานค้างในหมวดนี้<br>สบายใจได้เลย!</p></div>`
+      : `<div class="empty-state"><div class="empty-icon">📭</div><p>ยังไม่มีงานที่เสร็จในหมวดนี้</p></div>`;
+    return;
+  }
+
+  list = currentTab === 'open'
+    ? list.sort(sortOpen)
+    : list.sort((a, b) => new Date(b.Completed_At || b.Updated_At) - new Date(a.Completed_At || a.Updated_At));
+
+  container.innerHTML = list.map(t => {
+    const cat = catMeta(t.Category);
+    const pri = priMeta(t.Priority);
+    const due = deadlineInfo(t.Deadline);
+    const helpers = t.Helpers || [];
+    return `
+    <div class="task-card pri-${pri.key} ${t.Status === 'done' ? 'is-done' : ''}" onclick="openDetail('${esc(t.Task_ID)}')">
+      <div class="task-top">
+        <div class="task-title">${esc(t.Title)}</div>
+      </div>
+      <div class="task-chips">
+        <span class="chip ${cat.chipClass}">${cat.emoji} ${esc(t.Category)}</span>
+        <span class="chip ${pri.chipClass}">${pri.emoji} ${pri.label}</span>
+        ${t.Status === 'doing' ? `<span class="chip chip-status-doing">🔨 กำลังทำ</span>` : ''}
+        ${due && t.Status !== 'done' ? `<span class="chip chip-due ${due.cls}">${due.label}</span>` : ''}
+      </div>
+      <div class="task-people">
+        <span class="owner-tag">${avatarHtml(t.Owner_ID)} ${esc(memberName(t.Owner_ID))}</span>
+        ${helpers.length ? `<span>+ ${helpers.map(h => esc(h.name)).join(', ')}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════
+//  Detail
+// ══════════════════════════════════════════
+function openDetail(taskId) {
+  currentTaskId = taskId;
+  renderDetail();
+  showScreen('scDetail');
+}
+
+function renderDetail() {
+  const t = tasks.find(x => x.Task_ID === currentTaskId);
+  const body = document.getElementById('detailBody');
+  if (!t) { body.innerHTML = '<div class="empty-state">ไม่พบงานนี้</div>'; return; }
+
+  const cat = catMeta(t.Category);
+  const pri = priMeta(t.Priority);
+  const due = deadlineInfo(t.Deadline);
+  const helpers = t.Helpers || [];
+
+  let statusBtns = '';
+  if (t.Status === 'todo') {
+    statusBtns = `
+      <button class="btn-status btn-start" onclick="changeStatus('doing')">🔨 เริ่มทำ</button>
+      <button class="btn-status btn-done" onclick="changeStatus('done')">✅ เสร็จแล้ว</button>`;
+  } else if (t.Status === 'doing') {
+    statusBtns = `
+      <button class="btn-status btn-reopen" onclick="changeStatus('todo')">⏸ พักไว้ก่อน</button>
+      <button class="btn-status btn-done" onclick="changeStatus('done')">✅ เสร็จแล้ว</button>`;
+  } else {
+    statusBtns = `<button class="btn-status btn-reopen" onclick="changeStatus('todo')">↩ เปิดงานนี้ใหม่</button>`;
+  }
+
+  const notes = (t.Notes || []).slice().reverse();
+  const notesHtml = notes.length
+    ? notes.map(n => `
+        <div class="note-item">
+          <div class="note-txt ${n.type === 'status' ? 'sys' : ''}">
+            ${esc(n.text)}
+            <div class="note-meta">${esc(n.byName || '')} · ${formatThaiDateTime(n.at)}</div>
+          </div>
+        </div>`).join('')
+    : '<div style="font-size:13px;color:var(--sub);padding:6px 0">ยังไม่มีบันทึก</div>';
+
+  body.innerHTML = `
+    <div class="detail-card">
+      <div class="detail-title">${esc(t.Title)}</div>
+      ${t.Detail ? `<div class="detail-desc">${esc(t.Detail)}</div>` : ''}
+      <div class="detail-row"><span class="k">หมวด</span><span class="v"><span class="chip ${cat.chipClass}">${cat.emoji} ${esc(t.Category)}</span></span></div>
+      <div class="detail-row"><span class="k">เร่งด่วน</span><span class="v"><span class="chip ${pri.chipClass}">${pri.emoji} ${pri.label}</span></span></div>
+      <div class="detail-row"><span class="k">สถานะ</span><span class="v">${STATUS_LABEL[t.Status] || t.Status}</span></div>
+      <div class="detail-row"><span class="k">ผู้รับผิดชอบ</span><span class="v"><span class="owner-tag">${avatarHtml(t.Owner_ID)} ${esc(memberName(t.Owner_ID))}</span></span></div>
+      ${helpers.length ? `<div class="detail-row"><span class="k">ผู้ช่วย</span><span class="v">${helpers.map(h => esc(h.name)).join(', ')}</span></div>` : ''}
+      <div class="detail-row"><span class="k">เดดไลน์</span><span class="v">${t.Deadline ? `${new Date(t.Deadline + 'T00:00:00').toLocaleDateString('th-TH', { weekday:'short', day:'numeric', month:'long', year:'numeric' })} ${due && t.Status !== 'done' ? `<span class="chip chip-due ${due.cls}" style="margin-left:6px">${due.label}</span>` : ''}` : '— ไม่กำหนด'}</span></div>
+      <div class="detail-row"><span class="k">สร้างโดย</span><span class="v">${esc(t.Created_By_Name || '—')} · ${formatThaiDateTime(t.Created_At)}</span></div>
+    </div>
+
+    <div class="detail-card">
+      <div class="status-btns">${statusBtns}</div>
+    </div>
+
+    <div class="detail-card">
+      <div class="form-label" style="margin-bottom:8px">บันทึกความคืบหน้า</div>
+      ${notesHtml}
+      <div class="note-input-row">
+        <input id="noteInput" type="text" class="form-input" placeholder="พิมพ์อัปเดต เช่น โทรแล้วรอของ..." maxlength="200" />
+        <button class="btn-send-note" onclick="sendNote()">➤</button>
+      </div>
+    </div>
+
+    <button class="btn-primary" onclick="shareTask('${esc(t.Task_ID)}')">📤 ส่งงานนี้เข้าไลน์</button>
+    <button class="btn-secondary" onclick="openForm('${esc(t.Task_ID)}')">✏️ แก้ไขงาน</button>`;
+}
+
+async function changeStatus(status) {
+  const t = tasks.find(x => x.Task_ID === currentTaskId);
+  if (!t) return;
+  const prev = t.Status;
+  t.Status = status; // optimistic
+  renderDetail();
+  try {
+    const data = await apiPost({
+      action: "updateStatus", taskId: currentTaskId, status,
+      byId: me.LINE_User_ID, byName: me.Nickname || me.Display_Name,
+    });
+    if (!data.success) throw new Error(data.error);
+    showToast(status === 'done' ? 'เยี่ยม! ปิดงานเรียบร้อย 🎉' : 'อัปเดตสถานะแล้ว');
+    await refreshTasks();
+    renderDetail();
+  } catch (e) {
+    t.Status = prev;
+    renderDetail();
+    showToast('อัปเดตไม่สำเร็จ ลองใหม่อีกครั้ง');
+  }
+}
+
+async function sendNote() {
+  const input = document.getElementById('noteInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.disabled = true;
+  try {
+    const data = await apiPost({
+      action: "addNote", taskId: currentTaskId, text,
+      byId: me.LINE_User_ID, byName: me.Nickname || me.Display_Name,
+    });
+    if (!data.success) throw new Error(data.error);
+    await refreshTasks();
+    renderDetail();
+  } catch (e) {
+    input.disabled = false;
+    showToast('บันทึกไม่สำเร็จ');
+  }
+}
+
+// ══════════════════════════════════════════
+//  Create / Edit Form
+// ══════════════════════════════════════════
+function openForm(taskId) {
+  editingTaskId = taskId;
+  const t = taskId ? tasks.find(x => x.Task_ID === taskId) : null;
+
+  document.getElementById('formTitle').textContent = t ? 'แก้ไขงาน' : 'เพิ่มงานใหม่';
+  document.getElementById('fTitle').value  = t ? t.Title : '';
+  document.getElementById('fDetail').value = t ? t.Detail : '';
+  document.getElementById('fDeadline').value = t ? (t.Deadline || '') : '';
+  fCat = t ? t.Category : 'โรงน้ำ';
+  fPri = t ? t.Priority : 'normal';
+  fHelpers = t ? (t.Helpers || []).map(h => h.id) : [];
+
+  renderFormChips();
+  renderOwnerSelect(t ? t.Owner_ID : (me ? me.LINE_User_ID : ''));
+
+  const btn = document.getElementById('btnSaveTask');
+  btn.disabled = false;
+  btn.textContent = t ? 'บันทึกการแก้ไข' : 'บันทึกงาน';
+  showScreen('scForm');
+}
+
+function cancelForm() {
+  if (editingTaskId) { showScreen('scDetail'); }
+  else { showScreen('scBoard'); renderBoard(); }
+}
+
+function renderFormChips() {
+  document.getElementById('fCatChips').innerHTML = CATEGORIES.map(c =>
+    `<button class="pick-chip ${fCat === c.key ? 'selected' : ''}"
+      onclick="fCat='${c.key}';renderFormChips()">${c.emoji} ${c.key}</button>`).join('');
+
+  document.getElementById('fPriChips').innerHTML = PRIORITIES.map(p =>
+    `<button class="pick-chip ${fPri === p.key ? 'selected' : ''}"
+      onclick="fPri='${p.key}';renderFormChips()">${p.emoji} ${p.label}</button>`).join('');
+
+  document.getElementById('fHelperChips').innerHTML = members.length
+    ? members.map(m => {
+        const sel = fHelpers.includes(m.LINE_User_ID);
+        return `<button class="pick-chip ${sel ? 'selected' : ''}"
+          onclick="toggleHelper('${esc(m.LINE_User_ID)}')">${esc(m.Nickname || m.Display_Name)}</button>`;
+      }).join('')
+    : '<span style="font-size:13px;color:var(--sub)">ยังไม่มีสมาชิกคนอื่น</span>';
+}
+
+function toggleHelper(id) {
+  fHelpers = fHelpers.includes(id) ? fHelpers.filter(x => x !== id) : [...fHelpers, id];
+  renderFormChips();
+}
+
+function renderOwnerSelect(selectedId) {
+  document.getElementById('fOwner').innerHTML = members.map(m =>
+    `<option value="${esc(m.LINE_User_ID)}" ${m.LINE_User_ID === selectedId ? 'selected' : ''}>
+      ${esc(m.Nickname || m.Display_Name)}</option>`).join('');
+}
+
+async function submitTask() {
+  const title = document.getElementById('fTitle').value.trim();
+  const detail = document.getElementById('fDetail').value.trim();
+  const ownerId = document.getElementById('fOwner').value;
+  const deadline = document.getElementById('fDeadline').value;
+
+  if (!title) { showToast('กรุณาใส่ชื่องาน'); return; }
+  if (!ownerId) { showToast('กรุณาเลือกผู้รับผิดชอบ'); return; }
+
+  const helpers = fHelpers
+    .filter(id => id !== ownerId)
+    .map(id => ({ id, name: memberName(id) }));
+
+  const btn = document.getElementById('btnSaveTask');
+  btn.disabled = true; btn.textContent = 'กำลังบันทึก...';
+
+  const payload = {
+    title, detail,
+    category: fCat, priority: fPri,
+    ownerId, ownerName: memberName(ownerId),
+    helpers, deadline,
+  };
+
+  try {
+    let data;
+    if (editingTaskId) {
+      data = await apiPost({ action: "updateTask", taskId: editingTaskId, ...payload });
+    } else {
+      data = await apiPost({
+        action: "createTask", ...payload,
+        createdBy: me.LINE_User_ID, createdByName: me.Nickname || me.Display_Name,
+      });
+    }
+    if (!data.success) throw new Error(data.error);
+
+    await refreshTasks();
+    if (editingTaskId) {
+      showToast('บันทึกการแก้ไขแล้ว');
+      renderDetail();
+      showScreen('scDetail');
+    } else {
+      showToast('เพิ่มงานเรียบร้อย 🎉');
+      renderBoard();
+      showScreen('scBoard');
+      // ชวนแชร์เข้ากลุ่มทันทีเมื่อสร้างงานใหม่
+      if (data.taskId) setTimeout(() => shareTask(data.taskId), 400);
+    }
+  } catch (e) {
+    showToast('บันทึกไม่สำเร็จ: ' + (e.message || ''));
+    btn.disabled = false;
+    btn.textContent = editingTaskId ? 'บันทึกการแก้ไข' : 'บันทึกงาน';
+  }
+}
+
+// ══════════════════════════════════════════
+//  Share to LINE (Flex Message)
+// ══════════════════════════════════════════
+function liffUrl() { return "https://liff.line.me/" + LIFF_ID; }
+
+function taskFlexBubble(t) {
+  const cat = catMeta(t.Category);
+  const pri = priMeta(t.Priority);
+  const due = deadlineInfo(t.Deadline);
+  const helpers = (t.Helpers || []).map(h => h.name).join(', ');
+
+  const rows = [
+    { k: "หมวด", v: cat.emoji + " " + t.Category },
+    { k: "เร่งด่วน", v: pri.emoji + " " + pri.label },
+    { k: "ผู้รับผิดชอบ", v: memberName(t.Owner_ID) },
+  ];
+  if (helpers) rows.push({ k: "ผู้ช่วย", v: helpers });
+  if (t.Deadline) rows.push({ k: "เดดไลน์", v: new Date(t.Deadline + 'T00:00:00').toLocaleDateString('th-TH', { day:'numeric', month:'long', year:'numeric' }) + (due && due.days < 0 ? " ⏰เลยกำหนด!" : "") });
+
+  return {
+    type: "bubble",
+    size: "kilo",
+    header: {
+      type: "box", layout: "vertical",
+      backgroundColor: "#1B3558",
+      paddingAll: "14px",
+      contents: [
+        { type: "text", text: "📋 งานบ้านเรา", color: "#C8A96E", size: "xs", weight: "bold" },
+        { type: "text", text: t.Title, color: "#FFFFFF", size: "md", weight: "bold", wrap: true, margin: "sm" },
+      ],
+    },
+    body: {
+      type: "box", layout: "vertical", spacing: "sm", paddingAll: "14px",
+      contents: rows.map(r => ({
+        type: "box", layout: "baseline", spacing: "sm",
+        contents: [
+          { type: "text", text: r.k, color: "#7A8A9B", size: "sm", flex: 3 },
+          { type: "text", text: r.v, color: "#1B2B3B", size: "sm", flex: 6, wrap: true },
+        ],
+      })),
+    },
+    footer: {
+      type: "box", layout: "vertical", paddingAll: "12px",
+      contents: [{
+        type: "button", style: "primary", color: "#1B3558", height: "sm",
+        action: { type: "uri", label: "เปิดกระดานงาน", uri: liffUrl() },
+      }],
+    },
+  };
+}
+
+async function shareTask(taskId) {
+  const t = tasks.find(x => x.Task_ID === taskId);
+  if (!t) return;
+  const msg = { type: "flex", altText: "📋 งาน: " + t.Title, contents: taskFlexBubble(t) };
+  await shareMessages([msg], summaryText([t]));
+}
+
+function summaryText(list) {
+  const lines = ["📋 สรุปงานค้างบ้านเรา (" + list.length + " งาน)", ""];
+  CATEGORIES.forEach(c => {
+    const inCat = list.filter(t => t.Category === c.key);
+    if (!inCat.length) return;
+    lines.push(c.emoji + " " + c.key);
+    inCat.forEach(t => {
+      const due = deadlineInfo(t.Deadline);
+      const pri = priMeta(t.Priority);
+      lines.push("  • " + t.Title + " — " + memberName(t.Owner_ID)
+        + (pri.key !== 'normal' ? " " + pri.emoji : "")
+        + (due ? " (" + due.label.replace(/[⏰📅] ?/g, '') + ")" : ""));
+    });
+    lines.push("");
+  });
+  lines.push("เปิดกระดาน: " + liffUrl());
+  return lines.join("\n");
+}
+
+async function shareSummary() {
+  const open = openTasks().sort(sortOpen);
+  if (!open.length) { showToast('ไม่มีงานค้าง เยี่ยมมาก! 🎉'); return; }
+  const msg = { type: "text", text: summaryText(open) };
+  await shareMessages([msg], msg.text);
+}
+
+async function shareMessages(messages, fallbackText) {
+  // 1) ถ้าเปิดจากในห้องแชท → ส่งเข้าห้องนั้นเลย
+  try {
+    if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
+      const ctx = liff.getContext();
+      if (ctx && (ctx.type === 'group' || ctx.type === 'room' || ctx.type === 'utou')) {
+        await liff.sendMessages(messages);
+        showToast('ส่งเข้าห้องแชทแล้ว ✅');
+        return;
+      }
+    }
+  } catch (e) { console.warn('sendMessages failed:', e); }
+
+  // 2) เปิดตัวเลือกห้องแชท (ต้องเปิด shareTargetPicker ใน LIFF settings)
+  try {
+    if (typeof liff !== 'undefined' && liff.isApiAvailable && liff.isApiAvailable('shareTargetPicker')) {
+      const res = await liff.shareTargetPicker(messages);
+      if (res) showToast('แชร์เรียบร้อย ✅');
+      return;
+    }
+  } catch (e) { console.warn('shareTargetPicker failed:', e); }
+
+  // 3) fallback: คัดลอกข้อความ
+  try {
+    await navigator.clipboard.writeText(fallbackText);
+    showToast('คัดลอกข้อความแล้ว วางในไลน์ได้เลย 📋');
+  } catch (e) {
+    showToast('ไม่สามารถแชร์ได้ในโหมดนี้');
+  }
+}
+
+// ══════════════════════════════════════════
+//  Bootstrap
+// ══════════════════════════════════════════
+window.addEventListener('load', () => {
+  init().catch(err => {
+    console.error(err);
+    showInitError("เกิดข้อผิดพลาด: " + err.message);
+  });
+});
+</script>
+</body>
+</html>
