@@ -41,6 +41,9 @@ const SYSTEM_PROMPT = [
   'ราคาซื้อจากซัพพลายเออร์ ดีลลับ เงินเดือน/ข้อมูลพนักงาน สูตรลับ',
   'เมื่อถูกถามเรื่องพวกนี้ ให้ปฏิเสธอย่างสุภาพและมั่นใจ (สั้นๆ) แล้วบอกว่าจะส่งเรื่องให้คุณปาล์มโดยตรง',
   '',
+  'มารยาทในกลุ่ม: ถ้าอยู่ในกลุ่มไลน์ ให้ตอบสั้น กระชับ เป็นธรรมชาติเหมือนสมาชิกคนหนึ่ง',
+  'พูดเฉพาะเรื่องที่ถูกถามถึงเท่านั้น ไม่ต้องสรุป/แทรกทุกเรื่องที่คนอื่นคุยกัน',
+  '',
   'หลักการตอบ: ตอบภาษาไทย กระชับ ตรงประเด็น เหมือนเลขามือโปร (2-5 บรรทัด)',
   'ถ้าเป็นการฝากงาน ให้ทวนสั้นๆ ว่ารับเรื่องอะไร แล้วถามรายละเอียดที่ขาด (ใคร/อะไร/เมื่อไหร่/ด่วนแค่ไหน)',
   'ถ้าข้อมูลไม่พอให้ถามกลับอย่างสุภาพ อย่าเดา แยกให้ชัดว่าพูดถึงโรงน้ำหรือคาเฟ่',
@@ -101,20 +104,46 @@ function isOwner(senderId) {
   return !!senderId && senderId === cfg('OWNER_LINE_USER_ID');
 }
 
+// ในกลุ่ม/ห้อง เลขาจะพูดเฉพาะตอนถูกเรียกหา "เลขา" (หรือถูก mention)
+function isAddressedToSecretary(ev, text) {
+  if (/เลขา/i.test(text)) return true;
+  const botId = cfg('BOT_USER_ID'); // ตั้งได้ถ้าอยากให้จับ @mention แม่นขึ้น
+  const men = ev.message && ev.message.mention;
+  if (botId && men && men.mentionees) {
+    return men.mentionees.some(function (m) { return m.userId === botId; });
+  }
+  return false;
+}
+
 function handleEvent(ev) {
   if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
 
   const text = String(ev.message.text || '').trim();
   const replyToken = ev.replyToken;
-  const senderId = (ev.source && ev.source.userId) || '';
+  const src = ev.source || {};
+  const senderId = src.userId || '';
+  const inGroup = (src.type === 'group' || src.type === 'room');
+  const chatId = src.groupId || src.roomId || senderId; // คีย์ห้อง + ความจำ
   const owner = isOwner(senderId);
-  const history = memGet(senderId);
+
+  // คำสั่งช่วยหา chat/group id (ไว้ตั้งค่าส่งรายงานเข้ากลุ่ม)
+  if (/^(เลขา\s*)?(group\s*id|groupid|chat\s*id|ไอดีกลุ่ม)$/i.test(text)) {
+    lineReply(replyToken, 'chat id ของที่นี่:\n' + chatId + '\n(type: ' + (src.type || 'user') + ')');
+    return;
+  }
+
+  // ในกลุ่ม: ถ้าไม่ได้เรียกหาเลขา → เงียบ ปล่อยให้คนคุยกันเอง (ทำตัวเป็นธรรมชาติ)
+  if (inGroup && !isAddressedToSecretary(ev, text)) {
+    return;
+  }
+
+  const history = memGet(chatId);
 
   // 1) เรื่องการเงินวงใน → ปฏิเสธ + เด้งเตือนคุณปาล์ม (โหมด A + B)
   if (isFinanceTopic(text)) {
     lineReply(replyToken, FINANCE_DECLINE);
     if (!owner) alertOwner(senderId, text);
-    memAppend(senderId, text, FINANCE_DECLINE);
+    memAppend(chatId, text, FINANCE_DECLINE);
     logRow(['การเงิน(ปฏิเสธ)', senderId, text, '']);
     return;
   }
@@ -127,7 +156,7 @@ function handleEvent(ev) {
               + ctx + '\n\nคำถาม: ' + text + '\nช่วยสรุปตอบตามคำถาม เรียงตามความเร่งด่วน กระชับแบบเลขามือโปร';
     const reply = parseBlocks(askClaude(q, history)).reply;
     lineReply(replyToken, reply);
-    memAppend(senderId, text, reply);
+    memAppend(chatId, text, reply);
     logRow(['ถามบอร์ด', senderId, text, reply]);
     return;
   }
@@ -157,8 +186,24 @@ function handleEvent(ev) {
   }
 
   lineReply(replyToken, reply);
-  memAppend(senderId, text, reply);
+  memAppend(chatId, text, reply);
   logRow(['ทั่วไป', senderId, text, reply]);
+}
+
+// ════════════════════════════════════════════════════════════
+//  ส่งข้อความเข้ากลุ่ม (ไว้ให้รายงานประจำวัน/แจ้งเตือนเรียกใช้)
+//  ตั้ง Script property ชื่อกลุ่มไว้ เช่น GROUP_CAFE_ID, GROUP_SALES_ID
+//  แล้วเรียก pushToGroup('GROUP_CAFE_ID', 'ข้อความ...')
+// ════════════════════════════════════════════════════════════
+function pushToGroup(propName, text) {
+  const gid = cfg(propName);
+  if (!gid) { console.warn('ยังไม่ได้ตั้ง ' + propName); return; }
+  linePush(gid, text);
+}
+
+// ทดสอบส่งเข้ากลุ่มคาเฟ่ (ตั้ง GROUP_CAFE_ID ก่อน)
+function testPushCafe() {
+  pushToGroup('GROUP_CAFE_ID', 'สวัสดีค่ะ คุณเลขาทดสอบส่งข้อความเข้ากลุ่มนะคะ ✅');
 }
 
 function isFinanceTopic(text) {
