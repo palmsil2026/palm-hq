@@ -46,6 +46,11 @@ const SYSTEM_PROMPT = [
   'ถ้าข้อมูลไม่พอให้ถามกลับอย่างสุภาพ อย่าเดา แยกให้ชัดว่าพูดถึงโรงน้ำหรือคาเฟ่',
   'ไม่รับปากเรื่องราคาพิเศษ/ส่วนลด/สัญญาแทนเจ้านาย ให้บอกว่าจะเรียนถามให้',
   '',
+  'บันทึกงานลงบอร์ด: เมื่อข้อความเป็นการ "ฝากงาน/มอบหมายงาน" (ไม่ใช่แค่ถามข้อมูลหรือคุยเล่น)',
+  'ให้ตอบตามปกติ แล้วต่อท้ายด้วยบล็อกนี้ (ผู้ใช้จะไม่เห็น ระบบจะตัดออก):',
+  '[[TASK]]{"biz":"โรงน้ำ|คาเฟ่|อื่นๆ","type":"ประเภทงานสั้นๆ","detail":"สรุปงานให้ชัด","urgency":"ด่วนมาก|ปกติ|ไม่เร่ง","due":"กำหนดถ้ามีไม่งั้นเว้นว่าง"}[[/TASK]]',
+  'ถ้าเป็นแค่คำถาม/คุยเล่น/ยังฝากไม่ครบ ไม่ต้องใส่บล็อกนี้',
+  '',
   'บริบทธุรกิจ: โรงน้ำดื่ม "ละกอน" ผลิต/ส่งน้ำดื่ม สั่งผ่าน LINE app | ร้านคาเฟ่ กาแฟ/เครื่องดื่ม'
 ].join('\n');
 
@@ -91,14 +96,26 @@ function handleEvent(ev) {
   if (isFinanceTopic(text)) {
     lineReply(replyToken, FINANCE_DECLINE);
     alertOwner(senderId, text);
+    memAppend(senderId, text, FINANCE_DECLINE);
     logRow(['การเงิน(ปฏิเสธ)', senderId, text, '']);
     return;
   }
 
-  // 2) เรื่องทั่วไป → ให้คุณเลขา (Claude) ตอบ
-  const answer = askClaude(text);
-  lineReply(replyToken, answer);
-  logRow(['ทั่วไป', senderId, text, answer]);
+  // 2) เรื่องทั่วไป → ให้คุณเลขา (Claude) ตอบ พร้อมความจำบทสนทนา
+  const history = memGet(senderId);
+  const raw = askClaude(text, history);
+
+  // แยกบล็อกงาน [[TASK]]...[[/TASK]] ออกจากคำตอบ
+  const parsed = extractTask(raw);
+  let reply = parsed.reply;
+  if (parsed.task) {
+    const ref = logTaskToBoard(parsed.task, senderId);
+    if (ref) reply += '\n\n📋 บันทึกเป็นงาน #' + ref + ' ลงบอร์ดให้แล้วค่ะ';
+  }
+
+  lineReply(replyToken, reply);
+  memAppend(senderId, text, reply);
+  logRow(['ทั่วไป', senderId, text, reply]);
 }
 
 function isFinanceTopic(text) {
@@ -109,15 +126,16 @@ function isFinanceTopic(text) {
 // ════════════════════════════════════════════════════════════
 //  Claude API — สมองของคุณเลขา
 // ════════════════════════════════════════════════════════════
-function askClaude(userText) {
+function askClaude(userText, history) {
   const apiKey = cfg('ANTHROPIC_API_KEY');
   if (!apiKey) return 'ระบบยังไม่ได้ตั้งค่า API key ค่ะ (แจ้งผู้ดูแลระบบด้วยนะคะ)';
 
+  const messages = (history || []).concat([{ role: 'user', content: userText }]);
   const payload = {
     model: MODEL,
     max_tokens: 1024,
     system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userText }]
+    messages: messages
   };
 
   const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
@@ -202,6 +220,109 @@ function logRow(arr) {
     sheet.appendRow([new Date()].concat(arr));
   } catch (err) {
     console.error('logRow error: ' + err);
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  บันทึกงานลงบอร์ดรับงาน (แท็บ Requests เดียวกับ request.html)
+// ════════════════════════════════════════════════════════════
+function boardSheetId() {
+  return cfg('REQUEST_SHEET_ID') || cfg('LOG_SHEET_ID'); // ไม่ตั้งแยกก็ใช้ชีตเดียวกับ log
+}
+
+// แยกบล็อก [[TASK]]{...}[[/TASK]] ออกจากคำตอบ
+function extractTask(raw) {
+  const m = String(raw).match(/\[\[TASK\]\]([\s\S]*?)\[\[\/TASK\]\]/);
+  if (!m) return { reply: String(raw).trim(), task: null };
+  const reply = String(raw).replace(m[0], '').trim();
+  let task = null;
+  try { task = JSON.parse(m[1].trim()); } catch (e) { console.error('task parse: ' + e); }
+  return { reply: reply, task: task };
+}
+
+// เขียนงานลงแท็บ Requests แล้วคืนเลขงาน
+function logTaskToBoard(task, senderId) {
+  const id = boardSheetId();
+  if (!id) return '';
+  try {
+    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    let sheet = ss.getSheetByName('Requests');
+    if (!sheet) {
+      sheet = ss.insertSheet('Requests');
+      sheet.appendRow(['เลขงาน', 'เวลาที่ส่ง', 'สถานะ', 'ความเร่งด่วน', 'ธุรกิจ',
+                       'ประเภท', 'ผู้ฝาก', 'ติดต่อ', 'รายละเอียด', 'กำหนดเสร็จ', 'ลิงก์รูป']);
+    }
+    const now = new Date();
+    const ref = 'REQ' + Utilities.formatDate(now, 'GMT+7', 'yyMMdd')
+                + '-' + Math.floor(1000 + Math.random() * 9000);
+    sheet.appendRow([
+      ref, now, 'ใหม่', task.urgency || 'ปกติ', task.biz || '',
+      task.type || '', 'LINE', senderId || '', task.detail || '', task.due || '', ''
+    ]);
+    return ref;
+  } catch (err) {
+    console.error('logTaskToBoard error: ' + err);
+    return '';
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  ความจำบทสนทนา (เก็บ 10 ข้อความล่าสุดต่อคน ในแท็บ Memory)
+// ════════════════════════════════════════════════════════════
+const MEM_MAX = 10; // จำนวนข้อความล่าสุดที่เก็บ (user+assistant นับรวมกัน)
+
+function memSheet() {
+  const id = boardSheetId();
+  if (!id) return null;
+  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  let s = ss.getSheetByName('Memory');
+  if (!s) {
+    s = ss.insertSheet('Memory');
+    s.appendRow(['userId', 'history(json)', 'updatedAt']);
+  }
+  return s;
+}
+
+function memGet(userId) {
+  if (!userId) return [];
+  try {
+    const sheet = memSheet();
+    if (!sheet) return [];
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === userId) {
+        try { return JSON.parse(data[i][1]) || []; } catch (e) { return []; }
+      }
+    }
+  } catch (err) { console.error('memGet error: ' + err); }
+  return [];
+}
+
+function memAppend(userId, userText, assistantText) {
+  if (!userId) return;
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(5000);
+    const sheet = memSheet();
+    if (!sheet) return;
+    let history = memGet(userId);
+    history.push({ role: 'user', content: userText });
+    history.push({ role: 'assistant', content: assistantText });
+    history = history.slice(-MEM_MAX);
+    const json = JSON.stringify(history);
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === userId) {
+        sheet.getRange(i + 1, 2).setValue(json);
+        sheet.getRange(i + 1, 3).setValue(new Date());
+        return;
+      }
+    }
+    sheet.appendRow([userId, json, new Date()]);
+  } catch (err) {
+    console.error('memAppend error: ' + err);
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
   }
 }
 
