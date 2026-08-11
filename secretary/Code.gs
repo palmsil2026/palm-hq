@@ -66,6 +66,11 @@ const SYSTEM_PROMPT = [
   '[[ALERT]]{"reason":"ประเภทสั้นๆ เช่น ขอลดราคา|ทวงงาน|ข้อเสนอ|ด่วน","summary":"สรุปสั้นๆ ให้คุณปาล์มเข้าใจใน 1 บรรทัด"}[[/ALERT]]',
   'ใช้ ALERT เท่าที่จำเป็นจริงๆ อย่าเด้งพร่ำเพรื่อ',
   '',
+  'ส่งข้อความเข้ากลุ่ม (เฉพาะเมื่อคุณปาล์มสั่ง): ถ้าคุณปาล์มสั่งให้ประกาศ/ส่งข้อความไปกลุ่มอื่น',
+  'เช่น "บอกในกลุ่มคาเฟ่ว่า...", "แจ้งทีมเซลล์ว่า..." ให้ตอบรับ แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
+  '[[SENDGROUP]]{"target":"cafe|sales|<group id>","message":"ข้อความที่จะส่งเข้ากลุ่ม"}[[/SENDGROUP]]',
+  'target: "cafe"=กลุ่มคาเฟ่, "sales"=กลุ่มทีมเซลล์ หรือใส่ group id ตรงๆ ก็ได้',
+  '',
   'บริบทธุรกิจ: โรงน้ำดื่ม "ละกอน" ผลิต/ส่งน้ำดื่ม สั่งผ่าน LINE app | ร้านคาเฟ่ กาแฟ/เครื่องดื่ม'
 ].join('\n');
 
@@ -88,6 +93,9 @@ const FINANCE_DECLINE =
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    // ช่องเชื่อมกับทีม AI ใน Claude Code: ส่งผลงานกลับมาปิดงาน
+    if (body.action === 'completeTask') return handleCompleteTask(body);
+    // นอกนั้น = webhook จาก LINE
     (body.events || []).forEach(handleEvent);
   } catch (err) {
     console.error('doPost error: ' + err);
@@ -95,9 +103,19 @@ function doPost(e) {
   return ContentService.createTextOutput('OK');
 }
 
-// เปิด URL ในเบราว์เซอร์จะเจอข้อความนี้ (LINE ใช้ doPost ต่างหาก)
+// เปิด URL ในเบราว์เซอร์จะเจอข้อความนี้ / หรือให้ Claude Code ดึงคิวงาน AI
 function doGet(e) {
+  const p = (e && e.parameter) ? e.parameter : {};
+  if (p.action === 'aiqueue') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    return jsonOut({ ok: true, tasks: getAIQueue() });
+  }
   return ContentService.createTextOutput('คุณเลขาพร้อมทำงานค่ะ ✅  (endpoint นี้ไว้รับ webhook จาก LINE)');
+}
+
+function jsonOut(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function isOwner(senderId) {
@@ -184,6 +202,17 @@ function handleEvent(ev) {
   if (p.blocks.ALERT && !owner) {
     alertOwnerProposal(p.blocks.ALERT, senderId);
   }
+  // 3.3 คุณปาล์มสั่งให้ส่งข้อความเข้ากลุ่ม (อนุญาตเฉพาะเจ้าของ)
+  if (p.blocks.SENDGROUP) {
+    if (owner) {
+      const sent = sendToGroupByTarget(p.blocks.SENDGROUP);
+      reply += sent
+        ? '\n\n📤 ส่งข้อความเข้ากลุ่มให้แล้วค่ะ'
+        : '\n\n⚠️ ยังไม่ได้ตั้ง id กลุ่มปลายทาง (ตั้ง GROUP_CAFE_ID / GROUP_SALES_ID ก่อนนะคะ)';
+    } else {
+      reply += '\n\n(ขออภัยค่ะ การส่งข้อความเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น)';
+    }
+  }
 
   lineReply(replyToken, reply);
   memAppend(chatId, text, reply);
@@ -199,6 +228,22 @@ function pushToGroup(propName, text) {
   const gid = cfg(propName);
   if (!gid) { console.warn('ยังไม่ได้ตั้ง ' + propName); return; }
   linePush(gid, text);
+}
+
+// ส่งเข้ากลุ่มตาม target ที่คุณปาล์มสั่ง (cafe / sales / group id ตรงๆ / ชื่อ property)
+function sendToGroupByTarget(sg) {
+  const map = {
+    'cafe': 'GROUP_CAFE_ID', 'คาเฟ่': 'GROUP_CAFE_ID', 'กลุ่มคาเฟ่': 'GROUP_CAFE_ID',
+    'sales': 'GROUP_SALES_ID', 'เซลล์': 'GROUP_SALES_ID', 'ทีมเซลล์': 'GROUP_SALES_ID'
+  };
+  const t = String(sg.target || '').trim();
+  let gid = '';
+  if (map[t]) gid = cfg(map[t]);
+  else if (/^[CRU][0-9a-fA-F]{20,}$/.test(t)) gid = t;   // ใส่ group id ตรงๆ
+  else if (cfg(t)) gid = cfg(t);                          // เผื่อใส่ชื่อ property
+  if (!gid) return false;
+  linePush(gid, String(sg.message || ''));
+  return true;
 }
 
 // ทดสอบส่งเข้ากลุ่มคาเฟ่ (ตั้ง GROUP_CAFE_ID ก่อน)
@@ -403,7 +448,7 @@ function boardSheetId() {
 function parseBlocks(raw) {
   let reply = String(raw);
   const blocks = {};
-  ['TASK', 'ALERT'].forEach(function (name) {
+  ['TASK', 'ALERT', 'SENDGROUP'].forEach(function (name) {
     const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
     const m = reply.match(re);
     if (m) {
@@ -553,6 +598,53 @@ function logTaskToBoard(task, senderId) {
     console.error('logTaskToBoard error: ' + err);
     return '';
   }
+}
+
+// ════════════════════════════════════════════════════════════
+//  ช่องเชื่อมกับทีม AI ใน Claude Code (คิวงาน + ปิดงาน)
+// ════════════════════════════════════════════════════════════
+
+// คืนงานที่สถานะ "รอทีม AI" (ให้ Claude Code ดึงไปทำ)
+function getAIQueue() {
+  const id = boardSheetId();
+  if (!id) return [];
+  try {
+    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const sheet = ss.getSheetByName('Requests');
+    if (!sheet) return [];
+    const data = sheet.getDataRange().getValues();
+    const out = [];
+    for (let i = 1; i < data.length; i++) {
+      const r = data[i];
+      if (String(r[2]) === 'รอทีม AI') {
+        out.push({ ref: r[0], biz: r[4], type: r[5], detail: r[8], urgency: r[3], due: r[9] });
+      }
+    }
+    return out;
+  } catch (err) { console.error('getAIQueue error: ' + err); return []; }
+}
+
+// ทีม AI ส่งผลงานกลับมาปิดงาน → อัปเดตสถานะ + แจ้งคุณปาล์ม
+function handleCompleteTask(body) {
+  if (body.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+  const id = boardSheetId();
+  if (!id) return jsonOut({ ok: false, error: 'no sheet' });
+  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  const sheet = ss.getSheetByName('Requests');
+  if (!sheet) return jsonOut({ ok: false, error: 'no board' });
+
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(body.ref)) {
+      sheet.getRange(i + 1, 3).setValue('เสร็จ (AI)');       // สถานะ
+      if (sheet.getRange(1, 13).getValue() !== 'ผลงาน') sheet.getRange(1, 13).setValue('ผลงาน');
+      sheet.getRange(i + 1, 13).setValue(String(body.result || '').slice(0, 5000));
+      const owner = cfg('OWNER_LINE_USER_ID');
+      if (owner) linePush(owner, '✅ ทีม AI ทำงาน #' + body.ref + ' เสร็จแล้วค่ะ\n' + String(body.result || '').slice(0, 500));
+      return jsonOut({ ok: true });
+    }
+  }
+  return jsonOut({ ok: false, error: 'ref not found' });
 }
 
 // ════════════════════════════════════════════════════════════
