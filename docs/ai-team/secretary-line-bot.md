@@ -1,0 +1,101 @@
+# 🤖 คุณเลขา — บอท LINE AI (คู่มือติดตั้ง)
+
+"คุณเลขา" คือผู้ช่วย AI ของคุณปาล์ม ที่ทีมงานทักผ่าน LINE ได้เหมือนแชทกับเลขาจริง
+บุคลิกสาย **Donna Paulsen × Pepper Potts** — เก่ง มั่นใจ อบอุ่นแต่เด็ดขาด
+
+```
+พนักงานทัก LINE OA
+      │
+      ▼
+  GAS Webhook (secretary/Code.gs)
+      │
+      ├─ เรื่องทั่วไป/ฝากงาน → ให้ Claude (AI) ตอบด้วยบุคลิกคุณเลขา
+      └─ เรื่องเงิน/ต้นทุน    → ปฏิเสธสุภาพ + 🔔 เด้งเตือนคุณปาล์มทันที
+      ▼
+  ตอบกลับเข้า LINE
+```
+
+ไฟล์ที่เกี่ยวข้อง:
+- `secretary/Code.gs` — โค้ด backend (วางใน Google Apps Script)
+- `secretary/system-prompt.md` — บุคลิก/กฎของคุณเลขา (ต้นฉบับอ่านง่าย)
+
+---
+
+## 🧩 สิ่งที่ต้องเตรียม
+
+| ต้องมี | ได้จากไหน | ค่าใช้จ่าย |
+|---|---|---|
+| **LINE Official Account + Messaging API** | developers.line.biz | ฟรี |
+| **Claude API key** | console.anthropic.com | จ่ายตามใช้ (~฿0.12/ข้อความ ด้วย Haiku) |
+| **LINE userId ของคุณปาล์ม** | ดูวิธีด้านล่าง | ฟรี |
+| Google Sheet (ไม่บังคับ) | เก็บ log บทสนทนา | ฟรี |
+
+---
+
+## ⚙️ ขั้นตอนติดตั้ง
+
+### 1) สร้าง LINE Official Account + Messaging API
+1. เข้า **developers.line.biz** → สร้าง Provider → สร้าง **Messaging API channel**
+2. ไปแท็บ **Messaging API** → กด **Issue** เพื่อสร้าง **Channel access token** → คัดลอกเก็บไว้
+3. เปิด **Use webhook** = ON, ปิด **Auto-reply / Greeting messages** (กันบอทซ้ำ)
+
+### 2) สร้าง Claude API key
+1. เข้า **console.anthropic.com** → **Billing** เติมเครดิต (เริ่ม ~$5 พอ)
+2. **API Keys** → **Create Key** → คัดลอกเก็บไว้ (ขึ้นครั้งเดียว!)
+
+### 3) วางโค้ดใน Google Apps Script
+1. เปิด **script.google.com** → New project
+2. วางเนื้อหาจาก `secretary/Code.gs` ลงไป
+3. **Project Settings** (เฟือง) → เลื่อนหา **Script properties** → **Add** ทีละค่า:
+
+| Property | ค่า |
+|---|---|
+| `LINE_TOKEN` | Channel access token จากขั้นที่ 1 |
+| `ANTHROPIC_API_KEY` | API key จากขั้นที่ 2 |
+| `OWNER_LINE_USER_ID` | LINE userId ของคุณปาล์ม (ขั้นที่ 5) |
+| `LOG_SHEET_ID` | (ไม่บังคับ) Google Sheet ID |
+
+### 4) Deploy เป็น Web app
+1. **Deploy → New deployment → Web app**
+2. Execute as: **Me** | Who has access: **Anyone**
+3. คัดลอก **Web app URL**
+4. เอา URL ไปวางใน LINE Developers → **Messaging API → Webhook URL** → กด **Verify**
+
+### 5) หา LINE userId ของคุณปาล์ม (ไว้เด้งเตือน)
+- ให้คุณปาล์มแอดบอทเป็นเพื่อน แล้วทักอะไรก็ได้ 1 ข้อความ
+- ดู log ใน Apps Script (**Executions**) หรือเปิด `LOG_SHEET_ID` ไว้ → จะเห็น userId ในคอลัมน์ "ผู้ส่ง"
+- คัดลอก userId นั้นไปใส่ใน `OWNER_LINE_USER_ID` แล้ว re-deploy
+
+### 6) ทดสอบ
+- ในตัว editor ของ Apps Script เลือกฟังก์ชัน **`testClaude`** แล้วกด **Run** → ดูว่า Claude ตอบกลับใน Log
+- จากนั้นทัก LINE OA จริง → คุณเลขาควรตอบกลับ ✅
+- ลองพิมพ์คำว่า "ต้นทุนน้ำขวดละเท่าไหร่" → ต้องโดนปฏิเสธ + คุณปาล์มได้ข้อความเด้งเตือน
+
+---
+
+## 🎚️ ปรับแต่งได้
+
+- **เปลี่ยนรุ่น AI:** แก้ตัวแปร `MODEL` ใน `Code.gs`
+  - `claude-haiku-4-5` = ถูก+เร็ว (แนะนำเริ่มต้น)
+  - `claude-sonnet-5` = ฉลาดกว่า ตอบซับซ้อนดีขึ้น (แพงกว่า)
+- **ปรับบุคลิก/คำพูด:** แก้ `SYSTEM_PROMPT` ใน `Code.gs` (ต้นฉบับอยู่ใน `system-prompt.md`)
+- **เพิ่มคำที่ห้ามพูด:** เพิ่มคำในลิสต์ `FINANCE_KEYWORDS`
+- **เปลี่ยนวิธีเด้งเตือน:** แก้ฟังก์ชัน `alertOwner`
+
+---
+
+## 🔐 ความปลอดภัย
+
+- **API key = รหัสบัตรเครดิต** เก็บใน Script Properties เท่านั้น ห้าม hardcode ในโค้ด ห้าม commit ขึ้น GitHub
+- เรื่องการเงินถูกกันไว้ 2 ชั้น: ตัวกรองคำ (`FINANCE_KEYWORDS`) + คำสั่งในบุคลิก (`SYSTEM_PROMPT`)
+- ถ้ากังวลเรื่องคนแปลกหน้าแอด: จำกัดว่าใครแอด OA ได้ หรือเพิ่มการเช็ค userId (allowlist) ในภายหลัง
+
+---
+
+## 🗺️ อยากต่อยอด (เฟสถัดไป)
+
+- 🧠 **ความจำบทสนทนา** — ให้คุณเลขาจำว่าคุยอะไรไปแล้ว (เก็บ history ใน Sheet)
+- 📋 **ต่อบอร์ดรับงาน** — ให้คุณเลขาบันทึกงานที่ฝากเข้าชีต `Requests` อัตโนมัติ
+- ⏰ **สรุปทุกเช้า** — ให้คุณเลขา push สรุปงาน/คิวให้คุณปาล์มทุกเช้า
+
+บอกได้เลยครับถ้าอยากทำเฟสไหนต่อ 😄
