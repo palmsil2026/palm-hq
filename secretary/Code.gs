@@ -206,6 +206,82 @@ function testPushCafe() {
   pushToGroup('GROUP_CAFE_ID', 'สวัสดีค่ะ คุณเลขาทดสอบส่งข้อความเข้ากลุ่มนะคะ ✅');
 }
 
+// ════════════════════════════════════════════════════════════
+//  งานอัตโนมัติตามเวลา (Time-driven triggers)
+//  ⚠️ ตั้ง Time zone ของโปรเจกต์เป็น (GMT+07:00) Bangkok ก่อน
+//     (Project Settings → Time zone) แล้วรัน setupTriggers() 1 ครั้ง
+// ════════════════════════════════════════════════════════════
+
+// 🌅 รายงานเช้า 8 โมง — สรุปงานค้าง/ด่วน ส่งหาคุณปาล์ม
+function morningBrief() {
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (!owner) { console.warn('ยังไม่ได้ตั้ง OWNER_LINE_USER_ID'); return; }
+
+  const rows = readBoard('', true); // เจ้าของเห็นทั้งหมด
+  const today = Utilities.formatDate(new Date(), 'GMT+7', 'd/M');
+
+  if (!rows.length) {
+    linePush(owner, '☀️ สวัสดีตอนเช้าค่ะคุณปาล์ม (' + today + ')\nวันนี้ไม่มีงานค้างในบอร์ด เคลียร์หมดค่ะ ✨');
+    return;
+  }
+
+  const urgent = rows.filter(function (r) { return String(r[3]) === 'ด่วนมาก'; });
+  const waitAI = rows.filter(function (r) { return String(r[2]) === 'รอทีม AI'; });
+
+  let msg = '☀️ สรุปงานเช้านี้ค่ะคุณปาล์ม (' + today + ')\n\n';
+  msg += '📋 งานค้างทั้งหมด: ' + rows.length + ' งาน\n';
+  if (urgent.length) {
+    msg += '\n🔴 ด่วนมาก ' + urgent.length + ' งาน:\n'
+         + urgent.slice(0, 5).map(function (r) { return '  • #' + r[0] + ' ' + r[8]; }).join('\n') + '\n';
+  }
+  if (waitAI.length) msg += '\n🤖 รอทีม AI ทำ: ' + waitAI.length + ' งาน';
+  msg += '\n\nพิมพ์ "เลขา สรุปงาน" เพื่อดูละเอียดได้ค่ะ 🙏';
+  linePush(owner, msg);
+}
+
+// 🔍 เฝ้าบอร์ดทุก 30 นาที — เจองานด่วน "ใหม่" → เตือนคุณปาล์ม (กันสแปม เตือนเฉพาะงานด่วน)
+function boardWatch() {
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (!owner) return;
+  const id = boardSheetId();
+  if (!id) return;
+
+  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  const sheet = ss.getSheetByName('Requests');
+  if (!sheet) return;
+
+  const lastRow = sheet.getLastRow(); // รวม header
+  const props = PropertiesService.getScriptProperties();
+  const seenStr = props.getProperty('BOARD_LAST_ROW');
+
+  // ครั้งแรก: จำตำแหน่งไว้เฉยๆ ไม่เตือนย้อนหลัง
+  if (seenStr === null) { props.setProperty('BOARD_LAST_ROW', String(lastRow)); return; }
+
+  const seen = parseInt(seenStr, 10);
+  if (lastRow <= seen) return; // ไม่มีงานใหม่
+
+  const data = sheet.getRange(seen + 1, 1, lastRow - seen, 12).getValues();
+  props.setProperty('BOARD_LAST_ROW', String(lastRow));
+
+  const newUrgent = data.filter(function (r) { return String(r[3]) === 'ด่วนมาก'; });
+  if (!newUrgent.length) return;
+
+  const msg = '🔔 มีงานด่วนใหม่เข้าบอร์ด ' + newUrgent.length + ' งานค่ะคุณปาล์ม\n'
+    + newUrgent.slice(0, 5).map(function (r) { return '🔴 #' + r[0] + ' ' + r[4] + ' : ' + r[8]; }).join('\n');
+  linePush(owner, msg);
+}
+
+// ⚙️ ติดตั้ง trigger (รันครั้งเดียวใน editor)
+function setupTriggers() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    const fn = t.getHandlerFunction();
+    if (fn === 'morningBrief' || fn === 'boardWatch') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('morningBrief').timeBased().atHour(8).everyDays(1).create();
+  ScriptApp.newTrigger('boardWatch').timeBased().everyMinutes(30).create();
+  Logger.log('✅ ตั้ง trigger แล้ว: morningBrief (8 โมง/วัน), boardWatch (ทุก 30 นาที)');
+}
+
 function isFinanceTopic(text) {
   const t = text.toLowerCase();
   return FINANCE_KEYWORDS.some(function (k) { return t.indexOf(k.toLowerCase()) !== -1; });
