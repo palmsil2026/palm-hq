@@ -51,6 +51,12 @@ const SYSTEM_PROMPT = [
   '[[TASK]]{"biz":"โรงน้ำ|คาเฟ่|อื่นๆ","type":"ประเภทงานสั้นๆ","detail":"สรุปงานให้ชัด","urgency":"ด่วนมาก|ปกติ|ไม่เร่ง","due":"กำหนดถ้ามีไม่งั้นเว้นว่าง"}[[/TASK]]',
   'ถ้าเป็นแค่คำถาม/คุยเล่น/ยังฝากไม่ครบ ไม่ต้องใส่บล็อกนี้',
   '',
+  'ส่งเรื่องถึงคุณปาล์ม: เมื่อข้อความเป็น (ก) ข้อเสนอที่ต้องให้คุณปาล์มตัดสินใจ เช่น ขอลดราคา/ส่วนลด/ดีล/ข้อเสนอพิเศษ',
+  '(ข) การทวงงาน/ตามงานที่ค้าง หรือ (ค) เรื่องด่วนที่เจ้าของควรรู้ทันที',
+  'ให้ตอบผู้ส่งอย่างสุภาพว่ารับเรื่องและจะเรียนคุณปาล์มให้ (อย่าตัดสินใจแทน) แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
+  '[[ALERT]]{"reason":"ประเภทสั้นๆ เช่น ขอลดราคา|ทวงงาน|ข้อเสนอ|ด่วน","summary":"สรุปสั้นๆ ให้คุณปาล์มเข้าใจใน 1 บรรทัด"}[[/ALERT]]',
+  'ใช้ ALERT เท่าที่จำเป็นจริงๆ อย่าเด้งพร่ำเพรื่อ',
+  '',
   'บริบทธุรกิจ: โรงน้ำดื่ม "ละกอน" ผลิต/ส่งน้ำดื่ม สั่งผ่าน LINE app | ร้านคาเฟ่ กาแฟ/เครื่องดื่ม'
 ].join('\n');
 
@@ -85,32 +91,58 @@ function doGet(e) {
   return ContentService.createTextOutput('คุณเลขาพร้อมทำงานค่ะ ✅  (endpoint นี้ไว้รับ webhook จาก LINE)');
 }
 
+function isOwner(senderId) {
+  return !!senderId && senderId === cfg('OWNER_LINE_USER_ID');
+}
+
 function handleEvent(ev) {
   if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
 
   const text = String(ev.message.text || '').trim();
   const replyToken = ev.replyToken;
   const senderId = (ev.source && ev.source.userId) || '';
+  const owner = isOwner(senderId);
+  const history = memGet(senderId);
 
-  // 1) เจอเรื่องการเงิน → ปฏิเสธ + เด้งเตือนคุณปาล์ม (โหมด A + B)
+  // 1) เรื่องการเงินวงใน → ปฏิเสธ + เด้งเตือนคุณปาล์ม (โหมด A + B)
   if (isFinanceTopic(text)) {
     lineReply(replyToken, FINANCE_DECLINE);
-    alertOwner(senderId, text);
+    if (!owner) alertOwner(senderId, text);
     memAppend(senderId, text, FINANCE_DECLINE);
     logRow(['การเงิน(ปฏิเสธ)', senderId, text, '']);
     return;
   }
 
-  // 2) เรื่องทั่วไป → ให้คุณเลขา (Claude) ตอบ พร้อมความจำบทสนทนา
-  const history = memGet(senderId);
-  const raw = askClaude(text, history);
+  // 2) ถามงานจากบอร์ด → ดึงข้อมูลมาสรุป (เจ้าของเห็นทั้งทีม / พนักงานเห็นเฉพาะของตัวเอง)
+  if (isBoardQuery(text)) {
+    const rows = readBoard(senderId, owner);
+    const ctx = buildBoardContext(rows, owner);
+    const q = 'ข้อมูลงานจากบอร์ด ณ ตอนนี้' + (owner ? ' (ทั้งทีม)' : ' (เฉพาะงานที่คุณฝาก)') + ':\n'
+              + ctx + '\n\nคำถาม: ' + text + '\nช่วยสรุปตอบตามคำถาม เรียงตามความเร่งด่วน กระชับแบบเลขามือโปร';
+    const reply = parseBlocks(askClaude(q, history)).reply;
+    lineReply(replyToken, reply);
+    memAppend(senderId, text, reply);
+    logRow(['ถามบอร์ด', senderId, text, reply]);
+    return;
+  }
 
-  // แยกบล็อกงาน [[TASK]]...[[/TASK]] ออกจากคำตอบ
-  const parsed = extractTask(raw);
-  let reply = parsed.reply;
-  if (parsed.task) {
-    const ref = logTaskToBoard(parsed.task, senderId);
-    if (ref) reply += '\n\n📋 บันทึกเป็นงาน #' + ref + ' ลงบอร์ดให้แล้วค่ะ';
+  // 3) เรื่องทั่วไป → ให้คุณเลขา (Claude) ตอบ พร้อมความจำ + คลังข้อมูลธุรกิจ
+  const p = parseBlocks(askClaude(text, history));
+  let reply = p.reply;
+
+  // 3.1 ถ้าเป็นการฝากงาน → บันทึกลงบอร์ด + เด้งเตือนถ้าด่วนมาก
+  if (p.blocks.TASK) {
+    const ref = logTaskToBoard(p.blocks.TASK, senderId);
+    if (ref) {
+      reply += '\n\n📋 บันทึกเป็นงาน #' + ref + ' ลงบอร์ดให้แล้วค่ะ';
+      if (String(p.blocks.TASK.urgency) === 'ด่วนมาก' && !owner) {
+        alertOwnerUrgentTask(p.blocks.TASK, ref, senderId);
+      }
+    }
+  }
+  // 3.2 ถ้าเป็นข้อเสนอ/ตามงาน/เรื่องด่วน → ส่งสรุปถึงคุณปาล์ม
+  if (p.blocks.ALERT && !owner) {
+    alertOwnerProposal(p.blocks.ALERT, senderId);
   }
 
   lineReply(replyToken, reply);
@@ -130,11 +162,16 @@ function askClaude(userText, history) {
   const apiKey = cfg('ANTHROPIC_API_KEY');
   if (!apiKey) return 'ระบบยังไม่ได้ตั้งค่า API key ค่ะ (แจ้งผู้ดูแลระบบด้วยนะคะ)';
 
+  const kb = loadKB();
+  const sys = kb
+    ? SYSTEM_PROMPT + '\n\nคลังข้อมูลธุรกิจ/โรงงาน (ใช้อ้างอิงตอบได้ แต่ยังห้ามเปิดเผยการเงินวงในตามกฎ):\n' + kb
+    : SYSTEM_PROMPT;
+
   const messages = (history || []).concat([{ role: 'user', content: userText }]);
   const payload = {
     model: MODEL,
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    system: sys,
     messages: messages
   };
 
@@ -230,14 +267,131 @@ function boardSheetId() {
   return cfg('REQUEST_SHEET_ID') || cfg('LOG_SHEET_ID'); // ไม่ตั้งแยกก็ใช้ชีตเดียวกับ log
 }
 
-// แยกบล็อก [[TASK]]{...}[[/TASK]] ออกจากคำตอบ
-function extractTask(raw) {
-  const m = String(raw).match(/\[\[TASK\]\]([\s\S]*?)\[\[\/TASK\]\]/);
-  if (!m) return { reply: String(raw).trim(), task: null };
-  const reply = String(raw).replace(m[0], '').trim();
-  let task = null;
-  try { task = JSON.parse(m[1].trim()); } catch (e) { console.error('task parse: ' + e); }
-  return { reply: reply, task: task };
+// แยกบล็อกซ่อน [[TASK]]{...}[[/TASK]] และ [[ALERT]]{...}[[/ALERT]] ออกจากคำตอบ
+function parseBlocks(raw) {
+  let reply = String(raw);
+  const blocks = {};
+  ['TASK', 'ALERT'].forEach(function (name) {
+    const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
+    const m = reply.match(re);
+    if (m) {
+      reply = reply.replace(m[0], '');
+      try { blocks[name] = JSON.parse(m[1].trim()); } catch (e) { console.error(name + ' parse: ' + e); }
+    }
+  });
+  return { reply: reply.trim(), blocks: blocks };
+}
+
+// เด้งสรุปข้อเสนอ/ตามงานถึงคุณปาล์ม
+function alertOwnerProposal(alert, senderId) {
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (!owner) return;
+  linePush(owner,
+    '📣 เรื่องฝากเรียนคุณปาล์ม\n' +
+    'ประเภท: ' + (alert.reason || 'ข้อเสนอ/ตามงาน') + '\n' +
+    'สรุป: ' + (alert.summary || '') + '\n' +
+    'จาก: ' + (senderId || 'ไม่ทราบ') + '\n' +
+    '(คุณเลขาแจ้งเพราะเห็นว่าควรให้คุณตัดสินใจ/รับทราบค่ะ)'
+  );
+}
+
+// เด้งเตือนงานด่วนมากที่เพิ่งเข้ามา
+function alertOwnerUrgentTask(task, ref, senderId) {
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (!owner) return;
+  linePush(owner,
+    '🔴 งานด่วนมากเข้าใหม่ #' + ref + '\n' +
+    (task.biz || '') + ' | ' + (task.detail || '') + '\n' +
+    'จาก: ' + (senderId || 'ไม่ทราบ') + '\n' +
+    'ฝากดูด่วนนะคะ 🙏'
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+//  อ่านบอร์ดงาน (ให้เลขาสรุปได้)
+// ════════════════════════════════════════════════════════════
+// คำที่ถือว่า "ขอดู/สรุปบอร์ด" (การทวงงาน/ตามงานจะปล่อยให้ AI ตัดสินใจส่งต่อเอง)
+const BOARD_QUERY_KEYWORDS = [
+  'งานค้าง', 'มีงานอะไร', 'มีงานไหน', 'สรุปงาน', 'งานวันนี้', 'คิวงาน',
+  'งานทั้งหมด', 'เช็คงาน', 'ดูงาน', 'งานที่ฝาก', 'รายการงาน'
+];
+
+function isBoardQuery(text) {
+  const t = String(text).toLowerCase();
+  return BOARD_QUERY_KEYWORDS.some(function (k) { return t.indexOf(k.toLowerCase()) !== -1; });
+}
+
+// คืนแถวงานที่ยังไม่ปิด (เจ้าของ = ทั้งหมด, พนักงาน = เฉพาะที่ตัวเองฝาก)
+function readBoard(senderId, owner) {
+  const id = boardSheetId();
+  if (!id) return [];
+  try {
+    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const sheet = ss.getSheetByName('Requests');
+    if (!sheet) return [];
+    const data = sheet.getDataRange().getValues();
+    // คอลัมน์: 0 เลขงาน,1 เวลา,2 สถานะ,3 ด่วน,4 ธุรกิจ,5 ประเภท,6 ผู้ฝาก,7 ติดต่อ,8 รายละเอียด,9 กำหนด
+    const rows = [];
+    for (let i = 1; i < data.length; i++) {
+      const r = data[i];
+      const status = String(r[2] || '');
+      if (status === 'เสร็จ' || status === 'ปิด' || status === 'ยกเลิก') continue;
+      if (!owner && String(r[7]) !== senderId) continue; // พนักงานเห็นเฉพาะของตัวเอง
+      rows.push(r);
+    }
+    const order = { 'ด่วนมาก': 0, 'ปกติ': 1, 'ไม่เร่ง': 2 };
+    rows.sort(function (a, b) { return (order[a[3]] == null ? 1 : order[a[3]]) - (order[b[3]] == null ? 1 : order[b[3]]); });
+    return rows.slice(0, 30);
+  } catch (err) {
+    console.error('readBoard error: ' + err);
+    return [];
+  }
+}
+
+function buildBoardContext(rows, owner) {
+  if (!rows.length) return '(ไม่มีงานค้างในบอร์ด)';
+  return rows.map(function (r) {
+    return '- #' + r[0] + ' [' + r[3] + '] ' + r[4] + ' | ' + r[5] + ' : ' + r[8]
+      + (r[9] ? (' (กำหนด ' + r[9] + ')') : '')
+      + ' — สถานะ ' + r[2]
+      + (owner ? (' — โดย ' + (r[6] || r[7] || '')) : '');
+  }).join('\n');
+}
+
+// ════════════════════════════════════════════════════════════
+//  คลังข้อมูลธุรกิจ/โรงงาน (แท็บ "ข้อมูลโรงงาน" — คุณปาล์มกรอกเอง)
+// ════════════════════════════════════════════════════════════
+function loadKB() {
+  const id = boardSheetId();
+  if (!id) return '';
+  try {
+    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    let s = ss.getSheetByName('ข้อมูลโรงงาน');
+    if (!s) {
+      s = ss.insertSheet('ข้อมูลโรงงาน');
+      s.appendRow(['หัวข้อ', 'รายละเอียด']);
+      s.appendRow(['เวลาทำการ', 'จ-ส 8:00-17:00 (ตัวอย่าง แก้ได้)']);
+      s.appendRow(['พื้นที่ส่งน้ำ', 'ในเขตอำเภอเมือง (ตัวอย่าง)']);
+      s.appendRow(['วิธีสั่งน้ำ', 'สั่งผ่าน LINE app ละกอน']);
+      s.appendRow(['⚠️ หมายเหตุ', 'ใส่เฉพาะข้อมูลที่พนักงาน/ลูกค้ารู้ได้ — ห้ามใส่ต้นทุน/กำไร/ยอดขาย']);
+      return '';
+    }
+    const data = s.getDataRange().getValues();
+    const lines = [];
+    for (let i = 1; i < data.length; i++) {
+      const topic = String(data[i][0] || '').trim();
+      const detail = String(data[i][1] || '').trim();
+      if (!topic && !detail) continue;
+      if (topic.indexOf('หมายเหตุ') !== -1) continue; // ข้ามบรรทัดหมายเหตุ
+      lines.push('- ' + topic + ': ' + detail);
+    }
+    let text = lines.join('\n');
+    if (text.length > 4000) text = text.slice(0, 4000);
+    return text;
+  } catch (err) {
+    console.error('loadKB error: ' + err);
+    return '';
+  }
 }
 
 // เขียนงานลงแท็บ Requests แล้วคืนเลขงาน
