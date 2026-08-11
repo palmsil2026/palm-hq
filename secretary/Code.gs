@@ -75,6 +75,11 @@ function doPost(e) {
   return ContentService.createTextOutput('OK');
 }
 
+// เปิด URL ในเบราว์เซอร์จะเจอข้อความนี้ (LINE ใช้ doPost ต่างหาก)
+function doGet(e) {
+  return ContentService.createTextOutput('คุณเลขาพร้อมทำงานค่ะ ✅  (endpoint นี้ไว้รับ webhook จาก LINE)');
+}
+
 function handleEvent(ev) {
   if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
 
@@ -178,11 +183,17 @@ function alertOwner(senderId, text) {
 // ════════════════════════════════════════════════════════════
 //  Log ลง Google Sheet (ไม่บังคับ)
 // ════════════════════════════════════════════════════════════
+// รับได้ทั้ง Sheet ID ล้วนๆ หรือลิงก์เต็ม (จะดึง ID ให้เอง)
+function sheetIdFrom(v) {
+  const m = String(v).match(/\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : String(v).trim();
+}
+
 function logRow(arr) {
   const sheetId = cfg('LOG_SHEET_ID');
   if (!sheetId) return;
   try {
-    const ss = SpreadsheetApp.openById(sheetId);
+    const ss = SpreadsheetApp.openById(sheetIdFrom(sheetId));
     let sheet = ss.getSheetByName('SecretaryLog');
     if (!sheet) {
       sheet = ss.insertSheet('SecretaryLog');
