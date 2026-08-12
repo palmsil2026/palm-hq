@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>บอร์ดงาน 📋 ละกอน & คาเฟ่</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --navy:#1B3558; --navy-dark:#122540; --navy-light:#EAF0F7;
+      --gold:#C8A96E; --gold-light:#F5EDD9; --teal:#5B9BA0; --teal-light:#E0EEEF;
+      --cream:#F8F5EF; --cream-dark:#EDE8DB; --text:#1B2B3B; --sub:#7A8A9B;
+      --border:#D8D0C4; --white:#fff; --green:#3D9970; --orange:#C8842A; --red:#C0392B;
+    }
+    body { font-family:'Sarabun',sans-serif; background:var(--cream); color:var(--text); min-height:100vh; padding-bottom:60px; }
+    .header { background:linear-gradient(135deg,var(--navy),var(--navy-dark)); color:#fff; padding:22px 20px 18px; border-bottom:3px solid var(--gold); position:sticky; top:0; z-index:10; }
+    .header-row { max-width:1100px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .header h1 { font-size:1.25rem; }
+    .header .sub { font-size:.8rem; color:var(--gold-light); font-weight:300; }
+    .refresh-btn { background:var(--gold); color:var(--navy-dark); border:none; border-radius:9px; padding:8px 16px; font-family:inherit; font-weight:700; cursor:pointer; font-size:.85rem; }
+    .container { max-width:1100px; margin:0 auto; padding:16px; }
+
+    /* stat tiles */
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
+    .stat { background:var(--white); border:1px solid var(--border); border-radius:12px; padding:12px 14px; text-align:center; }
+    .stat .num { font-size:1.5rem; font-weight:700; color:var(--navy); }
+    .stat .lbl { font-size:.75rem; color:var(--sub); }
+    .stat.red .num { color:var(--red); } .stat.ai .num { color:var(--teal); } .stat.done .num { color:var(--green); }
+
+    /* filters */
+    .filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+    .chip { padding:7px 14px; border-radius:999px; border:1.5px solid var(--border); background:var(--white); color:var(--sub); font-family:inherit; font-size:.82rem; font-weight:600; cursor:pointer; }
+    .chip.active { background:var(--navy); border-color:var(--navy); color:#fff; }
+
+    /* cards */
+    .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
+    .card { background:var(--white); border:1px solid var(--border); border-radius:12px; padding:14px 16px; box-shadow:0 2px 8px rgba(27,53,88,.05); display:flex; flex-direction:column; gap:8px; }
+    .card.urgent { border-left:5px solid var(--red); }
+    .card.normal { border-left:5px solid var(--orange); }
+    .card.low { border-left:5px solid var(--green); }
+    .card-top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .ref { font-size:.75rem; font-weight:700; color:var(--sub); letter-spacing:.3px; }
+    .badges { display:flex; gap:5px; flex-wrap:wrap; }
+    .badge { font-size:.68rem; font-weight:700; padding:3px 9px; border-radius:999px; white-space:nowrap; }
+    .b-urg-มาก { background:#FBE9E7; color:var(--red); }
+    .b-urg-ปกติ { background:#FFF3E0; color:var(--orange); }
+    .b-urg-เรื่อยๆ { background:#E8F5EC; color:var(--green); }
+    .b-status { background:var(--navy-light); color:var(--navy); }
+    .b-status-done { background:#E8F5EC; color:var(--green); }
+    .b-status-ai { background:var(--teal-light); color:var(--teal); }
+    .detail { font-size:.92rem; line-height:1.5; }
+    .meta { font-size:.75rem; color:var(--sub); display:flex; gap:12px; flex-wrap:wrap; }
+    .result { background:var(--cream); border-radius:8px; padding:8px 10px; font-size:.8rem; color:var(--text); border:1px dashed var(--border); }
+    .empty { text-align:center; color:var(--sub); padding:60px 20px; font-size:.95rem; }
+
+    /* setup modal */
+    .setup { max-width:420px; margin:60px auto; background:var(--white); border:1px solid var(--border); border-radius:14px; padding:26px; }
+    .setup h2 { color:var(--navy); font-size:1.05rem; margin-bottom:12px; }
+    .setup label { display:block; font-size:.82rem; font-weight:600; margin:10px 0 4px; color:var(--navy); }
+    .setup input { width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:9px; font-family:inherit; font-size:.85rem; background:var(--cream); }
+    .setup button { margin-top:16px; width:100%; padding:12px; background:var(--gold); border:none; border-radius:10px; font-family:inherit; font-weight:700; color:var(--navy-dark); cursor:pointer; }
+    .hidden { display:none; }
+    .loading { text-align:center; padding:50px; color:var(--sub); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-row">
+      <div>
+        <h1>📋 บอร์ดงาน</h1>
+        <div class="sub">โรงน้ำละกอน 💧 & คาเฟ่ ☕ — อัปเดตล่าสุด <span id="updated">—</span></div>
+      </div>
+      <button class="refresh-btn" onclick="load()">⟳ รีเฟรช</button>
+    </div>
+  </div>
+
+  <!-- ตั้งค่าครั้งแรก -->
+  <div class="setup" id="setup">
+    <h2>🔑 ตั้งค่าครั้งแรก</h2>
+    <label>GAS URL (ลงท้าย /exec)</label>
+    <input id="inUrl" placeholder="https://script.google.com/macros/s/..../exec" />
+    <label>Key</label>
+    <input id="inKey" placeholder="QUEUE_KEY ที่ตั้งไว้" />
+    <button onclick="saveSetup()">บันทึกและเปิดบอร์ด</button>
+  </div>
+
+  <div class="container hidden" id="main">
+    <div class="stats" id="stats"></div>
+    <div class="filters" id="filters"></div>
+    <div class="loading" id="loading">กำลังโหลด...</div>
+    <div class="cards" id="cards"></div>
+    <div class="empty hidden" id="empty">ไม่มีงานในหมวดนี้ ✨</div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let all = [], filter = 'open';
+
+    const FILTERS = [
+      { k:'open',  label:'ค้างอยู่' },
+      { k:'urgent',label:'🔴 ด่วนมาก' },
+      { k:'ai',    label:'🤖 รอทีม AI' },
+      { k:'human', label:'👤 งานคน' },
+      { k:'done',  label:'✅ เสร็จแล้ว' },
+      { k:'all',   label:'ทั้งหมด' },
+    ];
+
+    function conf() {
+      return { url: localStorage.getItem('board_url')||'', key: localStorage.getItem('board_key')||'' };
+    }
+    function saveSetup() {
+      const u = $('inUrl').value.trim(), k = $('inKey').value.trim();
+      if (!u || !k) return alert('กรอกให้ครบก่อนนะคะ');
+      localStorage.setItem('board_url', u); localStorage.setItem('board_key', k);
+      init();
+    }
+    function init() {
+      const c = conf();
+      if (!c.url || !c.key) { $('setup').classList.remove('hidden'); $('main').classList.add('hidden'); return; }
+      $('setup').classList.add('hidden'); $('main').classList.remove('hidden');
+      renderFilters(); load();
+    }
+
+    async function load() {
+      const c = conf();
+      $('loading').classList.remove('hidden'); $('cards').innerHTML='';
+      try {
+        const res = await fetch(c.url + '?action=board&key=' + encodeURIComponent(c.key), { redirect:'follow' });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error||'error');
+        all = data.tasks||[];
+        $('updated').textContent = new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+        render();
+      } catch (e) {
+        $('cards').innerHTML = '<div class="empty">โหลดไม่สำเร็จ — เช็ค URL/Key แล้วลองใหม่<br><a href="#" onclick="localStorage.clear();location.reload()">ตั้งค่าใหม่</a></div>';
+      }
+      $('loading').classList.add('hidden');
+    }
+
+    const isDone = t => /เสร็จ|ปิด|ยกเลิก/.test(t.status||'');
+    function match(t) {
+      if (filter==='all') return true;
+      if (filter==='open') return !isDone(t);
+      if (filter==='urgent') return t.urgency==='ด่วนมาก' && !isDone(t);
+      if (filter==='ai') return t.status==='รอทีม AI';
+      if (filter==='human') return (t.assignee==='คน'||!t.assignee) && !isDone(t);
+      if (filter==='done') return isDone(t);
+      return true;
+    }
+
+    function renderFilters() {
+      $('filters').innerHTML = FILTERS.map(f =>
+        `<button class="chip ${f.k===filter?'active':''}" onclick="filter='${f.k}';renderFilters();render()">${f.label}</button>`).join('');
+    }
+
+    function render() {
+      const open = all.filter(t=>!isDone(t));
+      const stats = [
+        { n: open.length, l:'งานค้าง', c:'' },
+        { n: open.filter(t=>t.urgency==='ด่วนมาก').length, l:'ด่วนมาก', c:'red' },
+        { n: all.filter(t=>t.status==='รอทีม AI').length, l:'รอทีม AI', c:'ai' },
+        { n: all.filter(isDone).length, l:'เสร็จแล้ว', c:'done' },
+      ];
+      $('stats').innerHTML = stats.map(s=>`<div class="stat ${s.c}"><div class="num">${s.n}</div><div class="lbl">${s.l}</div></div>`).join('');
+
+      const order = {'ด่วนมาก':0,'ปกติ':1,'ไม่เร่ง':2};
+      const list = all.filter(match).sort((a,b)=>(order[a.urgency]??1)-(order[b.urgency]??1));
+      $('empty').classList.toggle('hidden', list.length>0);
+      $('cards').innerHTML = list.map(t => {
+        const uc = t.urgency==='ด่วนมาก'?'urgent':(t.urgency==='ไม่เร่ง'?'low':'normal');
+        const ub = t.urgency==='ด่วนมาก'?'b-urg-มาก':(t.urgency==='ไม่เร่ง'?'b-urg-เรื่อยๆ':'b-urg-ปกติ');
+        const sb = isDone(t)?'b-status-done':(t.status==='รอทีม AI'?'b-status-ai':'b-status');
+        const d = t.time ? new Date(t.time).toLocaleDateString('th-TH',{day:'numeric',month:'short'}) : '';
+        return `<div class="card ${uc}">
+          <div class="card-top"><span class="ref">#${t.ref||''}</span>
+            <span class="badges">
+              <span class="badge ${ub}">${t.urgency||'ปกติ'}</span>
+              <span class="badge ${sb}">${t.status||''}</span>
+            </span></div>
+          <div class="detail">${esc(t.detail)}</div>
+          <div class="meta">
+            ${t.biz?`<span>🏢 ${esc(t.biz)}</span>`:''}
+            ${t.type?`<span>📂 ${esc(t.type)}</span>`:''}
+            ${t.assignee?`<span>${t.assignee==='ทีมAI'?'🤖':'👤'} ${esc(t.assignee)}</span>`:''}
+            ${t.due?`<span>⏳ ${esc(t.due)}</span>`:''}
+            ${d?`<span>🗓 ${d}</span>`:''}
+          </div>
+          ${t.result?`<div class="result">💬 ${esc(String(t.result).slice(0,300))}</div>`:''}
+        </div>`;
+      }).join('');
+    }
+
+    function esc(s){ return String(s??'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+    init();
+  </script>
+</body>
+</html>

@@ -110,7 +110,44 @@ function doGet(e) {
     if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut({ ok: true, tasks: getAIQueue() });
   }
+  // ให้ทีม AI อ่านข้อมูลธุรกิจจากชีต (DATA_SHEET_ID)
+  // ?action=data&key=...            → รายชื่อแท็บทั้งหมด
+  // ?action=data&key=...&tab=ชื่อแท็บ[&limit=200] → ข้อมูลในแท็บนั้น
+  if (p.action === 'data') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    return jsonOut(readDataSheet(p.tab, p.limit));
+  }
+  // หน้าบอร์ดงาน (board.html) เรียกดูงานทั้งหมด
+  if (p.action === 'board') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    return jsonOut({ ok: true, tasks: readBoardAll() });
+  }
   return ContentService.createTextOutput('คุณเลขาพร้อมทำงานค่ะ ✅  (endpoint นี้ไว้รับ webhook จาก LINE)');
+}
+
+// อ่านชีตข้อมูลธุรกิจ (ตั้ง DATA_SHEET_ID ใน Script properties — ลิงก์เต็มก็ได้)
+function readDataSheet(tab, limit) {
+  const id = cfg('DATA_SHEET_ID');
+  if (!id) return { ok: false, error: 'ยังไม่ได้ตั้ง DATA_SHEET_ID' };
+  try {
+    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    if (!tab) {
+      return { ok: true, tabs: ss.getSheets().map(function (s) { return { name: s.getName(), rows: s.getLastRow() }; }) };
+    }
+    const sheet = ss.getSheetByName(tab);
+    if (!sheet) return { ok: false, error: 'ไม่พบแท็บ: ' + tab };
+    const max = Math.min(parseInt(limit, 10) || 200, 500);
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.min(sheet.getLastColumn(), 30);
+    if (lastRow < 1) return { ok: true, header: [], rows: [] };
+    const header = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const startRow = Math.max(2, lastRow - max + 1); // เอาแถวล่าสุดเป็นหลัก
+    const n = lastRow - startRow + 1;
+    const rows = n > 0 ? sheet.getRange(startRow, 1, n, lastCol).getValues() : [];
+    return { ok: true, tab: tab, totalRows: lastRow - 1, returned: rows.length, header: header, rows: rows };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
 }
 
 function jsonOut(obj) {
@@ -496,6 +533,27 @@ const BOARD_QUERY_KEYWORDS = [
 function isBoardQuery(text) {
   const t = String(text).toLowerCase();
   return BOARD_QUERY_KEYWORDS.some(function (k) { return t.indexOf(k.toLowerCase()) !== -1; });
+}
+
+// คืนงานทุกสถานะ (สำหรับหน้า board.html)
+function readBoardAll() {
+  const id = boardSheetId();
+  if (!id) return [];
+  try {
+    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const sheet = ss.getSheetByName('Requests');
+    if (!sheet) return [];
+    const data = sheet.getDataRange().getValues();
+    const out = [];
+    for (let i = data.length - 1; i >= 1 && out.length < 200; i--) {
+      const r = data[i];
+      out.push({
+        ref: r[0], time: r[1], status: r[2], urgency: r[3], biz: r[4],
+        type: r[5], from: r[6], detail: r[8], due: r[9], assignee: r[11] || '', result: r[12] || ''
+      });
+    }
+    return out;
+  } catch (err) { console.error('readBoardAll: ' + err); return []; }
 }
 
 // คืนแถวงานที่ยังไม่ปิด (เจ้าของ = ทั้งหมด, พนักงาน = เฉพาะที่ตัวเองฝาก)
