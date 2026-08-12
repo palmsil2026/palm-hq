@@ -65,12 +65,13 @@ const SYSTEM_PROMPT = [
   'content=คอนเทนต์/ดีไซน์/โพสต์, writer=เขียนเอกสาร/ข้อความยาว, researcher=หาข้อมูล/เทียบราคา, coder=แอป/โค้ด/ระบบ,',
   'data=สร้าง/ดูแลฐานข้อมูล รวบรวม-ทำความสะอาดข้อมูล, procurement=ฝากซื้อของ/หาอะไหล่/เทียบราคาร้าน',
   '',
-  'งานใหญ่ = แตกเป็นแผนงาน (สำคัญ): ถ้างานที่ได้รับต้องทำหลายขั้นตอน/หลายแผนก',
-  '(เช่น "ทำนามบัตรให้ทีมขาย" ต้องรวบรวมรายชื่อ → สร้างฐานข้อมูล → ออกแบบ → เสนอเลือก)',
-  'อย่าลงเป็นงานเดี่ยว แต่ให้แตกเป็นงานย่อยเรียงลำดับ แล้วต่อท้ายบล็อกนี้แทน [[TASK]] (ผู้ใช้ไม่เห็น):',
-  '[[PLAN]]{"title":"ชื่องานหลัก","biz":"โรงน้ำ|คาเฟ่|อื่นๆ","goal":"ผลลัพธ์ที่ต้องการ","steps":[{"dept":"data|content|analyst|writer|researcher|coder|เลขา","detail":"งานย่อยทำอะไร","needs":"ข้อมูล/สิ่งที่ต้องมีก่อน ถ้าไม่มีเว้นว่าง"}]}[[/PLAN]]',
-  'ตอบผู้ส่งว่ารับเรื่องและจะร่างแผนเสนอคุณปาล์มก่อน (ระบบจะส่งแผนให้เขาอนุมัติเอง)',
-  'แผนที่ดี: 3-6 ขั้น เรียงตามลำดับที่ต้องทำจริง ระบุแผนกให้ตรงงาน และบอกว่าขั้นไหนต้องรอข้อมูลอะไร',
+  'งานใหญ่ = ชี้ว่าเป็นงานหลายขั้น (สำคัญมาก): ถ้างานต้องทำหลายขั้นตอนหรือใช้หลายแผนกกว่าจะเสร็จ',
+  '(เช่น "ทำนามบัตรทีมขาย" = รวบรวมรายชื่อ→ออกแบบ→เลือกแบบ→พิมพ์, "เปิดเมนูใหม่", "จัดโปรโมชั่น", "ทำระบบ...")',
+  'คุณไม่ต้องออกแบบขั้นตอนเอง — แค่ใส่ "multiStep":true ในบล็อก TASK ตามปกติ',
+  'ระบบจะส่งต่อให้นักวางแผนร่างขั้นตอนแล้วเสนอคุณปาล์มอนุมัติเอง',
+  'ตอบผู้ส่งว่า "รับเรื่องแล้ว กำลังร่างแผนงานเสนอคุณปาล์มค่ะ" อย่ารับปากว่าจะเริ่มทำเลย',
+  'สัญญาณว่าเป็นงานหลายขั้น: มีของต้องผลิต/พิมพ์/ติดตั้ง, ต้องรวบรวมข้อมูลก่อนแล้วค่อยทำ,',
+  'ต้องมีคนเลือก/ตัดสินใจกลางทาง, หรือเดาได้ว่าแผนกเดียวทำไม่จบ — ถ้าลังเลให้ถือว่าใช่ (multiStep:true)',
   'กติกาช่อง assignee:',
   '- "เลขา" = งานเบาที่คุณทำเสร็จให้แล้วในคำตอบนี้ (ไม่ต้องมีใครทำต่อ)',
   '- "ทีมAI" = งานหนักที่ต้องใช้ AI ทำต่อ เช่น วิเคราะห์ยอดขายเชิงลึก ทำสไลด์ เขียนโค้ด ค้นข้อมูลเชิงลึก ร่างเอกสารยาว',
@@ -174,7 +175,7 @@ function doGet(e) {
   if (p.page === 'board') {
     if (p.key !== cfg('QUEUE_KEY')) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ</h3>');
     const notice = (p['do'] && p.ref) ? boardAction(p['do'], p.ref) : '';
-    return HtmlService.createHtmlOutput(boardHtml(p.key, notice))
+    return HtmlService.createHtmlOutput(boardHtml(p.key, notice, p.prj || ''))
       .setTitle('บอร์ดงาน — ละกอน & คาเฟ่')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -479,6 +480,23 @@ function handleEvent(ev) {
 
   // 3.1 ถ้าเป็นการฝากงาน → คัดแยกตาม assignee
   let taskLogged = false;
+  // งานหลายขั้น → ส่งให้นักวางแผน (Sonnet) ร่างแผน แล้วเสนอคุณปาล์มอนุมัติ
+  if (p.blocks.TASK && p.blocks.TASK.multiStep === true) {
+    const plan = askPlanner(text);
+    if (plan) {
+      const pid = createProjectPlan(plan, senderId);
+      if (pid) {
+        reply += '\n\n📋 ร่างแผนงาน ' + (plan.steps.length) + ' ขั้นเป็นโปรเจกต์ ' + pid + ' แล้วค่ะ'
+               + ' — ส่งให้คุณปาล์มพิจารณาอยู่นะคะ';
+        pushPlanForApproval(pid, plan, senderId);
+        lineReply(replyToken, reply);
+        memAppend(chatId, text, reply);
+        logRow(['แผนงานใหม่', senderId, text, pid]);
+        return;
+      }
+    }
+    // วางแผนไม่สำเร็จ → ตกลงมาเป็นงานเดี่ยวตามปกติ (ดีกว่าเงียบหาย)
+  }
   if (p.blocks.TASK) {
     const assignee = p.blocks.TASK.assignee || 'คน';
     if (assignee !== 'เลขา') { // "เลขา" = ทำเสร็จเองแล้วในคำตอบ ไม่ต้องลงบอร์ด
@@ -982,6 +1000,72 @@ function isFinanceTopic(text) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  🧠 นักวางแผน (Planner) — เลขา "สวมหมวกอีกใบ" ใช้โมเดลฉลาดกว่า
+//  เรียกเฉพาะตอนเจองานหลายขั้น (~5-10% ของข้อความ) ครั้งละ ~6K token
+// ════════════════════════════════════════════════════════════
+const PLANNER_MODEL = 'claude-sonnet-5';
+
+const PLANNER_PROMPT = [
+  'คุณคือนักวางแผนงานของธุรกิจโรงน้ำดื่ม "ละกอน" และร้านคาเฟ่',
+  'หน้าที่เดียว: รับคำขอ 1 งาน แล้วออกแบบขั้นตอนการทำงานที่ปฏิบัติได้จริง',
+  '',
+  'ทีมที่มี: data=ฐานข้อมูล/รวบรวมข้อมูล, content=ออกแบบ/คอนเทนต์, writer=เขียนเอกสาร/ข้อความ,',
+  'analyst=วิเคราะห์/รายงาน, researcher=ค้นข้อมูล/เทียบราคา, coder=โค้ด/ระบบ, finance=การเงิน,',
+  'procurement=หาซื้อของ/เทียบร้าน, เจ้าของ=ขั้นที่คุณปาล์มต้องทำเอง (เลือก/อนุมัติ/ลงมือจริง)',
+  '',
+  'ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นนอก JSON:',
+  '{"title":"ชื่องานสั้น","biz":"โรงน้ำ|คาเฟ่|อื่นๆ","goal":"ผลลัพธ์สุดท้ายที่จับต้องได้",',
+  ' "why":"ทำไมงานนี้สำคัญ (1 ประโยค)","risks":["จุดเสี่ยงที่ควรรู้ก่อนอนุมัติ"],',
+  ' "openQuestions":["คำถามที่ต้องถามคุณปาล์มก่อนเริ่ม ถ้าไม่มีให้ []"],',
+  ' "steps":[{"no":1,"dept":"data|content|writer|analyst|researcher|coder|finance|procurement|เจ้าของ",',
+  '   "detail":"ขั้นนี้ทำอะไร ระบุให้คนที่ไม่รู้บริบททำตามได้",',
+  '   "inputs":[{"kind":"sheet|drive|ask|step","ref":"ชื่อแท็บ/โฟลเดอร์/กลุ่มที่ถาม/เลขขั้น","note":"สั้นๆ"}],',
+  '   "output":"ขั้นนี้เสร็จแล้วได้อะไร","dependsOn":[เลขขั้นที่ต้องเสร็จก่อน],"estMinutes":10}]}',
+  '',
+  'กติกา:',
+  '- 3-6 ขั้น ห้ามเกิน อย่าซอยละเอียดเกินจำเป็น',
+  '- dependsOn ให้คิดจริง: ขั้นที่ไม่ต้องรอใครใส่ [] จะได้ทำขนานกันได้ (ประหยัดเวลาและเงิน)',
+  '- ขั้นที่ต้องให้คนเลือก/ตัดสินใจ/ลงมือจริง ใส่ dept="เจ้าของ"',
+  '- inputs ระบุแหล่งข้อมูลจริง: sheet=แท็บในชีตข้อมูล, drive=คลังแบรนด์, ask=ต้องถามคน (ref: owner|sales|cafe), step=ผลจากขั้นอื่น',
+  '- ถ้าข้อมูลสำคัญไม่รู้ (จำนวนคน งบ ขนาด) อย่าเดา — ใส่ลง openQuestions',
+  '- แยกให้ชัดว่าโรงน้ำหรือคาเฟ่'
+].join('\n');
+
+// เรียกนักวางแผน — คืน object แผนงาน หรือ null ถ้าไม่สำเร็จ
+function askPlanner(userText) {
+  const apiKey = cfg('ANTHROPIC_API_KEY');
+  if (!apiKey) return null;
+  try {
+    const kb = loadKBCached();
+    let sys = PLANNER_PROMPT;
+    if (kb) sys += '\n\nข้อมูลธุรกิจ (ใช้ตัดสินใจว่าข้อมูลไหนมีอยู่แล้ว):\n' + kb;
+    const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({
+        model: PLANNER_MODEL,
+        max_tokens: 2048,
+        system: [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }],
+        messages: [{ role: 'user', content: 'ออกแบบแผนงานสำหรับคำขอนี้: ' + userText }]
+      }),
+      muteHttpExceptions: true
+    });
+    const data = JSON.parse(res.getContentText());
+    let raw = (data && data.content && data.content[0] && data.content[0].text) || '';
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) { console.error('askPlanner: no JSON in ' + raw.slice(0, 200)); return null; }
+    const plan = JSON.parse(m[0]);
+    if (!plan.steps || !plan.steps.length) return null;
+    return plan;
+  } catch (err) {
+    console.error('askPlanner: ' + err);
+    return null;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
 //  Claude API — สมองของคุณเลขา
 // ════════════════════════════════════════════════════════════
 function askClaude(userText, history) {
@@ -1183,7 +1267,7 @@ function readBoardAll() {
     const last = sheet.getLastRow();
     if (last < 2) return [];
     const start = Math.max(2, last - 299);
-    const data = sheet.getRange(start, 1, last - start + 1, 21).getValues();
+    const data = sheet.getRange(start, 1, last - start + 1, 24).getValues();
     const out = [];
     for (let i = data.length - 1; i >= 0 && out.length < 200; i--) {
       const r = data[i];
@@ -1192,7 +1276,8 @@ function readBoardAll() {
         ref: r[0], time: fmtTime(r[1]), status: r[2], urgency: r[3], biz: r[4],
         type: r[5], from: r[6], detail: r[8], due: r[9], assignee: r[11] || '', result: r[12] || '', dept: r[13] || '',
         project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', blocked: r[17] || '',
-        notes: r[18] || '', startedAt: fmtTime(r[19]), doneAt: fmtTime(r[20])
+        notes: r[18] || '', startedAt: fmtTime(r[19]), doneAt: fmtTime(r[20]),
+        deps: r[21] || '', inputsTxt: r[22] || '', output: r[23] || ''
       });
     }
     return out;
@@ -1473,7 +1558,7 @@ function nextRoundText() {
   } catch (e) { return 'รอบถัดไปตามตาราง'; }
 }
 
-function boardHtml(key, notice) {
+function boardHtml(key, notice, prj) {
   const tasks = readBoardAll();
   const json = JSON.stringify(tasks).replace(/</g, '\\u003c');
   return '<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">'
@@ -1577,7 +1662,7 @@ function boardHtml(key, notice) {
 + '<div class="acts"><button class="bt cancel" id="cClose">ปิด</button><button class="bt run" id="cSave">บันทึกคอมเมนต์</button></div>'
 + '</div></div>'
 + '<div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
-+ '<script>' + boardScript(json, key, notice) + '</scr' + 'ipt></body></html>';
++ '<script>' + boardScript(json, key, notice, prj) + '</scr' + 'ipt></body></html>';
 }
 
 // ── สคริปต์ฝั่งหน้าเว็บของบอร์ด (แยกออกมาให้อ่าน/แก้ง่ายกว่าเดิม) ──────────
@@ -1585,12 +1670,13 @@ function boardHtml(key, notice) {
 //   FD = ฝ่าย  ("" = ทุกฝ่าย, "_sec" = คุณเลขา, นอกนั้นคือรหัสแผนก)
 //   F  = สถานะ (open/urgent/wait/ai/doing/blocked/human/done/all)
 // เช่น เลือกฝ่ายดีไซน์ แล้วกดไทล์ "เสร็จแล้ว" = เห็นเฉพาะงานดีไซน์ที่เสร็จแล้ว
-function boardScript(json, key, notice) {
+function boardScript(json, key, notice, prj) {
   return [
     'var ALL=' + json + ';',
     'var KEY=' + JSON.stringify(String(key || '')) + ';',
     'var BASE=' + JSON.stringify(ScriptApp.getService().getUrl()) + ';',
     'var NOTICE=' + JSON.stringify(String(notice || '')) + ';',
+    'var PRJ=' + JSON.stringify(String(prj || '')) + ';',   // เปิดแบบเจาะโปรเจกต์เดียว (โหมด Workflow)
     'var NEXT=' + JSON.stringify(nextRoundText()) + ';',
     'var F="open";var FD="";',
     'var TEAM=[{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"procurement",e:"🛒",n:"จัดซื้อ"},{k:"coder",e:"💻",n:"โค้ด"}];',
@@ -1603,7 +1689,7 @@ function boardScript(json, key, notice) {
     'function stMatch(t){if(F=="all")return 1;if(F=="open")return !done(t);if(F=="urgent")return t.urgency=="ด่วนมาก"&&!done(t);'
     + 'if(F=="wait")return t.status=="รออนุมัติ";if(F=="ai")return t.status=="รอทีม AI";if(F=="doing")return t.status=="กำลังทำ (AI)";'
     + 'if(F=="blocked")return t.status=="รอข้อมูล";if(F=="human")return (t.assignee=="คน"||!t.assignee)&&!done(t);if(F=="done")return done(t);return 1}',
-    'function mt(t){return inDept(t)&&stMatch(t)}',
+    'function mt(t){if(PRJ)return t.project==PRJ;return inDept(t)&&stMatch(t)}',
 
     // กดเลือก: การ์ดฝ่าย (กดซ้ำ = ยกเลิก) / ไทล์สถิติ / ชิปสถานะ
     'function pick(k){if(FD==k){FD="";F="open"}else{FD=k;F="all"}render();window.scrollTo(0,0)}',
@@ -1628,9 +1714,10 @@ function boardScript(json, key, notice) {
     + 'document.getElementById("sx").innerHTML=S.map(function(s){return \'<div class="st \'+s[3]+(F==s[0]?" on":"")+\'" data-f="\'+s[0]+\'"><div class="n">\'+s[1]+\'</div><div class="l">\'+s[2]+\'</div></div>\'}).join("");'
     + 'bind("#sx .st",function(el){setF(el.getAttribute("data-f"))});'
     + 'var chips=FS.map(function(f){return \'<button class="ch\'+(f[0]==F?" on":"")+\'" data-f="\'+f[0]+\'">\'+f[1]+\'</button>\'}).join("");'
+    + 'if(PRJ)chips=\'<button class="ch on" id="prjOff">📁 \'+E(PRJ)+\' ✕ ดูทั้งบอร์ด</button>\';'
     + 'if(FD)chips=\'<button class="ch on" data-d="\'+FD+\'">\'+deptName(FD)+\' ✕</button>\'+chips;'
     + 'document.getElementById("fx").innerHTML=chips;'
-    + 'bind("#fx .ch",function(el){var d=el.getAttribute("data-d");if(d)pick(d);else setF(el.getAttribute("data-f"))});'
+    + 'bind("#fx .ch",function(el){if(el.id=="prjOff"){PRJ="";render();return}var d=el.getAttribute("data-d");if(d)pick(d);else setF(el.getAttribute("data-f"))});'
     + 'var list=ALL.filter(mt),ph="",seen={};'
     + 'list.filter(function(t){return t.project}).forEach(function(t){if(seen[t.project])return;seen[t.project]=1;'
     + 'var st=ALL.filter(function(x){return x.project==t.project}).sort(function(a,b){return a.step-b.step});'
@@ -1638,9 +1725,11 @@ function boardScript(json, key, notice) {
     + 'ph+=\'<div class="prj"><h3>📁 \'+E(t.projectTitle||t.project)+\'</h3><div class="mt">\'+E(t.project)+\' · \'+dn+\'/\'+st.length+\' เสร็จ</div>\'+'
     + '\'<div class="bar"><i style="width:\'+pc+\'%"></i></div>\'+st.map(function(s){var ic=done(s)?"✅":(s.status=="กำลังทำ (AI)"?"⚙️":(s.status=="รอข้อมูล"?"⏸️":(s.status=="รออนุมัติ"?"📝":"⏳")));'
     + 'return \'<div class="sub"><span>\'+ic+\'</span><span><b>\'+s.step+\'.</b> \'+E(s.detail)+\' <span style="color:#7A8A9B">— \'+E(s.dept||s.assignee)+\' · \'+E(s.status)+(s.startedAt?\' · เริ่ม \'+E(s.startedAt):"")+(s.doneAt?\' · เสร็จ \'+E(s.doneAt):"")+\'</span>\'+(s.blocked?\'<br><span style="color:#C8842A;font-size:.75rem">\'+E(s.blocked)+\'</span>\':"")'
+    + '+(s.inputsTxt?\'<br><span style="color:#5B9BA0;font-size:.73rem">📥 \'+E(s.inputsTxt)+\'</span>\':"")'
+    + '+(s.output?\'<br><span style="color:#3D9970;font-size:.73rem">📤 \'+E(s.output)+\'</span>\':"")'
     + '+(s.notes?\'<div class="notes" style="margin-top:5px">💬 \'+E(s.notes)+\'</div>\':"")'
     + '+(done(s)?"":\'<div class="act"><button class="bt run" data-run="\'+E(s.ref)+\'">⚡ เริ่มทันที</button><button class="bt cmt" data-cmt="\'+E(s.ref)+\'">💬</button><button class="bt cancel" data-cancel="\'+E(s.ref)+\'">✕</button></div>\')+\'</span></div>\'}).join("")'
-    + '+\'<div class="act" style="max-width:200px"><button class="bt cmt" data-cmt="\'+E(t.project)+\'">💬 คอมเมนต์ทั้งโปรเจกต์</button></div>\'+\'</div>\'});'
+    + '+\'<div class="act" style="max-width:330px"><button class="bt run" data-wf="\'+E(t.project)+\'">🗂️ ดู Workflow</button><button class="bt cmt" data-cmt="\'+E(t.project)+\'">💬 คอมเมนต์ทั้งโปรเจกต์</button></div>\'+\'</div>\'});'
     + 'document.getElementById("pj").innerHTML=ph;'
     + 'var solo=list.filter(function(t){return !t.project});'
     + 'var ord={"ด่วนมาก":0,"ปกติ":1,"ไม่เร่ง":2};solo.sort(function(a,b){return (ord[a.urgency]==null?1:ord[a.urgency])-(ord[b.urgency]==null?1:ord[b.urgency])});'
@@ -1705,7 +1794,8 @@ function boardScript(json, key, notice) {
     + 'if(confirm("ยืนยันยกเลิกงาน #"+r+" ?\\n\\nงานนี้จะถูกปิดและทีม AI จะไม่ทำต่อ"))go("cancel",r)});'
     + 'bind("#cx [data-run],#pj [data-run]",function(el){var r=el.getAttribute("data-run");'
     + 'if(confirm("ให้ทีม AI เริ่มทำงาน #"+r+" ทันทีเลยไหม ?\\n\\nไม่ต้องรอรอบ "+NEXT))go("runnow",r)});'
-    + 'bind("#cx [data-cmt],#pj [data-cmt]",function(el){openCmt(el.getAttribute("data-cmt"))})}',
+    + 'bind("#cx [data-cmt],#pj [data-cmt]",function(el){openCmt(el.getAttribute("data-cmt"))});'
+    + 'bind("#pj [data-wf]",function(el){PRJ=el.getAttribute("data-wf");render();window.scrollTo(0,0)})}',
 
     // ── กล่องคอมเมนต์ปรับแผน ──
     'var CREF="";',
@@ -1756,14 +1846,24 @@ function createProjectPlan(plan, senderId) {
   try {
     const now = new Date();
     const pid = 'PRJ' + Utilities.formatDate(now, 'GMT+7', 'yyMMdd') + '-' + Math.floor(1000 + Math.random() * 9000);
+    if (sheet.getRange(1, 22).getValue() !== 'ต้องรอขั้น') {
+      sheet.getRange(1, 22, 1, 3).setValues([['ต้องรอขั้น', 'ใช้ข้อมูลจาก', 'ผลลัพธ์ที่คาด']]);
+    }
     plan.steps.slice(0, 10).forEach(function (s, i) {
       const ref = pid + '.' + (i + 1);
       const dept = String(s.dept || '');
-      const assignee = (dept === 'เลขา') ? 'เลขา' : 'ทีมAI';
+      const human = (dept === 'เจ้าของ' || dept === 'คน');
+      const assignee = human ? 'คน' : (dept === 'เลขา' ? 'เลขา' : 'ทีมAI');
+      const deps = (s.dependsOn || []).map(Number).filter(function (n) { return n > 0; }).join(',');
+      const inputs = (s.inputs || []).map(function (x) {
+        const K = { sheet: '📄ชีต', drive: '📁ไดรฟ์', ask: '🙋ถาม', step: '↩️ขั้น' };
+        return (K[x.kind] || x.kind) + ':' + (x.ref || '') + (x.note ? ' (' + x.note + ')' : '');
+      }).join(' · ');
       sheet.appendRow([
         ref, now, 'รออนุมัติ', plan.urgency || 'ปกติ', plan.biz || '', 'งานย่อย', 'LINE',
-        senderId || '', s.detail || '', '', '', assignee, '', (dept === 'เลขา' ? '' : dept),
-        pid, i + 1, plan.title || '', s.needs || ''
+        senderId || '', s.detail || '', '', '', assignee, '', (human || dept === 'เลขา') ? '' : dept,
+        pid, i + 1, plan.title || '', s.needs || '', '', '', '',
+        deps, inputs, s.output || ''
       ]);
     });
     return pid;
@@ -1780,14 +1880,24 @@ function pushPlanForApproval(pid, plan, senderId) {
   let msg = '📋 ขออนุมัติแผนงานค่ะคุณปาล์ม\n'
           + '📁 ' + (plan.title || '') + '  (' + pid + ')\n'
           + (plan.goal ? ('🎯 ' + plan.goal + '\n') : '')
+          + (plan.why ? ('💡 ' + plan.why + '\n') : '')
           + (plan.biz ? ('🏢 ' + plan.biz + '\n') : '') + '\nแผนที่วางไว้:\n';
   plan.steps.slice(0, 10).forEach(function (s, i) {
-    msg += (i + 1) + '. ' + (DEPT[s.dept] || s.dept || '') + ' — ' + (s.detail || '')
-         + (s.needs ? ('\n     ต้องมีก่อน: ' + s.needs) : '') + '\n';
+    const par = (s.dependsOn && s.dependsOn.length) ? (' (รอขั้น ' + s.dependsOn.join(',') + ')') : ' (เริ่มได้เลย)';
+    msg += (i + 1) + '. ' + (DEPT[s.dept] || s.dept || '') + ' — ' + (s.detail || '') + par + '\n';
+    if (s.inputs && s.inputs.length) {
+      msg += '     📥 ' + s.inputs.map(function (x) { return (x.ref || '') + (x.note ? '(' + x.note + ')' : ''); }).join(', ') + '\n';
+    } else if (s.needs) { msg += '     ต้องมีก่อน: ' + s.needs + '\n'; }
   });
-  msg += '\nอนุมัติไหมคะ?\n'
-       + '• พิมพ์ "อนุมัติ ' + pid + '" เพื่อให้ทีมเริ่มงาน\n'
-       + '• หรือบอกได้เลยว่าอยากแก้ตรงไหน (พิมพ์ "แก้ ' + pid + ' : ...")';
+  if (plan.risks && plan.risks.length) msg += '\n⚠️ จุดเสี่ยง: ' + plan.risks.join(' / ') + '\n';
+  if (plan.openQuestions && plan.openQuestions.length) {
+    msg += '\n❓ ขอถามก่อนเริ่ม:\n' + plan.openQuestions.map(function (q, i) { return '  ' + (i + 1) + '. ' + q; }).join('\n') + '\n';
+  }
+  msg += '\n🔗 ดู Workflow: ' + boardUrl() + '&prj=' + encodeURIComponent(pid)
+       + '\n\nอนุมัติไหมคะ?\n'
+       + '• "อนุมัติ ' + pid + '" — ให้ทีมเริ่มเลย\n'
+       + '• "แก้ ' + pid + ' : ..." — บอกที่อยากปรับ (หรือกด 💬 บนบอร์ด)\n'
+       + '• "ยกเลิก ' + pid + '"';
   linePush(owner, msg);
 }
 
@@ -1897,21 +2007,23 @@ function appendTaskNote(sheet, row, note) {
 function approveProject(pid) {
   const sheet = reqSheet(); if (!sheet) return 0;
   const data = sheet.getDataRange().getValues();
-  let count = 0, firstStep = 999;
+  // มีข้อมูล dependsOn ไหม (แผนจากนักวางแผน) — ถ้าไม่มีใช้วิธีเดิม (เรียงเลขขั้น)
+  let hasDeps = false, firstStep = 999;
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][14]) === pid && String(data[i][2]) === 'รออนุมัติ') {
-      firstStep = Math.min(firstStep, Number(data[i][15]) || 1);
-    }
+    if (String(data[i][14]) !== pid || String(data[i][2]) !== 'รออนุมัติ') continue;
+    firstStep = Math.min(firstStep, Number(data[i][15]) || 1);
+    if (String(data[i][21] || '') !== '') hasDeps = true;
   }
+  let count = 0;
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][14]) === pid && String(data[i][2]) === 'รออนุมัติ') {
-      const step = Number(data[i][15]) || 1;
-      const isAI = String(data[i][11]) === 'ทีมAI';
-      const active = (step === firstStep);
-      sheet.getRange(i + 1, 3).setValue(active ? (isAI ? 'รอทีม AI' : 'ใหม่') : 'รอลำดับ');
-      if (active && !isAI) notifyHumanStep(data[i][0], data[i][8]);
-      count++;
-    }
+    if (String(data[i][14]) !== pid || String(data[i][2]) !== 'รออนุมัติ') continue;
+    const step = Number(data[i][15]) || 1;
+    const isAI = String(data[i][11]) === 'ทีมAI';
+    // ปลดล็อกถ้า: (มี deps → ขั้นนี้ไม่ต้องรอใคร) / (ไม่มี deps → ขั้นแรกสุด)
+    const active = hasDeps ? (String(data[i][21] || '') === '') : (step === firstStep);
+    sheet.getRange(i + 1, 3).setValue(active ? (isAI ? 'รอทีม AI' : 'ใหม่') : 'รอลำดับ');
+    if (active && !isAI) notifyHumanStep(data[i][0], data[i][8]);
+    count++;
   }
   return count;
 }
@@ -1951,18 +2063,36 @@ function advanceProject(pid) {
   if (!pid) return;
   const sheet = reqSheet(); if (!sheet) return;
   const data = sheet.getDataRange().getValues();
-  let nextStep = 9999, rows = [];
+  // รวบรวมสถานะรายขั้น + เช็คว่าโปรเจกต์นี้มีข้อมูล dependsOn ไหม
+  let waiting = [], doneSteps = {}, hasDeps = false, anyWorking = false;
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][14]) !== pid) continue;
     const st = String(data[i][2]);
-    if (st === 'รอลำดับ') { const s = Number(data[i][15]) || 0; if (s < nextStep) nextStep = s; rows.push({ i: i, step: s, ai: String(data[i][11]) === 'ทีมAI' }); }
-    if (st === 'รอทีม AI' || st === 'กำลังทำ (AI)' || st === 'ใหม่' || st === 'รอข้อมูล') return; // ยังมีงานค้างอยู่
+    const stepNo = Number(data[i][15]) || 0;
+    if (String(data[i][21] || '') !== '') hasDeps = true;
+    if (/เสร็จ|ยกเลิก/.test(st)) doneSteps[stepNo] = true;
+    if (st === 'รอลำดับ') waiting.push({ i: i, step: stepNo, ai: String(data[i][11]) === 'ทีมAI',
+                                          deps: String(data[i][21] || '').split(',').map(Number).filter(Boolean) });
+    if (st === 'รอทีม AI' || st === 'กำลังทำ (AI)' || st === 'ใหม่' || st === 'รอข้อมูล') anyWorking = true;
   }
-  rows.filter(function (r) { return r.step === nextStep; })
-      .forEach(function (r) {
-        sheet.getRange(r.i + 1, 3).setValue(r.ai ? 'รอทีม AI' : 'ใหม่');
-        if (!r.ai) notifyHumanStep(data[r.i][0], data[r.i][8]);
-      });
+  const rows = waiting;
+  let unlock = [];
+  if (hasDeps) {
+    // ปลดทุกขั้นที่ "ขั้นที่ต้องรอ" เสร็จครบแล้ว — ไม่ต้องรอให้ขั้นอื่นที่ไม่เกี่ยวเสร็จ
+    unlock = rows.filter(function (r) { return r.deps.every(function (d) { return doneSteps[d]; }); });
+  } else {
+    if (anyWorking) return; // วิธีเดิม: รอให้งานค้างเสร็จหมดก่อน แล้วปลดขั้นถัดไปตามเลข
+    let nextStep = 9999;
+    rows.forEach(function (r) { if (r.step < nextStep) nextStep = r.step; });
+    unlock = rows.filter(function (r) { return r.step === nextStep; });
+  }
+  let unlockedAI = false;
+  unlock.forEach(function (r) {
+    sheet.getRange(r.i + 1, 3).setValue(r.ai ? 'รอทีม AI' : 'ใหม่');
+    if (r.ai) unlockedAI = true; else notifyHumanStep(data[r.i][0], data[r.i][8]);
+  });
+  if (unlockedAI) maybeFireRoutine('ปลดล็อกขั้นถัดไปของ ' + pid);
+  if (hasDeps && (anyWorking || unlock.length)) return; // ยังไม่จบโปรเจกต์
   // ไม่เหลือขั้นไหนเลย = โปรเจกต์จบ
   if (!rows.length) {
     const title = (function () {
@@ -2281,7 +2411,9 @@ function handleCompleteTask(body) {
   sheet.getRange(row, 21).setValue(new Date());       // ⏱️ เสร็จเมื่อ
   const pid = String(sheet.getRange(row, 15).getValue() || '');
   const owner = cfg('OWNER_LINE_USER_ID');
-  if (owner) linePush(owner, '✅ ทีม AI ทำงาน #' + body.ref + ' เสร็จแล้วค่ะ\n' + String(body.result || '').slice(0, 500));
+  // งานเดี่ยว → แจ้งทันที / งานย่อยในโปรเจกต์ → ไม่เด้งรายชิ้น (กันสแปม)
+  // ความคืบหน้าดูในหน้า Workflow และจะแจ้งรวมตอนถึงขั้นของคน/จบโปรเจกต์
+  if (owner && !pid) linePush(owner, '✅ ทีม AI ทำงาน #' + body.ref + ' เสร็จแล้วค่ะ\n' + String(body.result || '').slice(0, 500));
   if (pid) advanceProject(pid); // ปลดล็อกงานย่อยขั้นถัดไป
   return jsonOut({ ok: true });
 }
