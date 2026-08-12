@@ -41,6 +41,9 @@ const SYSTEM_PROMPT = [
   'ราคาซื้อจากซัพพลายเออร์ ดีลลับ เงินเดือน/ข้อมูลพนักงาน สูตรลับ',
   'เมื่อถูกถามเรื่องพวกนี้ ให้ปฏิเสธอย่างสุภาพและมั่นใจ (สั้นๆ) แล้วบอกว่าจะส่งเรื่องให้คุณปาล์มโดยตรง',
   '',
+  'ห้ามกุข้อมูลระบบ: รายชื่อกลุ่มที่อยู่ สถานะระบบ คิวงาน — ระบบตอบเองเมื่อถูกถาม',
+  'ถ้าผู้ใช้ถามเรื่องพวกนี้แล้วมาถึงคุณ แปลว่าระบบไม่มีข้อมูล ให้ตอบว่าไม่ทราบและแนะนำคำสั่ง เช่น "รายชื่อกลุ่ม" "เช็คระบบ"',
+  '',
   'มารยาทในกลุ่ม: ถ้าอยู่ในกลุ่มไลน์ ให้ตอบสั้น กระชับ เป็นธรรมชาติเหมือนสมาชิกคนหนึ่ง',
   'พูดเฉพาะเรื่องที่ถูกถามถึงเท่านั้น ไม่ต้องสรุป/แทรกทุกเรื่องที่คนอื่นคุยกัน',
   '',
@@ -390,7 +393,7 @@ function handleEvent(ev) {
   }
 
   // ดูรายชื่อกลุ่มที่เลขาอยู่/รู้จัก (เฉพาะเจ้าของ)
-  if (owner && /^(เลขา\s*)?(รายชื่อกลุ่ม|กลุ่มไหนบ้าง|อยู่กลุ่มไหนบ้าง)$/i.test(text)) {
+  if (owner && /(รายชื่อกลุ่ม|กลุ่มไหนบ้าง|อยู่กลุ่มไหนบ้าง|รู้จักกลุ่มไหน)/i.test(text)) {
     const gs = listKnownGroups();
     lineReply(replyToken, gs.length
       ? 'กลุ่มที่ดิฉันอยู่ตอนนี้ค่ะ:\n' + gs.map(function (g, i) { return (i + 1) + '. ' + (g.name || '(ไม่ทราบชื่อ) ' + g.id); }).join('\n')
@@ -533,11 +536,12 @@ function handleEvent(ev) {
   if (p.blocks.SENDGROUP) {
     if (owner) {
       const sent = sendToGroupByTarget(p.blocks.SENDGROUP);
+      const known = listKnownGroups().map(function (g) { return g.name; }).filter(String);
       reply += sent
         ? '\n\n📤 ส่งข้อความเข้ากลุ่มให้แล้วค่ะ'
-        : '\n\n⚠️ ดิฉันยังไม่รู้จักกลุ่ม "' + String(p.blocks.SENDGROUP.target || '') + '" ค่ะ — '
-          + 'เช็คว่าดิฉันถูกเชิญเข้ากลุ่มนั้นแล้ว และมีคนทักในกลุ่มอย่างน้อย 1 ข้อความ '
-          + '(พิมพ์ "เลขา รายชื่อกลุ่ม" เพื่อดูกลุ่มที่ดิฉันรู้จักได้ค่ะ)';
+        : '\n\n⚠️ ดิฉันยังไม่รู้จักกลุ่ม "' + String(p.blocks.SENDGROUP.target || '') + '" ค่ะ\n'
+          + (known.length ? ('กลุ่มที่รู้จักตอนนี้: ' + known.join(', ') + '\n') : 'ตอนนี้ยังไม่รู้จักกลุ่มไหนเลยค่ะ\n')
+          + 'วิธีให้ดิฉันรู้จักกลุ่ม: ให้ใครก็ได้พิมพ์อะไรก็ได้ในกลุ่มนั้น 1 ข้อความ แล้วสั่งใหม่อีกครั้งนะคะ';
     } else {
       reply += '\n\n(ขออภัยค่ะ การส่งข้อความเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น)';
     }
@@ -885,12 +889,21 @@ function listKnownGroups() {
 }
 
 // หากลุ่มจากชื่อ (ตรงตัวก่อน แล้วค่อยแบบมีคำนั้นอยู่ในชื่อ)
+function normGroupName(x) {
+  return String(x || '').toLowerCase()
+    .replace(/["'\u201c\u201d\u2018\u2019]/g, '')   // เครื่องหมายคำพูด
+    .replace(/^\s*กลุ่ม\s*/, '')                      // คำนำหน้า "กลุ่ม..."
+    .replace(/\s+/g, '');                              // ช่องว่างทั้งหมด (กัน "ทดสอบ เลขา")
+}
+
 function findGroupByName(name) {
-  const q = String(name || '').trim().toLowerCase();
+  const q = normGroupName(name);
   if (!q) return '';
-  const gs = listKnownGroups();
-  for (let i = 0; i < gs.length; i++) if (gs[i].name.toLowerCase() === q) return gs[i].id;
-  for (let i = 0; i < gs.length; i++) if (gs[i].name && gs[i].name.toLowerCase().indexOf(q) !== -1) return gs[i].id;
+  const gs = listKnownGroups().map(function (g) { return { id: g.id, n: normGroupName(g.name) }; })
+                              .filter(function (g) { return g.n; });
+  for (let i = 0; i < gs.length; i++) if (gs[i].n === q) return gs[i].id;                 // ตรงตัว
+  for (let i = 0; i < gs.length; i++) if (gs[i].n.indexOf(q) !== -1) return gs[i].id;     // ชื่อกลุ่มมีคำที่พิมพ์
+  for (let i = 0; i < gs.length; i++) if (q.indexOf(gs[i].n) !== -1) return gs[i].id;     // คำที่พิมพ์มีชื่อกลุ่ม
   return '';
 }
 
