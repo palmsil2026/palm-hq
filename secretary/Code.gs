@@ -17,8 +17,8 @@
  */
 
 // ===== ตั้งค่ารุ่น AI =====
-// "claude-haiku-4-5" = ถูก+เร็ว (แนะนำเริ่มต้น) | "claude-sonnet-5" = ฉลาดกว่า
-const MODEL = 'claude-haiku-4-5';
+// "claude-haiku-4-5" = ถูก+เร็ว | "claude-sonnet-5" = ฉลาดกว่า (ใช้อยู่ — ต้องตีความคำสั่งกำกวม/ตัดสินใจถามหรือลุยเลย)
+const MODEL = 'claude-sonnet-5';
 
 // ===== ดึงค่าลับจาก Script Properties =====
 function cfg(key) {
