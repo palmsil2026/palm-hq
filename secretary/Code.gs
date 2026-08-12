@@ -177,6 +177,24 @@ function jsonOut(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ลิงก์บอร์ดของ deployment ปัจจุบันเสมอ (ไม่ต้องจำ URL เอง ต่อให้ deploy ใหม่ก็ยังถูก)
+function boardUrl() {
+  return ScriptApp.getService().getUrl() + '?page=board&key=' + encodeURIComponent(cfg('QUEUE_KEY'));
+}
+
+// ปุ่ม "เปิดบอร์ดงาน" แบบ LINE template message — แนบต่อท้ายข้อความได้เลย
+function boardButtonMessage() {
+  return {
+    type: 'template',
+    altText: '📋 เปิดบอร์ดงาน — ' + boardUrl(),
+    template: {
+      type: 'buttons',
+      text: 'บอร์ดงานละกอน 💧 & คาเฟ่ ☕',
+      actions: [{ type: 'uri', label: '📋 เปิดบอร์ดงาน', uri: boardUrl() }]
+    }
+  };
+}
+
 function isOwner(senderId) {
   return !!senderId && senderId === cfg('OWNER_LINE_USER_ID');
 }
@@ -252,14 +270,21 @@ function handleEvent(ev) {
     return;
   }
 
-  // 2) ถามงานจากบอร์ด → ดึงข้อมูลมาสรุป (เจ้าของเห็นทั้งทีม / พนักงานเห็นเฉพาะของตัวเอง)
+  // 1.5) ขอลิงก์บอร์ดตรงๆ → ส่งปุ่มเปิดบอร์ดเลย ไม่ต้องให้ Claude สรุป (เร็ว+ประหยัด token)
+  if (/^(เลขา\s*)?(เปิด)?(บอร์ด|board)(งาน)?$/i.test(text) || /ลิงก์บอร์ด|link บอร์ด/i.test(text)) {
+    lineReply(replyToken, 'นี่เลยค่ะ 📋', [boardButtonMessage()]);
+    logRow(['เปิดบอร์ด', senderId, text, boardUrl()]);
+    return;
+  }
+
+  // 2) ถามงานจากบอร์ด → ดึงข้อมูลมาสรุป (เจ้าของเห็นทั้งทีม / พนักงานเห็นเฉพาะของตัวเอง) + แนบปุ่มเปิดบอร์ด
   if (isBoardQuery(text)) {
     const rows = readBoard(senderId, owner);
     const ctx = buildBoardContext(rows, owner);
     const q = 'ข้อมูลงานจากบอร์ด ณ ตอนนี้' + (owner ? ' (ทั้งทีม)' : ' (เฉพาะงานที่คุณฝาก)') + ':\n'
               + ctx + '\n\nคำถาม: ' + text + '\nช่วยสรุปตอบตามคำถาม เรียงตามความเร่งด่วน กระชับแบบเลขามือโปร';
     const reply = parseBlocks(askClaude(q, history)).reply;
-    lineReply(replyToken, reply);
+    lineReply(replyToken, reply, [boardButtonMessage()]);
     memAppend(chatId, text, reply);
     logRow(['ถามบอร์ด', senderId, text, reply]);
     return;
@@ -270,11 +295,13 @@ function handleEvent(ev) {
   let reply = p.reply;
 
   // 3.1 ถ้าเป็นการฝากงาน → คัดแยกตาม assignee
+  let taskLogged = false;
   if (p.blocks.TASK) {
     const assignee = p.blocks.TASK.assignee || 'คน';
     if (assignee !== 'เลขา') { // "เลขา" = ทำเสร็จเองแล้วในคำตอบ ไม่ต้องลงบอร์ด
       const ref = logTaskToBoard(p.blocks.TASK, senderId);
       if (ref) {
+        taskLogged = true;
         reply += (assignee === 'ทีมAI')
           ? '\n\n🤖 ส่งเข้าคิวทีม AI แล้วค่ะ (งาน #' + ref + ')'
           : '\n\n📋 บันทึกเป็นงาน #' + ref + ' ลงบอร์ดให้แล้วค่ะ';
@@ -308,7 +335,7 @@ function handleEvent(ev) {
     }
   }
 
-  lineReply(replyToken, reply);
+  lineReply(replyToken, reply, taskLogged ? [boardButtonMessage()] : null);
   memAppend(chatId, text, reply);
   logRow(['ทั่วไป', senderId, text, reply]);
 }
@@ -475,13 +502,15 @@ function askClaude(userText, history) {
 // ════════════════════════════════════════════════════════════
 //  LINE messaging
 // ════════════════════════════════════════════════════════════
-function lineReply(replyToken, text) {
+// extraMessages: array ของ message object เพิ่มเติม (เช่นปุ่มเปิดบอร์ด) ต่อท้ายข้อความปกติ — รวมกันได้สูงสุด 5 ข้อความ/ครั้งตามลิมิตของ LINE
+function lineReply(replyToken, text, extraMessages) {
   if (!replyToken) return;
+  const messages = [{ type: 'text', text: text }].concat(extraMessages || []).slice(0, 5);
   UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'post',
     contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
-    payload: JSON.stringify({ replyToken: replyToken, messages: [{ type: 'text', text: text }] }),
+    payload: JSON.stringify({ replyToken: replyToken, messages: messages }),
     muteHttpExceptions: true
   });
 }
