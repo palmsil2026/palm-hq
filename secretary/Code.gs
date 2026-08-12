@@ -63,7 +63,7 @@ const SYSTEM_PROMPT = [
   '"ขอเสนอคุณปาล์มพิจารณาก่อนนะคะ" อย่ารับปากว่าจะทำเลย',
   'ช่อง dept (ใส่เฉพาะเมื่อ assignee="ทีมAI"): finance=การเงิน/ต้นทุน, analyst=วิเคราะห์ข้อมูล/รายงาน,',
   'content=คอนเทนต์/ดีไซน์/โพสต์, writer=เขียนเอกสาร/ข้อความยาว, researcher=หาข้อมูล/เทียบราคา, coder=แอป/โค้ด/ระบบ,',
-  'data=สร้าง/ดูแลฐานข้อมูล รวบรวม-ทำความสะอาดข้อมูล',
+  'data=สร้าง/ดูแลฐานข้อมูล รวบรวม-ทำความสะอาดข้อมูล, procurement=ฝากซื้อของ/หาอะไหล่/เทียบราคาร้าน',
   '',
   'งานใหญ่ = แตกเป็นแผนงาน (สำคัญ): ถ้างานที่ได้รับต้องทำหลายขั้นตอน/หลายแผนก',
   '(เช่น "ทำนามบัตรให้ทีมขาย" ต้องรวบรวมรายชื่อ → สร้างฐานข้อมูล → ออกแบบ → เสนอเลือก)',
@@ -142,6 +142,13 @@ function doGet(e) {
   if (p.action === 'board') {
     if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut({ ok: true, tasks: readBoardAll() });
+  }
+  // ปุ่มบนบอร์ดยิงมาทางนี้ (fetch) → ตอบ JSON กลับ ไม่ต้องโหลดหน้าใหม่
+  if (p.action === 'boardDo') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    const r = String(boardAction(p['do'], p.ref) || '⚠️|ทำรายการไม่สำเร็จ');
+    const parts = r.split('|');
+    return jsonOut({ ok: parts[0] === '✅', msg: parts.slice(1).join('|') });
   }
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
   if (p.page === 'board') {
@@ -961,6 +968,8 @@ function boardHtml(key, notice) {
 + '.sub .act{margin:6px 0 2px;max-width:280px}'
 + '.notice{background:#E8F5EC;border:1px solid var(--green);color:#26694E;border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:.85rem}'
 + '.notice.warn{background:#FFF3E0;border-color:var(--orange);color:#8A5A12}'
++ '.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;max-width:90%;background:#26694E;color:#fff;padding:11px 18px;border-radius:12px;font-size:.87rem;box-shadow:0 6px 18px rgba(0,0,0,.25);z-index:99;transition:opacity .5s}'
++ '.toast.warn{background:#8A5A12}'
 + '</style></head><body>'
 + '<div class="hd"><h1>📋 บอร์ดงาน</h1><div class="s">โรงน้ำละกอน 💧 &amp; คาเฟ่ ☕ — <span id="up"></span></div></div>'
 + '<div class="wrap"><div class="tt">👥 ทีมงาน AI <span style="font-weight:400;color:#7A8A9B">— รอบทำงานถัดไป: ' + nextRoundText() + ' · แตะการ์ดเพื่อดูงานเฉพาะฝ่าย</span></div><div class="team" id="tm"></div>'
@@ -982,7 +991,7 @@ function boardScript(json, key, notice) {
     'var NOTICE=' + JSON.stringify(String(notice || '')) + ';',
     'var NEXT=' + JSON.stringify(nextRoundText()) + ';',
     'var F="open";var FD="";',
-    'var TEAM=[{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"coder",e:"💻",n:"โค้ด"}];',
+    'var TEAM=[{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"procurement",e:"🛒",n:"จัดซื้อ"},{k:"coder",e:"💻",n:"โค้ด"}];',
     'var FS=[["open","ค้างอยู่"],["urgent","🔴 ด่วนมาก"],["wait","⏳ รออนุมัติ"],["ai","🤖 รอทีม AI"],["doing","⚙️ กำลังทำ"],["blocked","⏸️ รอข้อมูล"],["human","👤 งานคน"],["done","✅ เสร็จแล้ว"],["all","ทั้งหมด"]];',
     'function E(s){return String(s==null?"":s).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[m]})}',
     'function done(t){return /เสร็จ|ปิด|ยกเลิก/.test(t.status||"")}',
@@ -1043,17 +1052,21 @@ function boardScript(json, key, notice) {
     + '+\'</div>\'}).join("");'
     + 'bindActions()}',
 
-    // ปุ่ม: ยืนยันก่อนเสมอ แล้วเปิดลิงก์ให้ GAS ทำงาน (ไม่ใช้ fetch เลี่ยงปัญหา CORS)
-    'function go(a,r){location.href=BASE+"?page=board&key="+encodeURIComponent(KEY)+"&do="+a+"&ref="+encodeURIComponent(r)}',
+    // ป๊อปอัปแจ้งผลมุมล่าง (หายเองใน 4 วิ)
+    'function toast(msg,ok){var t=document.createElement("div");t.className="toast"+(ok?"":" warn");'
+    + 't.textContent=(ok?"✅ ":"⚠️ ")+msg;document.body.appendChild(t);'
+    + 'setTimeout(function(){t.style.opacity="0"},3400);setTimeout(function(){t.remove()},4000)}',
+    // ปุ่ม: ยืนยันก่อน → ยิง fetch อยู่หน้าเดิม → อัปเดตการ์ดทันที + ป๊อปอัปแจ้งผล
+    'function go(a,r){fetch(BASE+"?action=boardDo&key="+encodeURIComponent(KEY)+"&do="+a+"&ref="+encodeURIComponent(r))'
+    + '.then(function(x){return x.json()}).then(function(j){toast(j.msg,j.ok);'
+    + 'if(j.ok){ALL.forEach(function(t){if(t.ref==r){if(a=="cancel")t.status="ยกเลิก";if(a=="runnow")t.status="รอทีม AI"}});render()}})'
+    + '.catch(function(){toast("เชื่อมต่อไม่สำเร็จ ลองใหม่อีกครั้งนะคะ",false)})}',
     'function bindActions(){'
     + 'bind("#cx [data-cancel],#pj [data-cancel]",function(el){var r=el.getAttribute("data-cancel");'
     + 'if(confirm("ยืนยันยกเลิกงาน #"+r+" ?\\n\\nงานนี้จะถูกปิดและทีม AI จะไม่ทำต่อ"))go("cancel",r)});'
     + 'bind("#cx [data-run],#pj [data-run]",function(el){var r=el.getAttribute("data-run");'
     + 'if(confirm("ให้ทีม AI เริ่มทำงาน #"+r+" ทันทีเลยไหม ?\\n\\nไม่ต้องรอรอบ "+NEXT))go("runnow",r)})}',
-    'if(NOTICE){var pr=NOTICE.split("|"),bx=document.createElement("div");'
-    + 'bx.className="notice"+(pr[0]=="⚠️"?" warn":"");bx.textContent=pr[0]+" "+pr.slice(1).join("|");'
-    + 'var w=document.querySelector(".wrap");w.insertBefore(bx,w.firstChild);'
-    + 'history.replaceState(null,"",BASE+"?page=board&key="+encodeURIComponent(KEY))}',
+    'if(NOTICE){var pr=NOTICE.split("|");toast(pr.slice(1).join("|"),pr[0]=="✅")}',
     'document.getElementById("up").textContent="อัปเดต "+new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});',
     'render();setTimeout(function(){location.reload()},120000);'
   ].join('\n');
