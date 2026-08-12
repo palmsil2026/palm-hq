@@ -433,11 +433,13 @@ function askClaude(userText, history) {
   if (kb) sys += '\n\nคลังข้อมูลธุรกิจ/โรงงาน (ใช้อ้างอิงตอบได้ แต่ยังห้ามเปิดเผยการเงินวงในตามกฎ):\n' + kb;
   if (pb) sys += '\n\n📓 Playbook — วิธีคิด/หลักการตัดสินใจของคุณปาล์ม (ยึดตามนี้เวลาวางแผนหรือเสนอทางเลือก):\n' + pb;
 
+  // Prompt caching: system prompt (บุคลิก+คลังข้อมูล+Playbook) เหมือนเดิมแทบทุกครั้ง
+  // ติด cache_control ไว้ → 5 นาทีถัดไป Claude "อ่านจากแคช" แทนอ่านใหม่ทั้งก้อน (ถูกลง ~90%)
   const messages = (history || []).concat([{ role: 'user', content: userText }]);
   const payload = {
     model: MODEL,
     max_tokens: 1024,
-    system: sys,
+    system: [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }],
     messages: messages
   };
 
@@ -1191,7 +1193,7 @@ function handleCompleteTask(body) {
 // ════════════════════════════════════════════════════════════
 //  ความจำบทสนทนา (เก็บ 10 ข้อความล่าสุดต่อคน ในแท็บ Memory)
 // ════════════════════════════════════════════════════════════
-const MEM_MAX = 10; // จำนวนข้อความล่าสุดที่เก็บ (user+assistant นับรวมกัน)
+const MEM_MAX = 6; // จำนวนข้อความล่าสุดที่เก็บ (user+assistant นับรวมกัน) — ลดจาก 10 เพื่อประหยัด token
 
 function memSheet() {
   const id = boardSheetId();
