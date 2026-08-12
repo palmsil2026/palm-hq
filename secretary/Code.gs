@@ -182,6 +182,11 @@ function doGet(e) {
     if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
     return jsonOut(rpcComment(p.key, p.ref, p.text, p.redo === '1'));
   }
+  // แก้/ยกเลิกประกาศตั้งเวลาจากบอร์ด (สำรองของ google.script.run)
+  if (p.action === 'schedDo') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    return jsonOut(rpcSchedAction(p.key, p['do'], p.row, p.when || '', p.content || ''));
+  }
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
   if (p.page === 'board') {
     if (p.key !== cfg('QUEUE_KEY')) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ</h3>');
@@ -889,6 +894,59 @@ function handleScheduledPost(text, chatId, senderId, replyToken, owner) {
     + '\n\n(เวลาส่งจริงอาจคลาดเคลื่อนได้ไม่เกิน ~15 นาทีนะคะ)\nดูรายการ: "เลขา ดูประกาศ" | ยกเลิก: "เลขา ยกเลิกประกาศ <เลข>"');
   logRow(['ตั้งประกาศ', senderId, text, g.name + ' @ ' + when]);
   return true;
+}
+
+// รายการประกาศตั้งเวลา (รอส่ง) สำหรับโชว์บนบอร์ดงาน — row ใช้เลขเดียวกับ "เลขา ยกเลิกประกาศ <เลข>"
+function readScheduledAll() {
+  try {
+    const sh = schedSheet(); if (!sh || sh.getLastRow() < 2) return [];
+    const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues();
+    const out = [];
+    rows.forEach(function (r, i) {
+      if (String(r[6]) !== 'รอส่ง') return;
+      out.push({
+        row: i + 1,
+        time: Utilities.formatDate(new Date(r[0]), 'GMT+7', 'd/M/yyyy HH:mm'),
+        group: String(r[2] || r[1]),
+        type: String(r[3]),
+        repeat: String(r[4]),
+        content: String(r[5] || '')
+      });
+    });
+    return out;
+  } catch (e) { return []; }
+}
+
+// ปุ่มแก้/ยกเลิกประกาศจากหน้าบอร์ด (google.script.run + fetch fallback ผ่าน action=schedDo)
+function rpcSchedAction(key, action, row, when, content) {
+  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  try {
+    const sh = schedSheet();
+    const r = Number(row) + 1;   // แถวจริงในชีต (แถว 1 = หัวตาราง)
+    if (!sh || r < 2 || r > sh.getLastRow() || String(sh.getRange(r, 7).getValue()) !== 'รอส่ง') {
+      return { ok: false, msg: 'ไม่พบประกาศรายการนี้ (อาจส่ง/ยกเลิกไปแล้ว) — รีเฟรชหน้าดูนะคะ' };
+    }
+    if (action === 'cancel') {
+      sh.getRange(r, 7).setValue('ยกเลิก');
+      logRow(['ยกเลิกประกาศ(บอร์ด)', '', String(sh.getRange(r, 3).getValue() || ''), '']);
+      return { ok: true, msg: 'ยกเลิกประกาศแล้วค่ะ' };
+    }
+    if (action === 'edit') {
+      let newWhen = null;
+      if (when) {
+        newWhen = parseThaiWhen(String(when));
+        if (!newWhen) return { ok: false, msg: 'อ่านเวลา "' + when + '" ไม่ออกค่ะ — ลอง "พรุ่งนี้ 8 โมงครึ่ง" หรือ "วันนี้ 18:00"' };
+        sh.getRange(r, 1).setValue(newWhen);
+      }
+      if (content) sh.getRange(r, 6).setValue(String(content));
+      if (!when && !content) return { ok: false, msg: 'ไม่มีอะไรเปลี่ยนค่ะ' };
+      logRow(['แก้ประกาศ(บอร์ด)', '', String(sh.getRange(r, 3).getValue() || ''), (when || '') + ' ' + String(content || '').slice(0, 60)]);
+      return { ok: true, msg: 'แก้ประกาศเรียบร้อยค่ะ',
+               time: Utilities.formatDate(new Date(sh.getRange(r, 1).getValue()), 'GMT+7', 'd/M/yyyy HH:mm'),
+               content: String(sh.getRange(r, 6).getValue() || '') };
+    }
+    return { ok: false, msg: 'ไม่รู้จักคำสั่งนี้' };
+  } catch (err) { return { ok: false, msg: 'ทำรายการไม่สำเร็จ: ' + err }; }
 }
 
 // สรุปงานจากบอร์ดสำหรับโพสต์ลงกลุ่ม (เวอร์ชันพนักงาน — ไม่มีตัวเลขการเงินวงใน)
@@ -2104,7 +2162,7 @@ function boardHtml(key, notice, prj) {
 + '<label class="chk"><input type="checkbox" id="c_redo"> <span>ส่งกลับให้ทีมทำใหม่ตามคอมเมนต์นี้เลย</span></label>'
 + '<div class="acts"><button class="bt cancel" id="cClose">ปิด</button><button class="bt run" id="cSave">บันทึกคอมเมนต์</button></div>'
 + '</div></div>'
-+ '<div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
++ '<div id="sd"></div><div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
 + '<script>' + boardScript(json, key, notice, prj) + '</scr' + 'ipt></body></html>';
 }
 
@@ -2116,6 +2174,7 @@ function boardHtml(key, notice, prj) {
 function boardScript(json, key, notice, prj) {
   return [
     'var ALL=' + json + ';',
+    'var SCHED=' + JSON.stringify(readScheduledAll()).replace(/</g, '\\u003c') + ';',
     'var KEY=' + JSON.stringify(String(key || '')) + ';',
     'var BASE=' + JSON.stringify(ScriptApp.getService().getUrl()) + ';',
     'var NOTICE=' + JSON.stringify(String(notice || '')) + ';',
@@ -2151,8 +2210,15 @@ function boardScript(json, key, notice, prj) {
     + 'h+=\'<div class="mb\'+(w?" busy":"")+(FD==m.k?" sel":"")+\'" data-k="\'+m.k+\'"><div class="av">\'+m.e+\'</div><div class="mn">\'+m.n+\'</div><div class="ms">\'+s+\'</div></div>\'});'
     + 'document.getElementById("tm").innerHTML=h;bind("#tm .mb",function(el){pick(el.getAttribute("data-k"))})}',
 
+    // 📣 กล่องประกาศตั้งเวลา — แก้เวลา/เนื้อหา หรือยกเลิกได้จากบอร์ดเลย
+    'function schedBox(){var el=document.getElementById("sd");if(!SCHED.length){el.innerHTML="";return}'
+    + 'el.innerHTML=\'<div class="prj" style="border-left-color:var(--gold)"><h3>📣 ประกาศตั้งเวลา (\'+SCHED.length+\')</h3>\'+SCHED.map(function(s,i){'
+    + 'return \'<div class="sub"><span>🕐</span><span><b>\'+E(s.time)+\'</b>\'+(s.repeat=="ทุกวัน"?" · ส่งซ้ำทุกวัน":"")+\' → 👥 \'+E(s.group)+\'<br>\''
+    + '+(s.type=="สรุปงาน"?\'<span style="color:#5B9BA0">📊 สรุปงานจากบอร์ด (สร้างสดตอนส่ง)</span>\':\'<span style="color:#7A8A9B">\'+E(String(s.content).slice(0,160))+(s.content.length>160?"…":"")+"</span>")'
+    + '+\'<div class="act" style="max-width:280px;margin-top:6px"><button class="bt cmt" data-sedit="\'+i+\'">✏️ แก้ไข</button><button class="bt cancel" data-scancel="\'+i+\'">✕ ยกเลิก</button></div></span></div>\'}).join("")+"</div>"}',
+
     // วาดบอร์ด — ไทล์สถิตินับเฉพาะขอบเขตฝ่ายที่เลือกอยู่ และกดเพื่อกรองสถานะได้
-    'function render(){team();'
+    'function render(){team();schedBox();'
     + 'var scope=ALL.filter(inDept),op=scope.filter(function(t){return !done(t)});'
     + 'var S=[["open",op.length,"งานค้าง",""],["urgent",op.filter(function(t){return t.urgency=="ด่วนมาก"}).length,"ด่วนมาก","red"],'
     + '["ai",scope.filter(function(t){return t.status=="รอทีม AI"}).length,"รอทีม AI","ai"],["done",scope.filter(function(t){return done(t)&&!canc(t)}).length,"เสร็จแล้ว","dn"]];'
@@ -2241,7 +2307,20 @@ function boardScript(json, key, notice, prj) {
     + 'bind("#cx [data-run],#pj [data-run]",function(el){var r=el.getAttribute("data-run");'
     + 'if(confirm("ให้ทีม AI เริ่มทำงาน #"+r+" ทันทีเลยไหม ?\\n\\nไม่ต้องรอรอบ "+NEXT))go("runnow",r)});'
     + 'bind("#cx [data-cmt],#pj [data-cmt]",function(el){openCmt(el.getAttribute("data-cmt"))});'
-    + 'bind("#pj [data-wf]",function(el){PRJ=el.getAttribute("data-wf");render();window.scrollTo(0,0)})}',
+    + 'bind("#pj [data-wf]",function(el){PRJ=el.getAttribute("data-wf");render();window.scrollTo(0,0)});'
+    // ปุ่มบนกล่องประกาศตั้งเวลา
+    + 'bind("#sd [data-scancel]",function(el){var i=+el.getAttribute("data-scancel"),s=SCHED[i];'
+    + 'if(!confirm("ยกเลิกประกาศ "+s.time+" → "+s.group+" ?"))return;'
+    + 'rpc("rpcSchedAction",[KEY,"cancel",s.row,"",""],'
+    + '"action=schedDo&key="+encodeURIComponent(KEY)+"&do=cancel&row="+s.row,'
+    + 'function(j){toast(j.msg,j.ok);if(j.ok){SCHED.splice(i,1);render()}})});'
+    + 'bind("#sd [data-sedit]",function(el){var i=+el.getAttribute("data-sedit"),s=SCHED[i];'
+    + 'var w=prompt("เวลาส่งใหม่ (เว้นว่าง = ใช้เวลาเดิม "+s.time+")\\nเช่น พรุ่งนี้ 8 โมงครึ่ง / วันนี้ 18:00 / อีก 2 ชั่วโมง","");if(w===null)return;'
+    + 'var c="";if(s.type!="สรุปงาน"){c=prompt("เนื้อหาใหม่ (เว้นว่าง = ใช้เนื้อหาเดิม)",s.content);if(c===null)return}'
+    + 'if(!w&&(!c||c==s.content)){toast("ไม่มีอะไรเปลี่ยนค่ะ",false);return}'
+    + 'rpc("rpcSchedAction",[KEY,"edit",s.row,w||"",(c&&c!=s.content)?c:""],'
+    + '"action=schedDo&key="+encodeURIComponent(KEY)+"&do=edit&row="+s.row+"&when="+encodeURIComponent(w||"")+"&content="+encodeURIComponent((c&&c!=s.content)?c:""),'
+    + 'function(j){toast(j.msg,j.ok);if(j.ok){if(j.time)s.time=j.time;if(j.content)s.content=j.content;render()}})})}',
 
     // ── กล่องคอมเมนต์ปรับแผน ──
     'var CREF="";',
