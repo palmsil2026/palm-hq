@@ -85,8 +85,8 @@ const SYSTEM_PROMPT = [
   '',
   'ส่งข้อความเข้ากลุ่ม (เฉพาะเมื่อคุณปาล์มสั่ง): ถ้าคุณปาล์มสั่งให้ประกาศ/ส่งข้อความไปกลุ่มอื่น',
   'เช่น "บอกในกลุ่มคาเฟ่ว่า...", "แจ้งทีมเซลล์ว่า..." ให้ตอบรับ แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
-  '[[SENDGROUP]]{"target":"cafe|sales|<group id>","message":"ข้อความที่จะส่งเข้ากลุ่ม"}[[/SENDGROUP]]',
-  'target: "cafe"=กลุ่มคาเฟ่, "sales"=กลุ่มทีมเซลล์ หรือใส่ group id ตรงๆ ก็ได้',
+  '[[SENDGROUP]]{"target":"<ชื่อกลุ่มตามที่คุณปาล์มพูด>","message":"ข้อความที่จะส่งเข้ากลุ่ม"}[[/SENDGROUP]]',
+  'target: ใส่ชื่อกลุ่มตามที่คุณปาล์มเรียกได้เลย (เช่น "ทดสอบเลขา", "คาเฟ่", "ทีมเซลล์") ระบบจะหากลุ่มที่ดิฉันอยู่ให้เอง',
   '',
   'บริบทธุรกิจ: โรงน้ำดื่ม "ละกอน" ผลิต/ส่งน้ำดื่ม สั่งผ่าน LINE app | ร้านคาเฟ่ กาแฟ/เครื่องดื่ม'
 ].join('\n');
@@ -301,6 +301,14 @@ function isAddressedToSecretary(ev, text) {
 }
 
 function handleEvent(ev) {
+  // ถูกเชิญเข้ากลุ่มใหม่ → จำกลุ่มทันที + ทักทาย
+  if (ev.type === 'join' && ev.source && (ev.source.groupId || ev.source.roomId)) {
+    const gid = ev.source.groupId || ev.source.roomId;
+    registerGroup(gid);
+    lineReply(ev.replyToken, 'สวัสดีค่ะ ดิฉันคุณเลขา ผู้ช่วยของคุณปาล์มนะคะ 🙋‍♀️\n'
+      + 'มีอะไรให้ช่วยเรียก "เลขา" ได้เลยค่ะ (จำกลุ่มนี้ไว้เรียบร้อยแล้ว)');
+    return;
+  }
   if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
 
   const text = String(ev.message.text || '').trim();
@@ -311,14 +319,24 @@ function handleEvent(ev) {
   const chatId = src.groupId || src.roomId || senderId; // คีย์ห้อง + ความจำ
   const owner = isOwner(senderId);
 
+  // ดูรายชื่อกลุ่มที่เลขาอยู่/รู้จัก (เฉพาะเจ้าของ)
+  if (owner && /^(เลขา\s*)?(รายชื่อกลุ่ม|กลุ่มไหนบ้าง|อยู่กลุ่มไหนบ้าง)$/i.test(text)) {
+    const gs = listKnownGroups();
+    lineReply(replyToken, gs.length
+      ? 'กลุ่มที่ดิฉันอยู่ตอนนี้ค่ะ:\n' + gs.map(function (g, i) { return (i + 1) + '. ' + (g.name || '(ไม่ทราบชื่อ) ' + g.id); }).join('\n')
+        + '\n\nสั่งประกาศได้เลย เช่น "เลขา ประกาศในกลุ่ม' + (gs[0].name ? ' ' + gs[0].name : '') + ' ว่า ..."'
+      : 'ยังไม่รู้จักกลุ่มไหนเลยค่ะ — เชิญดิฉันเข้ากลุ่มก่อน แล้วให้ใครก็ได้ทักในกลุ่มสัก 1 ข้อความนะคะ');
+    return;
+  }
+
   // คำสั่งช่วยหา chat/group id (ไว้ตั้งค่าส่งรายงานเข้ากลุ่ม)
   if (/^(เลขา\s*)?(group\s*id|groupid|chat\s*id|ไอดีกลุ่ม)$/i.test(text)) {
     lineReply(replyToken, 'chat id ของที่นี่:\n' + chatId + '\n(type: ' + (src.type || 'user') + ')');
     return;
   }
 
-  // บันทึกทุกข้อความในกลุ่ม (ไว้ให้เลขาสรุปแชทย้อนหลัง + เด็กปั้นเรียนรู้)
-  if (inGroup) logGroupChat(chatId, ev, text);
+  // บันทึกทุกข้อความในกลุ่ม (ไว้ให้เลขาสรุปแชทย้อนหลัง + เด็กปั้นเรียนรู้) + จำกลุ่มเข้าทะเบียน
+  if (inGroup) { logGroupChat(chatId, ev, text); registerGroup(chatId); }
 
   // ในกลุ่ม: ถ้าไม่ได้เรียกหาเลขา → เงียบ ปล่อยให้คนคุยกันเอง (ทำตัวเป็นธรรมชาติ)
   if (inGroup && !isAddressedToSecretary(ev, text)) {
@@ -423,7 +441,9 @@ function handleEvent(ev) {
       const sent = sendToGroupByTarget(p.blocks.SENDGROUP);
       reply += sent
         ? '\n\n📤 ส่งข้อความเข้ากลุ่มให้แล้วค่ะ'
-        : '\n\n⚠️ ยังไม่ได้ตั้ง id กลุ่มปลายทาง (ตั้ง GROUP_CAFE_ID / GROUP_SALES_ID ก่อนนะคะ)';
+        : '\n\n⚠️ ดิฉันยังไม่รู้จักกลุ่ม "' + String(p.blocks.SENDGROUP.target || '') + '" ค่ะ — '
+          + 'เช็คว่าดิฉันถูกเชิญเข้ากลุ่มนั้นแล้ว และมีคนทักในกลุ่มอย่างน้อย 1 ข้อความ '
+          + '(พิมพ์ "เลขา รายชื่อกลุ่ม" เพื่อดูกลุ่มที่ดิฉันรู้จักได้ค่ะ)';
     } else {
       reply += '\n\n(ขออภัยค่ะ การส่งข้อความเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น)';
     }
@@ -446,6 +466,58 @@ function pushToGroup(propName, text) {
 }
 
 // ส่งเข้ากลุ่มตาม target ที่คุณปาล์มสั่ง (cafe / sales / group id ตรงๆ / ชื่อ property)
+// ทะเบียนกลุ่ม — เลขาจำเอง ไม่ต้องตั้ง Script property ทีละกลุ่ม
+// บันทึกลงแท็บ Groups ทุกครั้งที่ (1) ถูกเชิญเข้ากลุ่ม (2) มีคนพูดในกลุ่ม (แคช 6 ชม. กันเขียนถี่)
+function registerGroup(chatId) {
+  if (!chatId || !/^[CR]/.test(String(chatId))) return;
+  try {
+    const cache = CacheService.getScriptCache();
+    if (cache.get('grp_' + chatId)) return;
+    let name = '';
+    if (String(chatId).charAt(0) === 'C') {   // room (R...) ไม่มี API ชื่อ
+      const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + chatId + '/summary', {
+        headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+      });
+      if (res.getResponseCode() === 200) name = JSON.parse(res.getContentText()).groupName || '';
+    }
+    const id = boardSheetId(); if (!id) return;
+    const ss = ssById(id);
+    let sh = ss.getSheetByName('Groups');
+    if (!sh) { sh = ss.insertSheet('Groups'); sh.appendRow(['chatId', 'ชื่อกลุ่ม', 'อัปเดตเมื่อ']); }
+    const last = sh.getLastRow();
+    let row = 0;
+    if (last >= 2) {
+      const ids = sh.getRange(2, 1, last - 1, 1).getValues();
+      for (let i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(chatId)) { row = i + 2; break; }
+    }
+    if (row) sh.getRange(row, 2, 1, 2).setValues([[name || sh.getRange(row, 2).getValue(), new Date()]]);
+    else sh.appendRow([chatId, name, new Date()]);
+    cache.put('grp_' + chatId, '1', 21600);
+  } catch (err) { console.error('registerGroup: ' + err); }
+}
+
+// อ่านทะเบียนกลุ่มทั้งหมด → [{id, name}]
+function listKnownGroups() {
+  try {
+    const id = boardSheetId(); if (!id) return [];
+    const sh = ssById(id).getSheetByName('Groups');
+    if (!sh || sh.getLastRow() < 2) return [];
+    return sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues()
+             .map(function (r) { return { id: String(r[0]), name: String(r[1] || '') }; })
+             .filter(function (g) { return g.id; });
+  } catch (err) { return []; }
+}
+
+// หากลุ่มจากชื่อ (ตรงตัวก่อน แล้วค่อยแบบมีคำนั้นอยู่ในชื่อ)
+function findGroupByName(name) {
+  const q = String(name || '').trim().toLowerCase();
+  if (!q) return '';
+  const gs = listKnownGroups();
+  for (let i = 0; i < gs.length; i++) if (gs[i].name.toLowerCase() === q) return gs[i].id;
+  for (let i = 0; i < gs.length; i++) if (gs[i].name && gs[i].name.toLowerCase().indexOf(q) !== -1) return gs[i].id;
+  return '';
+}
+
 function sendToGroupByTarget(sg) {
   const map = {
     'cafe': 'GROUP_CAFE_ID', 'คาเฟ่': 'GROUP_CAFE_ID', 'กลุ่มคาเฟ่': 'GROUP_CAFE_ID',
@@ -456,6 +528,8 @@ function sendToGroupByTarget(sg) {
   if (map[t]) gid = cfg(map[t]);
   else if (/^[CRU][0-9a-fA-F]{20,}$/.test(t)) gid = t;   // ใส่ group id ตรงๆ
   else if (cfg(t)) gid = cfg(t);                          // เผื่อใส่ชื่อ property
+  if (!gid) gid = findGroupByName(t);                     // หาในทะเบียนกลุ่มที่เลขาอยู่
+  if (!gid && map[t]) return false;
   if (!gid) return false;
   linePush(gid, String(sg.message || ''));
   return true;
