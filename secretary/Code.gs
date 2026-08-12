@@ -55,7 +55,15 @@ const SYSTEM_PROMPT = [
   'คัดแยกและบันทึกงาน: เมื่อข้อความเป็นการ "ฝากงาน/มอบหมายงาน" ให้ตอบตามปกติ แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
   '[[TASK]]{"biz":"โรงน้ำ|คาเฟ่|อื่นๆ","type":"ประเภทสั้นๆ","detail":"สรุปงานให้ชัด","urgency":"ด่วนมาก|ปกติ|ไม่เร่ง","due":"กำหนดถ้ามี","assignee":"เลขา|ทีมAI|คน","dept":"แผนกถ้าเป็นทีมAI"}[[/TASK]]',
   'ช่อง dept (ใส่เฉพาะเมื่อ assignee="ทีมAI"): finance=การเงิน/ต้นทุน, analyst=วิเคราะห์ข้อมูล/รายงาน,',
-  'content=คอนเทนต์/ดีไซน์/โพสต์, writer=เขียนเอกสาร/ข้อความยาว, researcher=หาข้อมูล/เทียบราคา, coder=แอป/โค้ด/ระบบ',
+  'content=คอนเทนต์/ดีไซน์/โพสต์, writer=เขียนเอกสาร/ข้อความยาว, researcher=หาข้อมูล/เทียบราคา, coder=แอป/โค้ด/ระบบ,',
+  'data=สร้าง/ดูแลฐานข้อมูล รวบรวม-ทำความสะอาดข้อมูล',
+  '',
+  'งานใหญ่ = แตกเป็นแผนงาน (สำคัญ): ถ้างานที่ได้รับต้องทำหลายขั้นตอน/หลายแผนก',
+  '(เช่น "ทำนามบัตรให้ทีมขาย" ต้องรวบรวมรายชื่อ → สร้างฐานข้อมูล → ออกแบบ → เสนอเลือก)',
+  'อย่าลงเป็นงานเดี่ยว แต่ให้แตกเป็นงานย่อยเรียงลำดับ แล้วต่อท้ายบล็อกนี้แทน [[TASK]] (ผู้ใช้ไม่เห็น):',
+  '[[PLAN]]{"title":"ชื่องานหลัก","biz":"โรงน้ำ|คาเฟ่|อื่นๆ","goal":"ผลลัพธ์ที่ต้องการ","steps":[{"dept":"data|content|analyst|writer|researcher|coder|เลขา","detail":"งานย่อยทำอะไร","needs":"ข้อมูล/สิ่งที่ต้องมีก่อน ถ้าไม่มีเว้นว่าง"}]}[[/PLAN]]',
+  'ตอบผู้ส่งว่ารับเรื่องและจะร่างแผนเสนอคุณปาล์มก่อน (ระบบจะส่งแผนให้เขาอนุมัติเอง)',
+  'แผนที่ดี: 3-6 ขั้น เรียงตามลำดับที่ต้องทำจริง ระบุแผนกให้ตรงงาน และบอกว่าขั้นไหนต้องรอข้อมูลอะไร',
   'กติกาช่อง assignee:',
   '- "เลขา" = งานเบาที่คุณทำเสร็จให้แล้วในคำตอบนี้ (ไม่ต้องมีใครทำต่อ)',
   '- "ทีมAI" = งานหนักที่ต้องใช้ AI ทำต่อ เช่น วิเคราะห์ยอดขายเชิงลึก ทำสไลด์ เขียนโค้ด ค้นข้อมูลเชิงลึก ร่างเอกสารยาว',
@@ -98,6 +106,7 @@ function doPost(e) {
     // ช่องเชื่อมกับทีม AI ใน Claude Code: ส่งผลงานกลับมาปิดงาน
     if (body.action === 'completeTask') return handleCompleteTask(body);
     if (body.action === 'startTask') return handleStartTask(body);
+    if (body.action === 'askInfo') return handleAskInfo(body);
     // นอกนั้น = webhook จาก LINE
     (body.events || []).forEach(handleEvent);
   } catch (err) {
@@ -124,6 +133,14 @@ function doGet(e) {
   if (p.action === 'board') {
     if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut({ ok: true, tasks: readBoardAll() });
+  }
+  // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
+  if (p.page === 'board') {
+    if (p.key !== cfg('QUEUE_KEY')) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ</h3>');
+    return HtmlService.createHtmlOutput(boardHtml(p.key))
+      .setTitle('บอร์ดงาน — ละกอน & คาเฟ่')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
   return ContentService.createTextOutput('คุณเลขาพร้อมทำงานค่ะ ✅  (endpoint นี้ไว้รับ webhook จาก LINE)');
 }
@@ -190,12 +207,35 @@ function handleEvent(ev) {
     return;
   }
 
+  // บันทึกทุกข้อความในกลุ่ม (ไว้ให้เลขาสรุปแชทย้อนหลัง + เด็กปั้นเรียนรู้)
+  if (inGroup) logGroupChat(chatId, ev, text);
+
   // ในกลุ่ม: ถ้าไม่ได้เรียกหาเลขา → เงียบ ปล่อยให้คนคุยกันเอง (ทำตัวเป็นธรรมชาติ)
   if (inGroup && !isAddressedToSecretary(ev, text)) {
     return;
   }
 
   const history = memGet(chatId);
+
+  // 0.1) คุณปาล์มอนุมัติ/แก้แผนงาน (เฉพาะเจ้าของ)
+  if (owner) {
+    const pv = handlePlanVerdict(text, replyToken, chatId);
+    if (pv) return;
+  }
+
+  // 0.2) มีคำถามค้างอยู่ในห้องนี้ → ถือว่าข้อความนี้คือคำตอบ → ปลดล็อกงาน
+  if (tryAnswerPendingQuestion(chatId, senderId, text, replyToken)) return;
+
+  // 0.3) ขอสรุปแชทในกลุ่ม
+  if (inGroup && isChatSummaryRequest(text)) {
+    const log = readGroupChat(chatId, 120);
+    const q = 'นี่คือบทสนทนาล่าสุดในกลุ่มนี้ (เก่า→ใหม่):\n' + log
+            + '\n\nคำขอ: ' + text + '\nช่วยสรุปให้กระชับแบบเลขามือโปร: ประเด็นสำคัญ / สิ่งที่ตกลงกัน / งานที่ต้องทำต่อและใครรับผิดชอบ';
+    const reply = parseBlocks(askClaude(q, [])).reply;
+    lineReply(replyToken, reply);
+    logRow(['สรุปแชทกลุ่ม', senderId, text, reply]);
+    return;
+  }
 
   // 1) เรื่องการเงินวงใน → ปฏิเสธ + เด้งเตือนคุณปาล์ม (โหมด A + B)
   if (isFinanceTopic(text)) {
@@ -241,6 +281,14 @@ function handleEvent(ev) {
   // 3.2 ถ้าเป็นข้อเสนอ/ตามงาน/เรื่องด่วน → ส่งสรุปถึงคุณปาล์ม
   if (p.blocks.ALERT && !owner) {
     alertOwnerProposal(p.blocks.ALERT, senderId);
+  }
+  // 3.1b เป็นงานใหญ่ → เลขาแตกเป็นแผนงาน แล้วเสนอคุณปาล์มอนุมัติทางไลน์
+  if (p.blocks.PLAN) {
+    const pid = createProjectPlan(p.blocks.PLAN, senderId);
+    if (pid) {
+      reply += '\n\n📁 ร่างแผนงานเป็นโปรเจกต์ ' + pid + ' แล้วค่ะ — ส่งให้คุณปาล์มพิจารณาอยู่นะคะ';
+      pushPlanForApproval(pid, p.blocks.PLAN, senderId);
+    }
   }
   // 3.3 คุณปาล์มสั่งให้ส่งข้อความเข้ากลุ่ม (อนุญาตเฉพาะเจ้าของ)
   if (p.blocks.SENDGROUP) {
@@ -380,9 +428,10 @@ function askClaude(userText, history) {
   if (!apiKey) return 'ระบบยังไม่ได้ตั้งค่า API key ค่ะ (แจ้งผู้ดูแลระบบด้วยนะคะ)';
 
   const kb = loadKB();
-  const sys = kb
-    ? SYSTEM_PROMPT + '\n\nคลังข้อมูลธุรกิจ/โรงงาน (ใช้อ้างอิงตอบได้ แต่ยังห้ามเปิดเผยการเงินวงในตามกฎ):\n' + kb
-    : SYSTEM_PROMPT;
+  const pb = loadPlaybook();
+  let sys = SYSTEM_PROMPT;
+  if (kb) sys += '\n\nคลังข้อมูลธุรกิจ/โรงงาน (ใช้อ้างอิงตอบได้ แต่ยังห้ามเปิดเผยการเงินวงในตามกฎ):\n' + kb;
+  if (pb) sys += '\n\n📓 Playbook — วิธีคิด/หลักการตัดสินใจของคุณปาล์ม (ยึดตามนี้เวลาวางแผนหรือเสนอทางเลือก):\n' + pb;
 
   const messages = (history || []).concat([{ role: 'user', content: userText }]);
   const payload = {
@@ -488,7 +537,7 @@ function boardSheetId() {
 function parseBlocks(raw) {
   let reply = String(raw);
   const blocks = {};
-  ['TASK', 'ALERT', 'SENDGROUP'].forEach(function (name) {
+  ['TASK', 'ALERT', 'SENDGROUP', 'PLAN'].forEach(function (name) {
     const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
     const m = reply.match(re);
     if (m) {
@@ -552,7 +601,8 @@ function readBoardAll() {
       const r = data[i];
       out.push({
         ref: r[0], time: r[1], status: r[2], urgency: r[3], biz: r[4],
-        type: r[5], from: r[6], detail: r[8], due: r[9], assignee: r[11] || '', result: r[12] || '', dept: r[13] || ''
+        type: r[5], from: r[6], detail: r[8], due: r[9], assignee: r[11] || '', result: r[12] || '', dept: r[13] || '',
+        project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', blocked: r[17] || ''
       });
     }
     return out;
@@ -663,6 +713,412 @@ function logTaskToBoard(task, senderId) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  📋 หน้าบอร์ดงาน (เสิร์ฟจาก GAS — ฝังข้อมูลมาเลย ไม่ต้อง fetch)
+// ════════════════════════════════════════════════════════════
+function boardHtml(key) {
+  const tasks = readBoardAll();
+  const json = JSON.stringify(tasks).replace(/</g, '\\u003c');
+  return '<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">'
++ '<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">'
++ '<style>'
++ '*{box-sizing:border-box;margin:0;padding:0}'
++ ':root{--navy:#1B3558;--navy-d:#122540;--navy-l:#EAF0F7;--gold:#C8A96E;--gold-l:#F5EDD9;--teal:#5B9BA0;--teal-l:#E0EEEF;--cream:#F8F5EF;--text:#1B2B3B;--sub:#7A8A9B;--bd:#D8D0C4;--green:#3D9970;--orange:#C8842A;--red:#C0392B}'
++ 'body{font-family:Sarabun,sans-serif;background:var(--cream);color:var(--text);padding-bottom:50px}'
++ '.hd{background:linear-gradient(135deg,var(--navy),var(--navy-d));color:#fff;padding:18px 16px;border-bottom:3px solid var(--gold)}'
++ '.hd h1{font-size:1.15rem}.hd .s{font-size:.75rem;color:var(--gold-l);font-weight:300}'
++ '.wrap{max-width:1000px;margin:0 auto;padding:14px}'
++ '.tt{font-size:.8rem;font-weight:700;color:var(--navy);margin:4px 0 8px}'
++ '.team{display:flex;gap:9px;overflow-x:auto;padding-bottom:6px;margin-bottom:12px}'
++ '.mb{min-width:132px;flex:0 0 auto;background:#fff;border:1px solid var(--bd);border-radius:11px;padding:10px 8px;text-align:center}'
++ '.mb.busy{border-color:var(--gold);background:linear-gradient(180deg,#fff,var(--gold-l))}'
++ '.av{font-size:1.5rem}.mn{font-size:.78rem;font-weight:700;color:var(--navy);margin-top:4px}'
++ '.ms{font-size:.66rem;margin-top:3px;color:var(--sub);min-height:2em}'
++ '.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:3px}'
++ '.dot.g{background:var(--green)}.dot.o{background:var(--orange);animation:p 1.2s infinite}.dot.a{background:var(--gold)}'
++ '@keyframes p{0%,100%{opacity:1}50%{opacity:.35}}'
++ '.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:9px;margin-bottom:12px}'
++ '.st{background:#fff;border:1px solid var(--bd);border-radius:11px;padding:10px;text-align:center}'
++ '.st .n{font-size:1.35rem;font-weight:700;color:var(--navy)}.st .l{font-size:.7rem;color:var(--sub)}'
++ '.st.red .n{color:var(--red)}.st.ai .n{color:var(--teal)}.st.dn .n{color:var(--green)}'
++ '.fl{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}'
++ '.ch{padding:6px 13px;border-radius:99px;border:1.5px solid var(--bd);background:#fff;color:var(--sub);font-family:inherit;font-size:.8rem;font-weight:600;cursor:pointer}'
++ '.ch.on{background:var(--navy);border-color:var(--navy);color:#fff}'
++ '.prj{background:#fff;border:1px solid var(--bd);border-left:5px solid var(--navy);border-radius:12px;padding:13px 15px;margin-bottom:11px}'
++ '.prj h3{font-size:.95rem;color:var(--navy);margin-bottom:3px}'
++ '.bar{height:7px;background:var(--navy-l);border-radius:99px;overflow:hidden;margin:8px 0}'
++ '.bar i{display:block;height:100%;background:var(--green)}'
++ '.sub{font-size:.83rem;padding:6px 0;border-top:1px dashed var(--bd);display:flex;gap:7px;align-items:flex-start}'
++ '.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:11px}'
++ '.cd{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:7px}'
++ '.cd.u{border-left:5px solid var(--red)}.cd.n{border-left:5px solid var(--orange)}.cd.l{border-left:5px solid var(--green)}'
++ '.rf{font-size:.72rem;font-weight:700;color:var(--sub)}'
++ '.bg{font-size:.66rem;font-weight:700;padding:2px 8px;border-radius:99px;display:inline-block}'
++ '.dt{font-size:.88rem;line-height:1.45}.mt{font-size:.72rem;color:var(--sub);display:flex;gap:10px;flex-wrap:wrap}'
++ '.rs{background:var(--cream);border:1px dashed var(--bd);border-radius:8px;padding:7px 9px;font-size:.78rem}'
++ '.em{text-align:center;color:var(--sub);padding:45px 20px}'
++ '</style></head><body>'
++ '<div class="hd"><h1>📋 บอร์ดงาน</h1><div class="s">โรงน้ำละกอน 💧 &amp; คาเฟ่ ☕ — <span id="up"></span></div></div>'
++ '<div class="wrap"><div class="tt">👥 ทีมงาน AI</div><div class="team" id="tm"></div>'
++ '<div class="stats" id="sx"></div><div class="fl" id="fx"></div>'
++ '<div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
++ '<script>var ALL=' + json + ';var F="open";'
++ 'var TEAM=[{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"coder",e:"💻",n:"โค้ด"}];'
++ 'var FS=[["open","ค้างอยู่"],["urgent","🔴 ด่วนมาก"],["wait","⏳ รออนุมัติ"],["ai","🤖 รอทีม AI"],["doing","⚙️ กำลังทำ"],["blocked","⏸️ รอข้อมูล"],["human","👤 งานคน"],["done","✅ เสร็จแล้ว"],["all","ทั้งหมด"]];'
++ 'function E(s){return String(s==null?"":s).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[m]})}'
++ 'function done(t){return /เสร็จ|ปิด|ยกเลิก/.test(t.status||"")}'
++ 'function mt(t){if(F=="all")return 1;if(F=="open")return !done(t);if(F=="urgent")return t.urgency=="ด่วนมาก"&&!done(t);'
++ 'if(F=="wait")return t.status=="รออนุมัติ";if(F=="ai")return t.status=="รอทีม AI";if(F=="doing")return t.status=="กำลังทำ (AI)";'
++ 'if(F=="blocked")return t.status=="รอข้อมูล";if(F=="human")return (t.assignee=="คน"||!t.assignee)&&!done(t);if(F=="done")return done(t);return 1}'
++ 'function team(){var h="",nw=ALL.filter(function(t){return t.status=="ใหม่"||t.status=="รออนุมัติ"}).length;'
++ 'h+=\'<div class="mb\'+(nw?" busy":"")+\'"><div class="av">🗓️</div><div class="mn">คุณเลขา</div><div class="ms">\'+(nw?\'<span class="dot o"></span>จัดคิว/รออนุมัติ \'+nw:\'<span class="dot g"></span>เฝ้าบอร์ดอยู่ค่ะ\')+\'</div></div>\';'
++ 'TEAM.forEach(function(m){var w=null,q=0,d=0;ALL.forEach(function(t){if(t.dept!=m.k)return;if(t.status=="กำลังทำ (AI)")w=t;if(t.status=="รอทีม AI")q++;if(t.status=="เสร็จ (AI)")d++});'
++ 'var s=w?\'<span class="dot o"></span>ทำ #\'+E(w.ref):(q?\'<span class="dot a"></span>คิว \'+q+\' งาน\':\'<span class="dot g"></span>ว่าง\');'
++ 'h+=\'<div class="mb\'+(w?" busy":"")+\'"><div class="av">\'+m.e+\'</div><div class="mn">\'+m.n+\'</div><div class="ms">\'+s+\'</div></div>\'});'
++ 'document.getElementById("tm").innerHTML=h}'
++ 'function render(){team();var op=ALL.filter(function(t){return !done(t)});'
++ 'var S=[[op.length,"งานค้าง",""],[op.filter(function(t){return t.urgency=="ด่วนมาก"}).length,"ด่วนมาก","red"],'
++ '[ALL.filter(function(t){return t.status=="รอทีม AI"}).length,"รอทีม AI","ai"],[ALL.filter(done).length,"เสร็จแล้ว","dn"]];'
++ 'document.getElementById("sx").innerHTML=S.map(function(s){return \'<div class="st \'+s[2]+\'"><div class="n">\'+s[0]+\'</div><div class="l">\'+s[1]+\'</div></div>\'}).join("");'
++ 'document.getElementById("fx").innerHTML=FS.map(function(f){return \'<button class="ch\'+(f[0]==F?" on":"")+\'" onclick="F=\\\'\'+f[0]+\'\\\';render()">\'+f[1]+\'</button>\'}).join("");'
++ 'var list=ALL.filter(mt),ph="",seen={};'
++ 'list.filter(function(t){return t.project}).forEach(function(t){if(seen[t.project])return;seen[t.project]=1;'
++ 'var st=ALL.filter(function(x){return x.project==t.project}).sort(function(a,b){return a.step-b.step});'
++ 'var dn=st.filter(done).length,pc=Math.round(dn/st.length*100);'
++ 'ph+=\'<div class="prj"><h3>📁 \'+E(t.projectTitle||t.project)+\'</h3><div class="mt">\'+E(t.project)+\' · \'+dn+\'/\'+st.length+\' เสร็จ</div>\'+'
++ '\'<div class="bar"><i style="width:\'+pc+\'%"></i></div>\'+st.map(function(s){var ic=done(s)?"✅":(s.status=="กำลังทำ (AI)"?"⚙️":(s.status=="รอข้อมูล"?"⏸️":(s.status=="รออนุมัติ"?"📝":"⏳")));'
++ 'return \'<div class="sub"><span>\'+ic+\'</span><span><b>\'+s.step+\'.</b> \'+E(s.detail)+\' <span style="color:#7A8A9B">— \'+E(s.dept||s.assignee)+\' · \'+E(s.status)+\'</span>\'+(s.blocked?\'<br><span style="color:#C8842A;font-size:.75rem">\'+E(s.blocked)+\'</span>\':"")+\'</span></div>\'}).join("")+\'</div>\'});'
++ 'document.getElementById("pj").innerHTML=ph;'
++ 'var solo=list.filter(function(t){return !t.project});'
++ 'var ord={"ด่วนมาก":0,"ปกติ":1,"ไม่เร่ง":2};solo.sort(function(a,b){return (ord[a.urgency]==null?1:ord[a.urgency])-(ord[b.urgency]==null?1:ord[b.urgency])});'
++ 'document.getElementById("ex").style.display=(list.length?"none":"block");'
++ 'document.getElementById("cx").innerHTML=solo.map(function(t){var u=t.urgency=="ด่วนมาก"?"u":(t.urgency=="ไม่เร่ง"?"l":"n");'
++ 'var ub=t.urgency=="ด่วนมาก"?"background:#FBE9E7;color:#C0392B":(t.urgency=="ไม่เร่ง"?"background:#E8F5EC;color:#3D9970":"background:#FFF3E0;color:#C8842A");'
++ 'return \'<div class="cd \'+u+\'"><div style="display:flex;justify-content:space-between;gap:6px"><span class="rf">#\'+E(t.ref)+\'</span>\'+'
++ '\'<span><span class="bg" style="\'+ub+\'">\'+E(t.urgency||"ปกติ")+\'</span> <span class="bg" style="background:#EAF0F7;color:#1B3558">\'+E(t.status)+\'</span></span></div>\'+'
++ '\'<div class="dt">\'+E(t.detail)+\'</div><div class="mt">\'+(t.biz?"<span>🏢 "+E(t.biz)+"</span>":"")+(t.dept?"<span>🤖 "+E(t.dept)+"</span>":"")+(t.due?"<span>⏳ "+E(t.due)+"</span>":"")+\'</div>\'+'
++ '(t.result?\'<div class="rs">💬 \'+E(String(t.result).slice(0,300))+\'</div>\':"")+\'</div>\'}).join("")}'
++ 'document.getElementById("up").textContent="อัปเดต "+new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});'
++ 'render();setTimeout(function(){location.reload()},120000);'
++ '</scr' + 'ipt></body></html>';
+}
+
+// ════════════════════════════════════════════════════════════
+//  📁 โปรเจกต์ = งานหลัก + งานย่อย (เสนอแผน → คุณปาล์มอนุมัติ → ทีมลงมือ)
+// ════════════════════════════════════════════════════════════
+function reqSheet() {
+  const id = boardSheetId();
+  if (!id) return null;
+  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  let sheet = ss.getSheetByName('Requests');
+  if (!sheet) {
+    sheet = ss.insertSheet('Requests');
+    sheet.appendRow(['เลขงาน', 'เวลาที่ส่ง', 'สถานะ', 'ความเร่งด่วน', 'ธุรกิจ', 'ประเภท', 'ผู้ฝาก',
+                     'ติดต่อ', 'รายละเอียด', 'กำหนดเสร็จ', 'ลิงก์รูป', 'ผู้รับผิดชอบ', 'ผลงาน', 'แผนก',
+                     'โปรเจกต์', 'ลำดับ', 'ชื่อโปรเจกต์', 'ติดขัด']);
+  }
+  return sheet;
+}
+
+// สร้างโปรเจกต์ + งานย่อย (สถานะเริ่มต้น "รออนุมัติ")
+function createProjectPlan(plan, senderId) {
+  const sheet = reqSheet();
+  if (!sheet || !plan || !plan.steps || !plan.steps.length) return '';
+  try {
+    const now = new Date();
+    const pid = 'PRJ' + Utilities.formatDate(now, 'GMT+7', 'yyMMdd') + '-' + Math.floor(1000 + Math.random() * 9000);
+    plan.steps.slice(0, 10).forEach(function (s, i) {
+      const ref = pid + '.' + (i + 1);
+      const dept = String(s.dept || '');
+      const assignee = (dept === 'เลขา') ? 'เลขา' : 'ทีมAI';
+      sheet.appendRow([
+        ref, now, 'รออนุมัติ', plan.urgency || 'ปกติ', plan.biz || '', 'งานย่อย', 'LINE',
+        senderId || '', s.detail || '', '', '', assignee, '', (dept === 'เลขา' ? '' : dept),
+        pid, i + 1, plan.title || '', s.needs || ''
+      ]);
+    });
+    return pid;
+  } catch (err) { console.error('createProjectPlan: ' + err); return ''; }
+}
+
+// ส่งแผนให้คุณปาล์มดูในไลน์ เพื่ออนุมัติ/สั่งแก้
+function pushPlanForApproval(pid, plan, senderId) {
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (!owner) return;
+  const DEPT = { data:'📊 ฝ่ายข้อมูล', analyst:'📈 นักวิเคราะห์', content:'🎨 ดีไซน์',
+                 writer:'✍️ นักเขียน', researcher:'🔍 นักวิจัย', coder:'💻 โค้ด',
+                 finance:'💰 การเงิน', 'เลขา':'🗓️ คุณเลขา' };
+  let msg = '📋 ขออนุมัติแผนงานค่ะคุณปาล์ม\n'
+          + '📁 ' + (plan.title || '') + '  (' + pid + ')\n'
+          + (plan.goal ? ('🎯 ' + plan.goal + '\n') : '')
+          + (plan.biz ? ('🏢 ' + plan.biz + '\n') : '') + '\nแผนที่วางไว้:\n';
+  plan.steps.slice(0, 10).forEach(function (s, i) {
+    msg += (i + 1) + '. ' + (DEPT[s.dept] || s.dept || '') + ' — ' + (s.detail || '')
+         + (s.needs ? ('\n     ต้องมีก่อน: ' + s.needs) : '') + '\n';
+  });
+  msg += '\nอนุมัติไหมคะ?\n'
+       + '• พิมพ์ "อนุมัติ ' + pid + '" เพื่อให้ทีมเริ่มงาน\n'
+       + '• หรือบอกได้เลยว่าอยากแก้ตรงไหน (พิมพ์ "แก้ ' + pid + ' : ...")';
+  linePush(owner, msg);
+}
+
+// คุณปาล์มตอบกลับ: อนุมัติ / แก้ / ยกเลิก
+function handlePlanVerdict(text, replyToken, chatId) {
+  const t = String(text).trim();
+  const mApprove = t.match(/^(อนุมัติ|ok|โอเค|เอาเลย)\s*(PRJ[\w-]+)?/i);
+  const mRevise  = t.match(/^(แก้|ปรับ|แก้ไข)\s*(PRJ[\w-]+)\s*[:：]?\s*([\s\S]*)$/i);
+  const mCancel  = t.match(/^(ยกเลิก)\s*(PRJ[\w-]+)/i);
+  if (!mApprove && !mRevise && !mCancel) return false;
+
+  const pid = (mApprove && mApprove[2]) || (mRevise && mRevise[2]) || (mCancel && mCancel[2]) || latestPendingProject();
+  if (!pid) { lineReply(replyToken, 'ตอนนี้ไม่มีแผนงานที่รออนุมัติอยู่ค่ะ'); return true; }
+
+  if (mCancel) {
+    setProjectStatus(pid, 'ยกเลิก');
+    lineReply(replyToken, 'ยกเลิกแผน ' + pid + ' ให้แล้วค่ะ');
+    return true;
+  }
+  if (mRevise) {
+    const note = (mRevise[3] || '').trim();
+    appendProjectNote(pid, note);
+    lineReply(replyToken, 'รับทราบค่ะ จดข้อแก้ไขของ ' + pid + ' ไว้แล้ว:\n"' + note + '"\n'
+      + 'เดี๋ยวทีมปรับตามนี้ พิมพ์ "อนุมัติ ' + pid + '" เมื่อพร้อมให้เริ่มได้เลยค่ะ');
+    return true;
+  }
+  const n = approveProject(pid);
+  lineReply(replyToken, n
+    ? ('✅ อนุมัติแล้วค่ะ ' + pid + ' — ทีมจะเริ่มงานย่อย ' + n + ' รายการในรอบถัดไปนะคะ')
+    : ('ไม่พบแผน ' + pid + ' ที่รออนุมัติค่ะ'));
+  return true;
+}
+
+function latestPendingProject() {
+  const sheet = reqSheet(); if (!sheet) return '';
+  const data = sheet.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][2]) === 'รออนุมัติ' && data[i][14]) return String(data[i][14]);
+  }
+  return '';
+}
+
+// อนุมัติ → งานย่อยขั้นแรกเข้าคิวทีม AI, ขั้นถัดไปเป็น "รอลำดับ"
+function approveProject(pid) {
+  const sheet = reqSheet(); if (!sheet) return 0;
+  const data = sheet.getDataRange().getValues();
+  let count = 0, firstStep = 999;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][14]) === pid && String(data[i][2]) === 'รออนุมัติ') {
+      firstStep = Math.min(firstStep, Number(data[i][15]) || 1);
+    }
+  }
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][14]) === pid && String(data[i][2]) === 'รออนุมัติ') {
+      const step = Number(data[i][15]) || 1;
+      const isAI = String(data[i][11]) === 'ทีมAI';
+      sheet.getRange(i + 1, 3).setValue(step === firstStep ? (isAI ? 'รอทีม AI' : 'ใหม่') : 'รอลำดับ');
+      count++;
+    }
+  }
+  return count;
+}
+
+function setProjectStatus(pid, status) {
+  const sheet = reqSheet(); if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][14]) === pid) sheet.getRange(i + 1, 3).setValue(status);
+  }
+}
+
+function appendProjectNote(pid, note) {
+  const sheet = reqSheet(); if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][14]) === pid && String(data[i][15]) == 1) {
+      const cur = String(data[i][9] || '');
+      sheet.getRange(i + 1, 10).setValue((cur ? cur + ' | ' : '') + 'แก้ไขจากเจ้าของ: ' + note);
+      return;
+    }
+  }
+}
+
+// เมื่องานย่อยเสร็จ → ปลดล็อกขั้นถัดไปของโปรเจกต์เดียวกัน
+function advanceProject(pid) {
+  if (!pid) return;
+  const sheet = reqSheet(); if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  let nextStep = 9999, rows = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][14]) !== pid) continue;
+    const st = String(data[i][2]);
+    if (st === 'รอลำดับ') { const s = Number(data[i][15]) || 0; if (s < nextStep) nextStep = s; rows.push({ i: i, step: s, ai: String(data[i][11]) === 'ทีมAI' }); }
+    if (st === 'รอทีม AI' || st === 'กำลังทำ (AI)' || st === 'ใหม่' || st === 'รอข้อมูล') return; // ยังมีงานค้างอยู่
+  }
+  rows.filter(function (r) { return r.step === nextStep; })
+      .forEach(function (r) { sheet.getRange(r.i + 1, 3).setValue(r.ai ? 'รอทีม AI' : 'ใหม่'); });
+}
+
+// ════════════════════════════════════════════════════════════
+//  ❓ คำถามค้าง — AI ขาดข้อมูล → เลขาไปถามให้ → ได้คำตอบ → ปลดล็อก
+// ════════════════════════════════════════════════════════════
+function qSheet() {
+  const id = boardSheetId(); if (!id) return null;
+  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  let s = ss.getSheetByName('Questions');
+  if (!s) { s = ss.insertSheet('Questions'); s.appendRow(['Q_ID', 'เวลา', 'งาน', 'ถามใคร(chatId)', 'คำถาม', 'สถานะ', 'คำตอบ', 'ผู้ตอบ', 'เวลาตอบ']); }
+  return s;
+}
+
+// ทีม AI เรียกผ่าน endpoint: ขอให้เลขาไปถามข้อมูลที่ขาด
+function handleAskInfo(body) {
+  if (body.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+  const s = qSheet(); if (!s) return jsonOut({ ok: false, error: 'no sheet' });
+  const target = String(body.target || 'owner');
+  const chatId = resolveChatTarget(target);
+  if (!chatId) return jsonOut({ ok: false, error: 'ไม่รู้จักปลายทาง: ' + target });
+
+  const qid = 'Q' + Utilities.formatDate(new Date(), 'GMT+7', 'yyMMdd') + '-' + Math.floor(100 + Math.random() * 900);
+  s.appendRow([qid, new Date(), body.ref || '', chatId, body.question || '', 'รอตอบ', '', '', '']);
+
+  // ตั้งงานเป็น "รอข้อมูล"
+  const sheet = reqSheet();
+  if (sheet && body.ref) {
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(body.ref)) {
+        sheet.getRange(i + 1, 3).setValue('รอข้อมูล');
+        sheet.getRange(i + 1, 18).setValue('รอคำตอบ: ' + (body.question || ''));
+        break;
+      }
+    }
+  }
+  linePush(chatId, '🙋‍♀️ ขอรบกวนสอบถามค่ะ (เกี่ยวกับงาน ' + (body.ref || '') + ')\n\n'
+    + (body.question || '') + '\n\nตอบกลับข้อความนี้ได้เลยค่ะ (ขึ้นต้นว่า "เลขา" ถ้าอยู่ในกลุ่ม) 🙏');
+  return jsonOut({ ok: true, qid: qid });
+}
+
+function resolveChatTarget(target) {
+  const t = String(target).trim();
+  if (t === 'owner' || t === 'เจ้าของ' || t === 'คุณปาล์ม') return cfg('OWNER_LINE_USER_ID');
+  const map = { cafe:'GROUP_CAFE_ID', 'คาเฟ่':'GROUP_CAFE_ID', sales:'GROUP_SALES_ID', 'เซลล์':'GROUP_SALES_ID', 'ทีมเซลล์':'GROUP_SALES_ID' };
+  if (map[t]) return cfg(map[t]);
+  if (/^[CRU][0-9a-fA-F]{20,}$/.test(t)) return t;
+  return cfg(t) || '';
+}
+
+// มีคำถามค้างในห้องนี้ไหม → ถ้ามี ถือว่าข้อความนี้คือคำตอบ
+function tryAnswerPendingQuestion(chatId, senderId, text, replyToken) {
+  const s = qSheet(); if (!s) return false;
+  const data = s.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][3]) === String(chatId) && String(data[i][5]) === 'รอตอบ') {
+      const answer = String(text).replace(/^เลขา\s*/i, '').trim();
+      if (answer.length < 2) return false;
+      s.getRange(i + 1, 6).setValue('ตอบแล้ว');
+      s.getRange(i + 1, 7).setValue(answer);
+      s.getRange(i + 1, 8).setValue(senderId);
+      s.getRange(i + 1, 9).setValue(new Date());
+
+      const ref = String(data[i][2] || '');
+      const sheet = reqSheet();
+      if (sheet && ref) {
+        const rows = sheet.getDataRange().getValues();
+        for (let j = 1; j < rows.length; j++) {
+          if (String(rows[j][0]) === ref) {
+            const isAI = String(rows[j][11]) === 'ทีมAI';
+            sheet.getRange(j + 1, 3).setValue(isAI ? 'รอทีม AI' : 'ใหม่');
+            sheet.getRange(j + 1, 18).setValue('ได้ข้อมูลแล้ว: ' + answer.slice(0, 500));
+            break;
+          }
+        }
+      }
+      lineReply(replyToken, 'ได้รับข้อมูลแล้วค่ะ ขอบคุณมากนะคะ 🙏\nเดี๋ยวส่งต่อให้ทีมทำงาน ' + ref + ' ต่อเลยค่ะ');
+      const owner = cfg('OWNER_LINE_USER_ID');
+      if (owner && String(chatId) !== String(owner)) {
+        linePush(owner, '✅ ได้คำตอบสำหรับงาน ' + ref + ' แล้วค่ะ\n"' + answer.slice(0, 300) + '"');
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+// ════════════════════════════════════════════════════════════
+//  💬 บันทึกแชทกลุ่ม (ให้เลขาสรุปย้อนหลัง + เด็กปั้นเรียนรู้)
+// ════════════════════════════════════════════════════════════
+const CHAT_KEEP = 1000; // เก็บกี่แถวล่าสุด
+
+function logGroupChat(chatId, ev, text) {
+  if (cfg('LOG_GROUP_CHAT') === 'off') return;
+  try {
+    const id = boardSheetId(); if (!id) return;
+    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    let s = ss.getSheetByName('GroupChat');
+    if (!s) { s = ss.insertSheet('GroupChat'); s.appendRow(['เวลา', 'chatId', 'ผู้พูด(userId)', 'ชื่อ', 'ข้อความ']); }
+    let name = '';
+    try {
+      const uid = (ev.source && ev.source.userId) || '';
+      if (uid) {
+        const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + chatId + '/member/' + uid, {
+          headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+        });
+        if (res.getResponseCode() === 200) name = JSON.parse(res.getContentText()).displayName || '';
+      }
+    } catch (e) {}
+    s.appendRow([new Date(), chatId, (ev.source && ev.source.userId) || '', name, text]);
+    if (s.getLastRow() > CHAT_KEEP + 200) s.deleteRows(2, s.getLastRow() - CHAT_KEEP);
+  } catch (err) { console.error('logGroupChat: ' + err); }
+}
+
+function readGroupChat(chatId, limit) {
+  try {
+    const id = boardSheetId(); if (!id) return '(ยังไม่มีบันทึกแชท)';
+    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const s = ss.getSheetByName('GroupChat');
+    if (!s || s.getLastRow() < 2) return '(ยังไม่มีบันทึกแชทในกลุ่มนี้)';
+    const data = s.getDataRange().getValues();
+    const out = [];
+    for (let i = data.length - 1; i >= 1 && out.length < (limit || 100); i--) {
+      if (String(data[i][1]) !== String(chatId)) continue;
+      const t = data[i][0] ? Utilities.formatDate(new Date(data[i][0]), 'GMT+7', 'd/M HH:mm') : '';
+      out.push('[' + t + '] ' + (data[i][3] || data[i][2] || 'ไม่ทราบชื่อ') + ': ' + data[i][4]);
+    }
+    return out.reverse().join('\n') || '(ยังไม่มีบันทึกแชทในกลุ่มนี้)';
+  } catch (err) { return '(อ่านแชทไม่สำเร็จ)'; }
+}
+
+function isChatSummaryRequest(text) {
+  return /สรุป.*(แชท|คุย|กลุ่ม|ข้อความ|ที่คุยกัน)|(แชท|ที่คุยกัน).*สรุป|เมื่อกี้คุยอะไร|คุยอะไรกันบ้าง/i.test(String(text));
+}
+
+// ════════════════════════════════════════════════════════════
+//  📓 Playbook — วิธีคิดของคุณปาล์ม (เด็กปั้นเป็นคนเขียน)
+// ════════════════════════════════════════════════════════════
+function loadPlaybook() {
+  try {
+    const id = boardSheetId(); if (!id) return '';
+    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    let s = ss.getSheetByName('Playbook');
+    if (!s) {
+      s = ss.insertSheet('Playbook');
+      s.appendRow(['หัวข้อ', 'หลักการ', 'ที่มา(หลักฐาน)', 'ความมั่นใจ', 'อัปเดตเมื่อ']);
+      s.appendRow(['การตัดสินใจ', 'งานใหญ่ให้เสนอแผนก่อนลงมือ เจ้าของชอบดูแล้วปรับเอง', 'คุยกันตอนวางระบบ', 'สูง', new Date()]);
+      s.appendRow(['การออกแบบ', 'ต้องมีคอนเซปอธิบายได้ ห้ามสุ่มมั่ว และต้องใช้สี/ภาพจากคลังแบรนด์', 'คุยกันตอนวางระบบ', 'สูง', new Date()]);
+      s.appendRow(['ต้นทุน', 'เลือกทางที่ประหยัดและเริ่มได้ก่อน ค่อยขยายทีหลัง', 'เลือกโมเดลบาง + รอบทุก 1 ชม.', 'กลาง', new Date()]);
+      return '';
+    }
+    const data = s.getDataRange().getValues();
+    const lines = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][1]) continue;
+      lines.push('- [' + (data[i][0] || '') + '] ' + data[i][1] + (data[i][3] ? (' (มั่นใจ:' + data[i][3] + ')') : ''));
+    }
+    let txt = lines.join('\n');
+    if (txt.length > 3000) txt = txt.slice(0, 3000);
+    return txt;
+  } catch (err) { return ''; }
+}
+
+// ════════════════════════════════════════════════════════════
 //  ช่องเชื่อมกับทีม AI ใน Claude Code (คิวงาน + ปิดงาน)
 // ════════════════════════════════════════════════════════════
 
@@ -679,7 +1135,8 @@ function getAIQueue() {
     for (let i = 1; i < data.length; i++) {
       const r = data[i];
       if (String(r[2]) === 'รอทีม AI') {
-        out.push({ ref: r[0], biz: r[4], type: r[5], detail: r[8], urgency: r[3], due: r[9], dept: r[13] || '' });
+        out.push({ ref: r[0], biz: r[4], type: r[5], detail: r[8], urgency: r[3], due: r[9],
+                   dept: r[13] || '', project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', needs: r[17] || '' });
       }
     }
     return out;
@@ -721,8 +1178,10 @@ function handleCompleteTask(body) {
       sheet.getRange(i + 1, 3).setValue('เสร็จ (AI)');       // สถานะ
       if (sheet.getRange(1, 13).getValue() !== 'ผลงาน') sheet.getRange(1, 13).setValue('ผลงาน');
       sheet.getRange(i + 1, 13).setValue(String(body.result || '').slice(0, 5000));
+      const pid = String(data[i][14] || '');
       const owner = cfg('OWNER_LINE_USER_ID');
       if (owner) linePush(owner, '✅ ทีม AI ทำงาน #' + body.ref + ' เสร็จแล้วค่ะ\n' + String(body.result || '').slice(0, 500));
+      if (pid) advanceProject(pid); // ปลดล็อกงานย่อยขั้นถัดไป
       return jsonOut({ ok: true });
     }
   }
