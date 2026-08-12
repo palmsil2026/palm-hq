@@ -152,7 +152,7 @@ function readDataSheet(tab, limit) {
   const id = cfg('DATA_SHEET_ID');
   if (!id) return { ok: false, error: 'ยังไม่ได้ตั้ง DATA_SHEET_ID' };
   try {
-    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const ss = ssById(id);
     if (!tab) {
       return { ok: true, tabs: ss.getSheets().map(function (s) { return { name: s.getName(), rows: s.getLastRow() }; }) };
     }
@@ -385,7 +385,7 @@ function boardWatch() {
   const id = boardSheetId();
   if (!id) return;
 
-  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  const ss = ssById(id);
   const sheet = ss.getSheetByName('Requests');
   if (!sheet) return;
 
@@ -433,8 +433,8 @@ function askClaude(userText, history) {
   const apiKey = cfg('ANTHROPIC_API_KEY');
   if (!apiKey) return 'ระบบยังไม่ได้ตั้งค่า API key ค่ะ (แจ้งผู้ดูแลระบบด้วยนะคะ)';
 
-  const kb = loadKB();
-  const pb = loadPlaybook();
+  const kb = loadKBCached();
+  const pb = loadPlaybookCached();
   let sys = SYSTEM_PROMPT;
   if (kb) sys += '\n\nคลังข้อมูลธุรกิจ/โรงงาน (ใช้อ้างอิงตอบได้ แต่ยังห้ามเปิดเผยการเงินวงในตามกฎ):\n' + kb;
   if (pb) sys += '\n\n📓 Playbook — วิธีคิด/หลักการตัดสินใจของคุณปาล์ม (ยึดตามนี้เวลาวางแผนหรือเสนอทางเลือก):\n' + pb;
@@ -518,11 +518,20 @@ function sheetIdFrom(v) {
   return m ? m[1] : String(v).trim();
 }
 
+// ⚡ เปิด Spreadsheet ครั้งเดียวต่อการรัน แล้วใช้ซ้ำ (openById แพงมากใน GAS ~300-600ms/ครั้ง)
+var _SS_CACHE_ = {};
+function ssById(v) {
+  const id = sheetIdFrom(v);
+  if (!id) return null;
+  if (!_SS_CACHE_[id]) _SS_CACHE_[id] = SpreadsheetApp.openById(id);
+  return _SS_CACHE_[id];
+}
+
 function logRow(arr) {
   const sheetId = cfg('LOG_SHEET_ID');
   if (!sheetId) return;
   try {
-    const ss = SpreadsheetApp.openById(sheetIdFrom(sheetId));
+    const ss = ssById(sheetId);
     let sheet = ss.getSheetByName('SecretaryLog');
     if (!sheet) {
       sheet = ss.insertSheet('SecretaryLog');
@@ -595,22 +604,38 @@ function isBoardQuery(text) {
   return BOARD_QUERY_KEYWORDS.some(function (k) { return t.indexOf(k.toLowerCase()) !== -1; });
 }
 
+// แปลงเวลาเป็นข้อความไทยสั้นๆ (ว/ด HH:MM) — ทำฝั่งเซิร์ฟเวอร์ให้เลย ฝั่งหน้าเว็บจะได้ไม่ต้องคำนวณ
+function fmtTime(v) {
+  if (!v) return '';
+  try {
+    const d = (v instanceof Date) ? v : new Date(v);
+    if (isNaN(d.getTime())) return String(v);
+    return Utilities.formatDate(d, 'GMT+7', 'd/M HH:mm');
+  } catch (e) { return String(v); }
+}
+
 // คืนงานทุกสถานะ (สำหรับหน้า board.html)
 function readBoardAll() {
   const id = boardSheetId();
   if (!id) return [];
   try {
-    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const ss = ssById(id);
     const sheet = ss.getSheetByName('Requests');
     if (!sheet) return [];
-    const data = sheet.getDataRange().getValues();
+    // ⚡ อ่านแค่ 300 แถวล่าสุด แทนที่จะลากทั้งชีต (getDataRange ช้าขึ้นเรื่อยๆ ตามจำนวนงาน)
+    const last = sheet.getLastRow();
+    if (last < 2) return [];
+    const start = Math.max(2, last - 299);
+    const data = sheet.getRange(start, 1, last - start + 1, 21).getValues();
     const out = [];
-    for (let i = data.length - 1; i >= 1 && out.length < 200; i--) {
+    for (let i = data.length - 1; i >= 0 && out.length < 200; i--) {
       const r = data[i];
+      if (!r[0]) continue;
       out.push({
-        ref: r[0], time: r[1], status: r[2], urgency: r[3], biz: r[4],
+        ref: r[0], time: fmtTime(r[1]), status: r[2], urgency: r[3], biz: r[4],
         type: r[5], from: r[6], detail: r[8], due: r[9], assignee: r[11] || '', result: r[12] || '', dept: r[13] || '',
-        project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', blocked: r[17] || ''
+        project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', blocked: r[17] || '',
+        startedAt: fmtTime(r[19]), doneAt: fmtTime(r[20])
       });
     }
     return out;
@@ -622,7 +647,7 @@ function readBoard(senderId, owner) {
   const id = boardSheetId();
   if (!id) return [];
   try {
-    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const ss = ssById(id);
     const sheet = ss.getSheetByName('Requests');
     if (!sheet) return [];
     const data = sheet.getDataRange().getValues();
@@ -662,7 +687,7 @@ function loadKB() {
   const id = boardSheetId();
   if (!id) return '';
   try {
-    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const ss = ssById(id);
     let s = ss.getSheetByName('ข้อมูลโรงงาน');
     if (!s) {
       s = ss.insertSheet('ข้อมูลโรงงาน');
@@ -696,12 +721,13 @@ function logTaskToBoard(task, senderId) {
   const id = boardSheetId();
   if (!id) return '';
   try {
-    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const ss = ssById(id);
     let sheet = ss.getSheetByName('Requests');
     if (!sheet) {
       sheet = ss.insertSheet('Requests');
       sheet.appendRow(['เลขงาน', 'เวลาที่ส่ง', 'สถานะ', 'ความเร่งด่วน', 'ธุรกิจ',
-                       'ประเภท', 'ผู้ฝาก', 'ติดต่อ', 'รายละเอียด', 'กำหนดเสร็จ', 'ลิงก์รูป', 'ผู้รับผิดชอบ', 'ผลงาน', 'แผนก']);
+                       'ประเภท', 'ผู้ฝาก', 'ติดต่อ', 'รายละเอียด', 'กำหนดเสร็จ', 'ลิงก์รูป', 'ผู้รับผิดชอบ', 'ผลงาน', 'แผนก',
+                       'โปรเจกต์', 'ลำดับ', 'ชื่อโปรเจกต์', 'ติดขัด', 'โน้ตจากเจ้าของ', 'เริ่มทำเมื่อ', 'เสร็จเมื่อ']);
     }
     const now = new Date();
     const ref = 'REQ' + Utilities.formatDate(now, 'GMT+7', 'yyMMdd')
@@ -723,6 +749,19 @@ function logTaskToBoard(task, senderId) {
 // ════════════════════════════════════════════════════════════
 //  📋 หน้าบอร์ดงาน (เสิร์ฟจาก GAS — ฝังข้อมูลมาเลย ไม่ต้อง fetch)
 // ════════════════════════════════════════════════════════════
+// ทีม AI (Claude Code Routine) ทำงานเป็นรอบ — คำนวณว่ารอบถัดไปประมาณกี่โมง
+// ตั้งช่วงเวลาทำงานได้ที่ Script property: AI_ROUND_HOURS (ค่าเริ่มต้น "8-18" เวลาไทย)
+function nextRoundText() {
+  try {
+    const rng = (cfg('AI_ROUND_HOURS') || '8-18').split('-');
+    const from = parseInt(rng[0], 10), to = parseInt(rng[1], 10);
+    const nowH = parseInt(Utilities.formatDate(new Date(), 'GMT+7', 'H'), 10);
+    if (nowH < from) return String(from).padStart(2, '0') + ':15 น. วันนี้';
+    if (nowH >= to) return String(from).padStart(2, '0') + ':15 น. พรุ่งนี้';
+    return String(nowH + 1).padStart(2, '0') + ':15 น. (ทุกชั่วโมง ' + from + ':00-' + to + ':00)';
+  } catch (e) { return 'ทุกชั่วโมงในเวลาทำการ'; }
+}
+
 function boardHtml(key) {
   const tasks = readBoardAll();
   const json = JSON.stringify(tasks).replace(/</g, '\\u003c');
@@ -762,14 +801,15 @@ function boardHtml(key) {
 + '.rf{font-size:.72rem;font-weight:700;color:var(--sub)}'
 + '.bg{font-size:.66rem;font-weight:700;padding:2px 8px;border-radius:99px;display:inline-block}'
 + '.dt{font-size:.88rem;line-height:1.45}.mt{font-size:.72rem;color:var(--sub);display:flex;gap:10px;flex-wrap:wrap}'
++ '.mt.tl{font-size:.68rem;color:#98A6B4;border-top:1px dashed var(--bd);padding-top:5px}'
 + '.rs{background:var(--cream);border:1px dashed var(--bd);border-radius:8px;padding:7px 9px;font-size:.78rem}'
 + '.em{text-align:center;color:var(--sub);padding:45px 20px}'
 + '</style></head><body>'
 + '<div class="hd"><h1>📋 บอร์ดงาน</h1><div class="s">โรงน้ำละกอน 💧 &amp; คาเฟ่ ☕ — <span id="up"></span></div></div>'
-+ '<div class="wrap"><div class="tt">👥 ทีมงาน AI</div><div class="team" id="tm"></div>'
++ '<div class="wrap"><div class="tt">👥 ทีมงาน AI <span style="font-weight:400;color:#7A8A9B">— รอบทำงานถัดไป: ' + nextRoundText() + '</span></div><div class="team" id="tm"></div>'
 + '<div class="stats" id="sx"></div><div class="fl" id="fx"></div>'
 + '<div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
-+ '<script>var ALL=' + json + ';var F="open";'
++ '<script>var ALL=' + json + ';var F="open";var NEXT=' + JSON.stringify(nextRoundText()) + ';'
 + 'var TEAM=[{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"coder",e:"💻",n:"โค้ด"}];'
 + 'var FS=[["open","ค้างอยู่"],["urgent","🔴 ด่วนมาก"],["wait","⏳ รออนุมัติ"],["ai","🤖 รอทีม AI"],["doing","⚙️ กำลังทำ"],["blocked","⏸️ รอข้อมูล"],["human","👤 งานคน"],["done","✅ เสร็จแล้ว"],["all","ทั้งหมด"]];'
 + 'function E(s){return String(s==null?"":s).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[m]})}'
@@ -780,7 +820,8 @@ function boardHtml(key) {
 + 'function team(){var h="",nw=ALL.filter(function(t){return t.status=="ใหม่"||t.status=="รออนุมัติ"}).length;'
 + 'h+=\'<div class="mb\'+(nw?" busy":"")+\'"><div class="av">🗓️</div><div class="mn">คุณเลขา</div><div class="ms">\'+(nw?\'<span class="dot o"></span>จัดคิว/รออนุมัติ \'+nw:\'<span class="dot g"></span>เฝ้าบอร์ดอยู่ค่ะ\')+\'</div></div>\';'
 + 'TEAM.forEach(function(m){var w=null,q=0,d=0;ALL.forEach(function(t){if(t.dept!=m.k)return;if(t.status=="กำลังทำ (AI)")w=t;if(t.status=="รอทีม AI")q++;if(t.status=="เสร็จ (AI)")d++});'
-+ 'var s=w?\'<span class="dot o"></span>ทำ #\'+E(w.ref):(q?\'<span class="dot a"></span>คิว \'+q+\' งาน\':\'<span class="dot g"></span>ว่าง\');'
++ 'var s=w?\'<span class="dot o"></span>ทำ #\'+E(w.ref)+(w.startedAt?\'<br><span style="color:#C8842A">เริ่ม \'+E(w.startedAt)+\'</span>\':"")'
++ ':(q?\'<span class="dot a"></span>คิว \'+q+\' งาน<br><span style="color:#7A8A9B">รอบหน้า \'+NEXT+\'</span>\':\'<span class="dot g"></span>ว่าง\'+(d?\'<br><span style="color:#3D9970">เสร็จแล้ว \'+d+\'</span>\':""));'
 + 'h+=\'<div class="mb\'+(w?" busy":"")+\'"><div class="av">\'+m.e+\'</div><div class="mn">\'+m.n+\'</div><div class="ms">\'+s+\'</div></div>\'});'
 + 'document.getElementById("tm").innerHTML=h}'
 + 'function render(){team();var op=ALL.filter(function(t){return !done(t)});'
@@ -794,7 +835,7 @@ function boardHtml(key) {
 + 'var dn=st.filter(done).length,pc=Math.round(dn/st.length*100);'
 + 'ph+=\'<div class="prj"><h3>📁 \'+E(t.projectTitle||t.project)+\'</h3><div class="mt">\'+E(t.project)+\' · \'+dn+\'/\'+st.length+\' เสร็จ</div>\'+'
 + '\'<div class="bar"><i style="width:\'+pc+\'%"></i></div>\'+st.map(function(s){var ic=done(s)?"✅":(s.status=="กำลังทำ (AI)"?"⚙️":(s.status=="รอข้อมูล"?"⏸️":(s.status=="รออนุมัติ"?"📝":"⏳")));'
-+ 'return \'<div class="sub"><span>\'+ic+\'</span><span><b>\'+s.step+\'.</b> \'+E(s.detail)+\' <span style="color:#7A8A9B">— \'+E(s.dept||s.assignee)+\' · \'+E(s.status)+\'</span>\'+(s.blocked?\'<br><span style="color:#C8842A;font-size:.75rem">\'+E(s.blocked)+\'</span>\':"")+\'</span></div>\'}).join("")+\'</div>\'});'
++ 'return \'<div class="sub"><span>\'+ic+\'</span><span><b>\'+s.step+\'.</b> \'+E(s.detail)+\' <span style="color:#7A8A9B">— \'+E(s.dept||s.assignee)+\' · \'+E(s.status)+(s.startedAt?\' · เริ่ม \'+E(s.startedAt):"")+(s.doneAt?\' · เสร็จ \'+E(s.doneAt):"")+\'</span>\'+(s.blocked?\'<br><span style="color:#C8842A;font-size:.75rem">\'+E(s.blocked)+\'</span>\':"")+\'</span></div>\'}).join("")+\'</div>\'});'
 + 'document.getElementById("pj").innerHTML=ph;'
 + 'var solo=list.filter(function(t){return !t.project});'
 + 'var ord={"ด่วนมาก":0,"ปกติ":1,"ไม่เร่ง":2};solo.sort(function(a,b){return (ord[a.urgency]==null?1:ord[a.urgency])-(ord[b.urgency]==null?1:ord[b.urgency])});'
@@ -804,6 +845,7 @@ function boardHtml(key) {
 + 'return \'<div class="cd \'+u+\'"><div style="display:flex;justify-content:space-between;gap:6px"><span class="rf">#\'+E(t.ref)+\'</span>\'+'
 + '\'<span><span class="bg" style="\'+ub+\'">\'+E(t.urgency||"ปกติ")+\'</span> <span class="bg" style="background:#EAF0F7;color:#1B3558">\'+E(t.status)+\'</span></span></div>\'+'
 + '\'<div class="dt">\'+E(t.detail)+\'</div><div class="mt">\'+(t.biz?"<span>🏢 "+E(t.biz)+"</span>":"")+(t.dept?"<span>🤖 "+E(t.dept)+"</span>":"")+(t.due?"<span>⏳ "+E(t.due)+"</span>":"")+\'</div>\'+'
++ '\'<div class="mt tl">\'+(t.time?"<span>📥 รับ "+E(t.time)+"</span>":"")+(t.startedAt?"<span>⚙️ เริ่ม "+E(t.startedAt)+"</span>":"")+(t.doneAt?"<span>✅ เสร็จ "+E(t.doneAt)+"</span>":"")+\'</div>\'+'
 + '(t.result?\'<div class="rs">💬 \'+E(String(t.result).slice(0,300))+\'</div>\':"")+\'</div>\'}).join("")}'
 + 'document.getElementById("up").textContent="อัปเดต "+new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});'
 + 'render();setTimeout(function(){location.reload()},120000);'
@@ -816,13 +858,13 @@ function boardHtml(key) {
 function reqSheet() {
   const id = boardSheetId();
   if (!id) return null;
-  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  const ss = ssById(id);
   let sheet = ss.getSheetByName('Requests');
   if (!sheet) {
     sheet = ss.insertSheet('Requests');
     sheet.appendRow(['เลขงาน', 'เวลาที่ส่ง', 'สถานะ', 'ความเร่งด่วน', 'ธุรกิจ', 'ประเภท', 'ผู้ฝาก',
                      'ติดต่อ', 'รายละเอียด', 'กำหนดเสร็จ', 'ลิงก์รูป', 'ผู้รับผิดชอบ', 'ผลงาน', 'แผนก',
-                     'โปรเจกต์', 'ลำดับ', 'ชื่อโปรเจกต์', 'ติดขัด', 'โน้ตจากเจ้าของ']);
+                     'โปรเจกต์', 'ลำดับ', 'ชื่อโปรเจกต์', 'ติดขัด', 'โน้ตจากเจ้าของ', 'เริ่มทำเมื่อ', 'เสร็จเมื่อ']);
   }
   return sheet;
 }
@@ -1018,7 +1060,7 @@ function advanceProject(pid) {
 // ════════════════════════════════════════════════════════════
 function qSheet() {
   const id = boardSheetId(); if (!id) return null;
-  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  const ss = ssById(id);
   let s = ss.getSheetByName('Questions');
   if (!s) { s = ss.insertSheet('Questions'); s.appendRow(['Q_ID', 'เวลา', 'งาน', 'ถามใคร(chatId)', 'คำถาม', 'สถานะ', 'คำตอบ', 'ผู้ตอบ', 'เวลาตอบ']); }
   return s;
@@ -1119,7 +1161,7 @@ function logGroupChat(chatId, ev, text) {
   if (cfg('LOG_GROUP_CHAT') === 'off') return;
   try {
     const id = boardSheetId(); if (!id) return;
-    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const ss = ssById(id);
     let s = ss.getSheetByName('GroupChat');
     if (!s) { s = ss.insertSheet('GroupChat'); s.appendRow(['เวลา', 'chatId', 'ผู้พูด(userId)', 'ชื่อ', 'ข้อความ']); }
     // ชื่อคนพูด: cache ไว้ 6 ชม. (เดิมยิง LINE API ทุกข้อความ = ช้าและเปลืองโควตา)
@@ -1149,7 +1191,7 @@ function logGroupChat(chatId, ev, text) {
 function readGroupChat(chatId, limit) {
   try {
     const id = boardSheetId(); if (!id) return '(ยังไม่มีบันทึกแชท)';
-    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const ss = ssById(id);
     const s = ss.getSheetByName('GroupChat');
     if (!s || s.getLastRow() < 2) return '(ยังไม่มีบันทึกแชทในกลุ่มนี้)';
     const data = s.getDataRange().getValues();
@@ -1170,10 +1212,31 @@ function isChatSummaryRequest(text) {
 // ════════════════════════════════════════════════════════════
 //  📓 Playbook — วิธีคิดของคุณปาล์ม (เด็กปั้นเป็นคนเขียน)
 // ════════════════════════════════════════════════════════════
+// ⚡ แคชข้อความที่เปลี่ยนไม่บ่อย (ข้อมูลโรงงาน / Playbook) ไว้ 30 นาที
+function cachedText(key, ttlSec, producer) {
+  try {
+    const c = CacheService.getScriptCache();
+    const hit = c.get(key);
+    if (hit !== null) return hit === ' ' ? '' : hit;
+    const val = String(producer() || '');
+    c.put(key, val === '' ? ' ' : val, ttlSec);
+    return val;
+  } catch (e) { return String(producer() || ''); }
+}
+
+// เรียกใช้ตัวนี้ในงานปกติ (อ่านจากแคช) — ถ้าแก้ชีตแล้วอยากให้เห็นทันที ให้รัน clearCache()
+function loadKBCached() { return cachedText('KB_V1', 1800, loadKB); }
+function loadPlaybookCached() { return cachedText('PB_V1', 1800, loadPlaybook); }
+
+function clearCache() {
+  CacheService.getScriptCache().removeAll(['KB_V1', 'PB_V1']);
+  return 'ล้างแคชแล้ว';
+}
+
 function loadPlaybook() {
   try {
     const id = boardSheetId(); if (!id) return '';
-    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const ss = ssById(id);
     let s = ss.getSheetByName('Playbook');
     if (!s) {
       s = ss.insertSheet('Playbook');
@@ -1204,7 +1267,7 @@ function getAIQueue() {
   const id = boardSheetId();
   if (!id) return [];
   try {
-    const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+    const ss = ssById(id);
     const sheet = ss.getSheetByName('Requests');
     if (!sheet) return [];
     const data = sheet.getDataRange().getValues();
@@ -1220,24 +1283,40 @@ function getAIQueue() {
   } catch (err) { console.error('getAIQueue error: ' + err); return []; }
 }
 
+// ⚡ หาแถวของเลขงาน โดยอ่านแค่คอลัมน์ A (ไม่ลากทั้งชีต)
+function findRefRow(sheet, ref) {
+  const last = sheet.getLastRow();
+  if (last < 2) return 0;
+  const refs = sheet.getRange(2, 1, last - 1, 1).getValues();
+  const target = String(ref);
+  for (let i = 0; i < refs.length; i++) if (String(refs[i][0]) === target) return i + 2;
+  return 0;
+}
+
+// ตรวจว่ามีหัวคอลัมน์เวลาเริ่ม/เวลาเสร็จแล้ว (คอลัมน์ T, U)
+function ensureTimeCols(sheet) {
+  const h = sheet.getRange(1, 13, 1, 9).getValues()[0]; // M..U
+  if (h[0] !== 'ผลงาน') sheet.getRange(1, 13).setValue('ผลงาน');
+  if (h[1] !== 'แผนก') sheet.getRange(1, 14).setValue('แผนก');
+  if (h[7] !== 'เริ่มทำเมื่อ') sheet.getRange(1, 20).setValue('เริ่มทำเมื่อ');
+  if (h[8] !== 'เสร็จเมื่อ') sheet.getRange(1, 21).setValue('เสร็จเมื่อ');
+}
+
 // ทีม AI "เช็คอิน" ก่อนเริ่มทำงาน → สถานะ "กำลังทำ (AI)" + บันทึกแผนก (บอร์ดเห็นสดๆ)
 function handleStartTask(body) {
   if (body.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
   const id = boardSheetId();
   if (!id) return jsonOut({ ok: false, error: 'no sheet' });
-  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  const ss = ssById(id);
   const sheet = ss.getSheetByName('Requests');
   if (!sheet) return jsonOut({ ok: false, error: 'no board' });
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(body.ref)) {
-      sheet.getRange(i + 1, 3).setValue('กำลังทำ (AI)');
-      if (sheet.getRange(1, 14).getValue() !== 'แผนก') sheet.getRange(1, 14).setValue('แผนก');
-      if (body.dept) sheet.getRange(i + 1, 14).setValue(String(body.dept));
-      return jsonOut({ ok: true });
-    }
-  }
-  return jsonOut({ ok: false, error: 'ref not found' });
+  const row = findRefRow(sheet, body.ref);
+  if (!row) return jsonOut({ ok: false, error: 'ref not found' });
+  ensureTimeCols(sheet);
+  sheet.getRange(row, 3).setValue('กำลังทำ (AI)');
+  if (body.dept) sheet.getRange(row, 14).setValue(String(body.dept));
+  sheet.getRange(row, 20).setValue(new Date());   // ⏱️ เริ่มทำเมื่อ
+  return jsonOut({ ok: true });
 }
 
 // ทีม AI ส่งผลงานกลับมาปิดงาน → อัปเดตสถานะ + แจ้งคุณปาล์ม
@@ -1245,24 +1324,21 @@ function handleCompleteTask(body) {
   if (body.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
   const id = boardSheetId();
   if (!id) return jsonOut({ ok: false, error: 'no sheet' });
-  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  const ss = ssById(id);
   const sheet = ss.getSheetByName('Requests');
   if (!sheet) return jsonOut({ ok: false, error: 'no board' });
 
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(body.ref)) {
-      sheet.getRange(i + 1, 3).setValue('เสร็จ (AI)');       // สถานะ
-      if (sheet.getRange(1, 13).getValue() !== 'ผลงาน') sheet.getRange(1, 13).setValue('ผลงาน');
-      sheet.getRange(i + 1, 13).setValue(String(body.result || '').slice(0, 5000));
-      const pid = String(data[i][14] || '');
-      const owner = cfg('OWNER_LINE_USER_ID');
-      if (owner) linePush(owner, '✅ ทีม AI ทำงาน #' + body.ref + ' เสร็จแล้วค่ะ\n' + String(body.result || '').slice(0, 500));
-      if (pid) advanceProject(pid); // ปลดล็อกงานย่อยขั้นถัดไป
-      return jsonOut({ ok: true });
-    }
-  }
-  return jsonOut({ ok: false, error: 'ref not found' });
+  const row = findRefRow(sheet, body.ref);
+  if (!row) return jsonOut({ ok: false, error: 'ref not found' });
+  ensureTimeCols(sheet);
+  sheet.getRange(row, 3).setValue('เสร็จ (AI)');       // สถานะ
+  sheet.getRange(row, 13).setValue(String(body.result || '').slice(0, 5000));
+  sheet.getRange(row, 21).setValue(new Date());       // ⏱️ เสร็จเมื่อ
+  const pid = String(sheet.getRange(row, 15).getValue() || '');
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (owner) linePush(owner, '✅ ทีม AI ทำงาน #' + body.ref + ' เสร็จแล้วค่ะ\n' + String(body.result || '').slice(0, 500));
+  if (pid) advanceProject(pid); // ปลดล็อกงานย่อยขั้นถัดไป
+  return jsonOut({ ok: true });
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1273,7 +1349,7 @@ const MEM_MAX = 6; // จำนวนข้อความล่าสุดท�
 function memSheet() {
   const id = boardSheetId();
   if (!id) return null;
-  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  const ss = ssById(id);
   let s = ss.getSheetByName('Memory');
   if (!s) {
     s = ss.insertSheet('Memory');
@@ -1282,17 +1358,23 @@ function memSheet() {
   return s;
 }
 
+// หาแถวของ userId โดยอ่านแค่คอลัมน์ A (ไม่ลากคอลัมน์ history ที่ยาวมาทั้งชีต)
+function memFindRow(sheet, userId) {
+  const n = sheet.getLastRow();
+  if (n < 2) return 0;
+  const ids = sheet.getRange(2, 1, n - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) if (ids[i][0] === userId) return i + 2;
+  return 0;
+}
+
 function memGet(userId) {
   if (!userId) return [];
   try {
     const sheet = memSheet();
     if (!sheet) return [];
-    const data = sheet.getDataRange().getValues();
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === userId) {
-        try { return JSON.parse(data[i][1]) || []; } catch (e) { return []; }
-      }
-    }
+    const row = memFindRow(sheet, userId);
+    if (!row) return [];
+    try { return JSON.parse(sheet.getRange(row, 2).getValue()) || []; } catch (e) { return []; }
   } catch (err) { console.error('memGet error: ' + err); }
   return [];
 }
@@ -1304,20 +1386,15 @@ function memAppend(userId, userText, assistantText) {
     lock.waitLock(5000);
     const sheet = memSheet();
     if (!sheet) return;
-    let history = memGet(userId);
+    const row = memFindRow(sheet, userId);           // หาแถวครั้งเดียว ใช้ทั้งอ่านและเขียน
+    let history = [];
+    if (row) { try { history = JSON.parse(sheet.getRange(row, 2).getValue()) || []; } catch (e) { history = []; } }
     history.push({ role: 'user', content: userText });
     history.push({ role: 'assistant', content: assistantText });
     history = history.slice(-MEM_MAX);
     const json = JSON.stringify(history);
-    const data = sheet.getDataRange().getValues();
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === userId) {
-        sheet.getRange(i + 1, 2).setValue(json);
-        sheet.getRange(i + 1, 3).setValue(new Date());
-        return;
-      }
-    }
-    sheet.appendRow([userId, json, new Date()]);
+    if (row) sheet.getRange(row, 2, 1, 2).setValues([[json, new Date()]]);  // เขียนทีเดียว 2 ช่อง
+    else sheet.appendRow([userId, json, new Date()]);
   } catch (err) {
     console.error('memAppend error: ' + err);
   } finally {
@@ -1331,4 +1408,30 @@ function memAppend(userId, userText, assistantText) {
 function testClaude() {
   const out = askClaude('สวัสดีครับ คุณเลขา ช่วยแนะนำตัวหน่อย');
   Logger.log(out);
+}
+
+// ════════════════════════════════════════════════════════════
+//  ⏱️ วัดความเร็ว — รันใน editor แล้วดู Execution log ว่าขั้นไหนช้า (หน่วย: มิลลิวินาที)
+// ════════════════════════════════════════════════════════════
+function speedTest() {
+  const t = [];
+  let m = Date.now();
+  function mark(name) { t.push(name + ': ' + (Date.now() - m) + ' ms'); m = Date.now(); }
+
+  ssById(boardSheetId());        mark('เปิด Spreadsheet ครั้งแรก');
+  ssById(boardSheetId());        mark('เปิดซ้ำ (ควรใกล้ 0 = แคชทำงาน)');
+  clearCache();                  mark('ล้างแคช');
+  loadKBCached();                mark('โหลดข้อมูลโรงงาน (ครั้งแรก)');
+  loadKBCached();                mark('โหลดข้อมูลโรงงาน (จากแคช)');
+  loadPlaybookCached();          mark('โหลด Playbook (ครั้งแรก)');
+  loadPlaybookCached();          mark('โหลด Playbook (จากแคช)');
+  const board = readBoardAll();  mark('อ่านบอร์ด ' + board.length + ' งาน');
+  getAIQueue();                  mark('อ่านคิวทีม AI');
+  memGet('speedtest-user');      mark('อ่านความจำ');
+  boardHtml(cfg('QUEUE_KEY'));   mark('สร้างหน้าบอร์ด HTML');
+  askClaude('ทดสอบความเร็ว ตอบสั้นๆ ว่า ok'); mark('เรียก Claude API');
+
+  const out = t.join('\n');
+  Logger.log(out);
+  return out;
 }
