@@ -139,7 +139,8 @@ function doGet(e) {
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
   if (p.page === 'board') {
     if (p.key !== cfg('QUEUE_KEY')) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ</h3>');
-    return HtmlService.createHtmlOutput(boardHtml(p.key))
+    const notice = (p['do'] && p.ref) ? boardAction(p['do'], p.ref) : '';
+    return HtmlService.createHtmlOutput(boardHtml(p.key, notice))
       .setTitle('บอร์ดงาน — ละกอน & คาเฟ่')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -175,6 +176,73 @@ function readDataSheet(tab, limit) {
 function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ════════════════════════════════════════════════════════════
+//  ปุ่มบนบอร์ด: ยกเลิกงาน / สั่งทีม AI เริ่มทันที
+// ════════════════════════════════════════════════════════════
+// คืนข้อความแจ้งผลไปโชว์บนบอร์ด (ข้อความว่าง = ไม่ต้องโชว์)
+function boardAction(action, ref) {
+  try {
+    const sheet = reqSheet();
+    if (!sheet) return '⚠️|ยังไม่ได้ตั้งค่าชีตงาน';
+    const row = findRefRow(sheet, ref);
+    if (!row) return '⚠️|ไม่พบงาน #' + ref;
+    ensureTimeCols(sheet);
+    const status = String(sheet.getRange(row, 3).getValue() || '');
+    const pid = String(sheet.getRange(row, 15).getValue() || '');
+
+    if (action === 'cancel') {
+      if (/เสร็จ|ปิด|ยกเลิก/.test(status)) return '⚠️|งาน #' + ref + ' ปิดไปแล้ว (' + status + ')';
+      sheet.getRange(row, 3).setValue('ยกเลิก');
+      sheet.getRange(row, 21).setValue(new Date());
+      logRow(['ยกเลิกงาน(บอร์ด)', '', ref, 'สถานะเดิม: ' + status]);
+      if (pid) advanceProject(pid);   // ปลดล็อกงานย่อยขั้นถัดไป ไม่ให้โปรเจกต์ค้าง
+      return '✅|ยกเลิกงาน #' + ref + ' แล้ว';
+    }
+
+    if (action === 'runnow') {
+      if (/เสร็จ|ปิด|ยกเลิก/.test(status)) return '⚠️|งาน #' + ref + ' ปิดไปแล้ว (' + status + ')';
+      if (status !== 'รอทีม AI') sheet.getRange(row, 3).setValue('รอทีม AI'); // ดันเข้าคิวก่อน แล้วค่อยปลุก
+      const r = fireRoutine('คุณปาล์มกดสั่งให้เริ่มงาน #' + ref + ' ทันทีจากบอร์ด — ให้ดึงคิวมาทำเลยโดยไม่ต้องรอรอบถัดไป');
+      logRow(['สั่งเริ่มทันที(บอร์ด)', '', ref, r.msg]);
+      return (r.ok ? '✅|' : '⚠️|') + r.msg + ' (งาน #' + ref + ')';
+    }
+    return '';
+  } catch (err) {
+    console.error('boardAction: ' + err);
+    return '⚠️|ทำรายการไม่สำเร็จ: ' + err;
+  }
+}
+
+// ปลุก Claude Code Routine ให้รันทันที (ตั้ง 2 ค่านี้ใน Script properties ก่อนใช้งาน)
+//   ROUTINE_FIRE_URL = URL จากหน้า Edit routine → Select a trigger → API
+//   ROUTINE_TOKEN    = token ที่กด Generate ในหน้าเดียวกัน (แสดงครั้งเดียว เก็บให้ดี)
+function fireRoutine(note) {
+  const url = cfg('ROUTINE_FIRE_URL');
+  const tok = cfg('ROUTINE_TOKEN');
+  if (!url || !tok) {
+    return { ok: false, msg: 'งานเข้าคิวแล้ว แต่ยังปลุกทีม AI ทันทีไม่ได้ (ยังไม่ได้ตั้ง ROUTINE_FIRE_URL / ROUTINE_TOKEN)' };
+  }
+  try {
+    const res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        'Authorization': 'Bearer ' + tok,
+        'anthropic-beta': 'experimental-cc-routine-2026-04-01',
+        'anthropic-version': '2023-06-01'
+      },
+      payload: JSON.stringify({ text: String(note || '') }),
+      muteHttpExceptions: true
+    });
+    const code = res.getResponseCode();
+    if (code >= 200 && code < 300) return { ok: true, msg: 'สั่งทีม AI เริ่มทำทันทีแล้ว' };
+    console.error('fireRoutine ' + code + ': ' + res.getContentText().slice(0, 300));
+    return { ok: false, msg: 'ปลุกทีม AI ไม่สำเร็จ (HTTP ' + code + ') — งานยังอยู่ในคิวรอบถัดไป' };
+  } catch (err) {
+    return { ok: false, msg: 'ปลุกทีม AI ไม่สำเร็จ: ' + err };
+  }
 }
 
 // ลิงก์บอร์ดของ deployment ปัจจุบันเสมอ (ไม่ต้องจำ URL เอง ต่อให้ deploy ใหม่ก็ยังถูก)
@@ -791,7 +859,7 @@ function nextRoundText() {
   } catch (e) { return 'ทุกชั่วโมงในเวลาทำการ'; }
 }
 
-function boardHtml(key) {
+function boardHtml(key, notice) {
   const tasks = readBoardAll();
   const json = JSON.stringify(tasks).replace(/</g, '\\u003c');
   return '<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">'
@@ -839,12 +907,20 @@ function boardHtml(key) {
 + '.mt.tl{font-size:.68rem;color:#98A6B4;border-top:1px dashed var(--bd);padding-top:5px}'
 + '.rs{background:var(--cream);border:1px dashed var(--bd);border-radius:8px;padding:7px 9px;font-size:.78rem}'
 + '.em{text-align:center;color:var(--sub);padding:45px 20px}'
++ '.act{display:flex;gap:7px;margin-top:2px}'
++ '.bt{flex:1;padding:7px 10px;border-radius:8px;border:1.5px solid var(--bd);background:#fff;font-family:inherit;font-size:.76rem;font-weight:600;cursor:pointer;color:var(--sub)}'
++ '.bt.run{border-color:var(--teal);color:var(--teal);background:var(--teal-l)}'
++ '.bt.run:hover{background:var(--teal);color:#fff}'
++ '.bt.cancel:hover{border-color:var(--red);color:var(--red);background:#FBE9E7}'
++ '.sub .act{margin:6px 0 2px;max-width:280px}'
++ '.notice{background:#E8F5EC;border:1px solid var(--green);color:#26694E;border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:.85rem}'
++ '.notice.warn{background:#FFF3E0;border-color:var(--orange);color:#8A5A12}'
 + '</style></head><body>'
 + '<div class="hd"><h1>📋 บอร์ดงาน</h1><div class="s">โรงน้ำละกอน 💧 &amp; คาเฟ่ ☕ — <span id="up"></span></div></div>'
 + '<div class="wrap"><div class="tt">👥 ทีมงาน AI <span style="font-weight:400;color:#7A8A9B">— รอบทำงานถัดไป: ' + nextRoundText() + ' · แตะการ์ดเพื่อดูงานเฉพาะฝ่าย</span></div><div class="team" id="tm"></div>'
 + '<div class="stats" id="sx"></div><div class="fl" id="fx"></div>'
 + '<div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
-+ '<script>' + boardScript(json) + '</scr' + 'ipt></body></html>';
++ '<script>' + boardScript(json, key, notice) + '</scr' + 'ipt></body></html>';
 }
 
 // ── สคริปต์ฝั่งหน้าเว็บของบอร์ด (แยกออกมาให้อ่าน/แก้ง่ายกว่าเดิม) ──────────
@@ -852,9 +928,12 @@ function boardHtml(key) {
 //   FD = ฝ่าย  ("" = ทุกฝ่าย, "_sec" = คุณเลขา, นอกนั้นคือรหัสแผนก)
 //   F  = สถานะ (open/urgent/wait/ai/doing/blocked/human/done/all)
 // เช่น เลือกฝ่ายดีไซน์ แล้วกดไทล์ "เสร็จแล้ว" = เห็นเฉพาะงานดีไซน์ที่เสร็จแล้ว
-function boardScript(json) {
+function boardScript(json, key, notice) {
   return [
     'var ALL=' + json + ';',
+    'var KEY=' + JSON.stringify(String(key || '')) + ';',
+    'var BASE=' + JSON.stringify(ScriptApp.getService().getUrl()) + ';',
+    'var NOTICE=' + JSON.stringify(String(notice || '')) + ';',
     'var NEXT=' + JSON.stringify(nextRoundText()) + ';',
     'var F="open";var FD="";',
     'var TEAM=[{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"coder",e:"💻",n:"โค้ด"}];',
@@ -901,7 +980,8 @@ function boardScript(json) {
     + 'var dn=st.filter(done).length,pc=Math.round(dn/st.length*100);'
     + 'ph+=\'<div class="prj"><h3>📁 \'+E(t.projectTitle||t.project)+\'</h3><div class="mt">\'+E(t.project)+\' · \'+dn+\'/\'+st.length+\' เสร็จ</div>\'+'
     + '\'<div class="bar"><i style="width:\'+pc+\'%"></i></div>\'+st.map(function(s){var ic=done(s)?"✅":(s.status=="กำลังทำ (AI)"?"⚙️":(s.status=="รอข้อมูล"?"⏸️":(s.status=="รออนุมัติ"?"📝":"⏳")));'
-    + 'return \'<div class="sub"><span>\'+ic+\'</span><span><b>\'+s.step+\'.</b> \'+E(s.detail)+\' <span style="color:#7A8A9B">— \'+E(s.dept||s.assignee)+\' · \'+E(s.status)+(s.startedAt?\' · เริ่ม \'+E(s.startedAt):"")+(s.doneAt?\' · เสร็จ \'+E(s.doneAt):"")+\'</span>\'+(s.blocked?\'<br><span style="color:#C8842A;font-size:.75rem">\'+E(s.blocked)+\'</span>\':"")+\'</span></div>\'}).join("")+\'</div>\'});'
+    + 'return \'<div class="sub"><span>\'+ic+\'</span><span><b>\'+s.step+\'.</b> \'+E(s.detail)+\' <span style="color:#7A8A9B">— \'+E(s.dept||s.assignee)+\' · \'+E(s.status)+(s.startedAt?\' · เริ่ม \'+E(s.startedAt):"")+(s.doneAt?\' · เสร็จ \'+E(s.doneAt):"")+\'</span>\'+(s.blocked?\'<br><span style="color:#C8842A;font-size:.75rem">\'+E(s.blocked)+\'</span>\':"")'
+    + '+(done(s)?"":\'<div class="act"><button class="bt run" data-run="\'+E(s.ref)+\'">⚡ เริ่มทันที</button><button class="bt cancel" data-cancel="\'+E(s.ref)+\'">✕ ยกเลิก</button></div>\')+\'</span></div>\'}).join("")+\'</div>\'});'
     + 'document.getElementById("pj").innerHTML=ph;'
     + 'var solo=list.filter(function(t){return !t.project});'
     + 'var ord={"ด่วนมาก":0,"ปกติ":1,"ไม่เร่ง":2};solo.sort(function(a,b){return (ord[a.urgency]==null?1:ord[a.urgency])-(ord[b.urgency]==null?1:ord[b.urgency])});'
@@ -912,7 +992,22 @@ function boardScript(json) {
     + '\'<span><span class="bg" style="\'+ub+\'">\'+E(t.urgency||"ปกติ")+\'</span> <span class="bg" style="background:#EAF0F7;color:#1B3558">\'+E(t.status)+\'</span></span></div>\'+'
     + '\'<div class="dt">\'+E(t.detail)+\'</div><div class="mt">\'+(t.biz?"<span>🏢 "+E(t.biz)+"</span>":"")+(t.dept?"<span>🤖 "+E(t.dept)+"</span>":"")+(t.due?"<span>⏳ "+E(t.due)+"</span>":"")+\'</div>\'+'
     + '\'<div class="mt tl">\'+(t.time?"<span>📥 รับ "+E(t.time)+"</span>":"")+(t.status=="รอทีม AI"?\'<span style="color:#C8842A">⏰ คิวเริ่ม \'+E(NEXT)+\'</span>\':"")+(t.startedAt?"<span>⚙️ เริ่ม "+E(t.startedAt)+"</span>":"")+(t.doneAt?"<span>✅ เสร็จ "+E(t.doneAt)+"</span>":"")+\'</div>\'+'
-    + '(t.result?\'<div class="rs">💬 \'+E(String(t.result).slice(0,300))+\'</div>\':"")+\'</div>\'}).join("")}',
+    + '(t.result?\'<div class="rs">💬 \'+E(String(t.result).slice(0,300))+\'</div>\':"")'
+    + '+(done(t)?"":\'<div class="act"><button class="bt run" data-run="\'+E(t.ref)+\'">⚡ เริ่มทันที</button><button class="bt cancel" data-cancel="\'+E(t.ref)+\'">✕ ยกเลิก</button></div>\')'
+    + '+\'</div>\'}).join("");'
+    + 'bindActions()}',
+
+    // ปุ่ม: ยืนยันก่อนเสมอ แล้วเปิดลิงก์ให้ GAS ทำงาน (ไม่ใช้ fetch เลี่ยงปัญหา CORS)
+    'function go(a,r){location.href=BASE+"?page=board&key="+encodeURIComponent(KEY)+"&do="+a+"&ref="+encodeURIComponent(r)}',
+    'function bindActions(){'
+    + 'bind("#cx [data-cancel],#pj [data-cancel]",function(el){var r=el.getAttribute("data-cancel");'
+    + 'if(confirm("ยืนยันยกเลิกงาน #"+r+" ?\\n\\nงานนี้จะถูกปิดและทีม AI จะไม่ทำต่อ"))go("cancel",r)});'
+    + 'bind("#cx [data-run],#pj [data-run]",function(el){var r=el.getAttribute("data-run");'
+    + 'if(confirm("ให้ทีม AI เริ่มทำงาน #"+r+" ทันทีเลยไหม ?\\n\\nไม่ต้องรอรอบ "+NEXT))go("runnow",r)})}',
+    'if(NOTICE){var pr=NOTICE.split("|"),bx=document.createElement("div");'
+    + 'bx.className="notice"+(pr[0]=="⚠️"?" warn":"");bx.textContent=pr[0]+" "+pr.slice(1).join("|");'
+    + 'var w=document.querySelector(".wrap");w.insertBefore(bx,w.firstChild);'
+    + 'history.replaceState(null,"",BASE+"?page=board&key="+encodeURIComponent(KEY))}',
     'document.getElementById("up").textContent="อัปเดต "+new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});',
     'render();setTimeout(function(){location.reload()},120000);'
   ].join('\n');
