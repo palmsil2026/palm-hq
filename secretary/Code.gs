@@ -819,6 +819,9 @@ function boardHtml(key) {
 + '.st{background:#fff;border:1px solid var(--bd);border-radius:11px;padding:10px;text-align:center}'
 + '.st .n{font-size:1.35rem;font-weight:700;color:var(--navy)}.st .l{font-size:.7rem;color:var(--sub)}'
 + '.st.red .n{color:var(--red)}.st.ai .n{color:var(--teal)}.st.dn .n{color:var(--green)}'
++ '.st{cursor:pointer;transition:transform .12s,box-shadow .12s;-webkit-tap-highlight-color:transparent}'
++ '.st:hover{transform:translateY(-2px);box-shadow:0 3px 10px rgba(27,53,88,.12)}'
++ '.st.on{border-color:var(--navy);border-width:2px;background:var(--navy-l);box-shadow:0 3px 10px rgba(27,53,88,.18)}'
 + '.fl{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}'
 + '.ch{padding:6px 13px;border-radius:99px;border:1.5px solid var(--bd);background:#fff;color:var(--sub);font-family:inherit;font-size:.8rem;font-weight:600;cursor:pointer}'
 + '.ch.on{background:var(--navy);border-color:var(--navy);color:#fff}'
@@ -841,53 +844,78 @@ function boardHtml(key) {
 + '<div class="wrap"><div class="tt">👥 ทีมงาน AI <span style="font-weight:400;color:#7A8A9B">— รอบทำงานถัดไป: ' + nextRoundText() + ' · แตะการ์ดเพื่อดูงานเฉพาะฝ่าย</span></div><div class="team" id="tm"></div>'
 + '<div class="stats" id="sx"></div><div class="fl" id="fx"></div>'
 + '<div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
-+ '<script>var ALL=' + json + ';var F="open";var NEXT=' + JSON.stringify(nextRoundText()) + ';'
-+ 'var TEAM=[{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"coder",e:"💻",n:"โค้ด"}];'
-+ 'var FS=[["open","ค้างอยู่"],["urgent","🔴 ด่วนมาก"],["wait","⏳ รออนุมัติ"],["ai","🤖 รอทีม AI"],["doing","⚙️ กำลังทำ"],["blocked","⏸️ รอข้อมูล"],["human","👤 งานคน"],["done","✅ เสร็จแล้ว"],["all","ทั้งหมด"]];'
-+ 'function E(s){return String(s==null?"":s).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[m]})}'
-+ 'function done(t){return /เสร็จ|ปิด|ยกเลิก/.test(t.status||"")}'
-+ 'function mt(t){if(F.indexOf("d:")==0){var k=F.slice(2);return k=="_sec"?!t.dept:t.dept==k}'
-+ 'if(F=="all")return 1;if(F=="open")return !done(t);if(F=="urgent")return t.urgency=="ด่วนมาก"&&!done(t);'
-+ 'if(F=="wait")return t.status=="รออนุมัติ";if(F=="ai")return t.status=="รอทีม AI";if(F=="doing")return t.status=="กำลังทำ (AI)";'
-+ 'if(F=="blocked")return t.status=="รอข้อมูล";if(F=="human")return (t.assignee=="คน"||!t.assignee)&&!done(t);if(F=="done")return done(t);return 1}'
-+ 'function team(){var h="",nw=ALL.filter(function(t){return t.status=="ใหม่"||t.status=="รออนุมัติ"}).length;'
-+ 'h+=\'<div class="mb\'+(nw?" busy":"")+(F=="d:_sec"?" sel":"")+\'" data-k="_sec"><div class="av">🗓️</div><div class="mn">คุณเลขา</div><div class="ms">\'+(nw?\'<span class="dot o"></span>จัดคิว/รออนุมัติ \'+nw:\'<span class="dot g"></span>เฝ้าบอร์ดอยู่ค่ะ\')+\'</div></div>\';'
-+ 'TEAM.forEach(function(m){var w=null,q=0,d=0;ALL.forEach(function(t){if(t.dept!=m.k)return;if(t.status=="กำลังทำ (AI)")w=t;if(t.status=="รอทีม AI")q++;if(t.status=="เสร็จ (AI)")d++});'
-+ 'var s=w?\'<span class="dot o"></span>ทำ #\'+E(w.ref)+(w.startedAt?\'<br><span style="color:#C8842A">เริ่ม \'+E(w.startedAt)+\'</span>\':"")'
-+ ':(q?\'<span class="dot a"></span>คิว \'+q+\' งาน<br><span style="color:#7A8A9B">รอบหน้า \'+NEXT+\'</span>\':\'<span class="dot g"></span>ว่าง\'+(d?\'<br><span style="color:#3D9970">เสร็จแล้ว \'+d+\'</span>\':""));'
-+ 'h+=\'<div class="mb\'+(w?" busy":"")+(F=="d:"+m.k?" sel":"")+\'" data-k="\'+m.k+\'"><div class="av">\'+m.e+\'</div><div class="mn">\'+m.n+\'</div><div class="ms">\'+s+\'</div></div>\'});'
-+ 'var tm=document.getElementById("tm");tm.innerHTML=h;'
-+ 'Array.prototype.forEach.call(tm.querySelectorAll(".mb"),function(el){el.onclick=function(){pick(el.getAttribute("data-k"))}})}'
-+ 'function pick(k){F=(F=="d:"+k)?"open":("d:"+k);render();window.scrollTo(0,0)}'
-+ 'function deptName(k){if(k=="_sec")return "🗓️ คุณเลขา";for(var i=0;i<TEAM.length;i++)if(TEAM[i].k==k)return TEAM[i].e+" "+TEAM[i].n;return k}'
-+ 'function render(){team();var op=ALL.filter(function(t){return !done(t)});'
-+ 'var S=[[op.length,"งานค้าง",""],[op.filter(function(t){return t.urgency=="ด่วนมาก"}).length,"ด่วนมาก","red"],'
-+ '[ALL.filter(function(t){return t.status=="รอทีม AI"}).length,"รอทีม AI","ai"],[ALL.filter(done).length,"เสร็จแล้ว","dn"]];'
-+ 'document.getElementById("sx").innerHTML=S.map(function(s){return \'<div class="st \'+s[2]+\'"><div class="n">\'+s[0]+\'</div><div class="l">\'+s[1]+\'</div></div>\'}).join("");'
-+ 'var chips=FS.map(function(f){return \'<button class="ch\'+(f[0]==F?" on":"")+\'" onclick="F=\\\'\'+f[0]+\'\\\';render()">\'+f[1]+\'</button>\'}).join("");'
-+ 'if(F.indexOf("d:")==0)chips=\'<button class="ch on" onclick="pick(\\\'\'+F.slice(2)+\'\\\')">\'+deptName(F.slice(2))+\' ✕</button>\'+chips;'
-+ 'document.getElementById("fx").innerHTML=chips;'
-+ 'var list=ALL.filter(mt),ph="",seen={};'
-+ 'list.filter(function(t){return t.project}).forEach(function(t){if(seen[t.project])return;seen[t.project]=1;'
-+ 'var st=ALL.filter(function(x){return x.project==t.project}).sort(function(a,b){return a.step-b.step});'
-+ 'var dn=st.filter(done).length,pc=Math.round(dn/st.length*100);'
-+ 'ph+=\'<div class="prj"><h3>📁 \'+E(t.projectTitle||t.project)+\'</h3><div class="mt">\'+E(t.project)+\' · \'+dn+\'/\'+st.length+\' เสร็จ</div>\'+'
-+ '\'<div class="bar"><i style="width:\'+pc+\'%"></i></div>\'+st.map(function(s){var ic=done(s)?"✅":(s.status=="กำลังทำ (AI)"?"⚙️":(s.status=="รอข้อมูล"?"⏸️":(s.status=="รออนุมัติ"?"📝":"⏳")));'
-+ 'return \'<div class="sub"><span>\'+ic+\'</span><span><b>\'+s.step+\'.</b> \'+E(s.detail)+\' <span style="color:#7A8A9B">— \'+E(s.dept||s.assignee)+\' · \'+E(s.status)+(s.startedAt?\' · เริ่ม \'+E(s.startedAt):"")+(s.doneAt?\' · เสร็จ \'+E(s.doneAt):"")+\'</span>\'+(s.blocked?\'<br><span style="color:#C8842A;font-size:.75rem">\'+E(s.blocked)+\'</span>\':"")+\'</span></div>\'}).join("")+\'</div>\'});'
-+ 'document.getElementById("pj").innerHTML=ph;'
-+ 'var solo=list.filter(function(t){return !t.project});'
-+ 'var ord={"ด่วนมาก":0,"ปกติ":1,"ไม่เร่ง":2};solo.sort(function(a,b){return (ord[a.urgency]==null?1:ord[a.urgency])-(ord[b.urgency]==null?1:ord[b.urgency])});'
-+ 'document.getElementById("ex").style.display=(list.length?"none":"block");'
-+ 'document.getElementById("cx").innerHTML=solo.map(function(t){var u=t.urgency=="ด่วนมาก"?"u":(t.urgency=="ไม่เร่ง"?"l":"n");'
-+ 'var ub=t.urgency=="ด่วนมาก"?"background:#FBE9E7;color:#C0392B":(t.urgency=="ไม่เร่ง"?"background:#E8F5EC;color:#3D9970":"background:#FFF3E0;color:#C8842A");'
-+ 'return \'<div class="cd \'+u+\'"><div style="display:flex;justify-content:space-between;gap:6px"><span class="rf">#\'+E(t.ref)+\'</span>\'+'
-+ '\'<span><span class="bg" style="\'+ub+\'">\'+E(t.urgency||"ปกติ")+\'</span> <span class="bg" style="background:#EAF0F7;color:#1B3558">\'+E(t.status)+\'</span></span></div>\'+'
-+ '\'<div class="dt">\'+E(t.detail)+\'</div><div class="mt">\'+(t.biz?"<span>🏢 "+E(t.biz)+"</span>":"")+(t.dept?"<span>🤖 "+E(t.dept)+"</span>":"")+(t.due?"<span>⏳ "+E(t.due)+"</span>":"")+\'</div>\'+'
-+ '\'<div class="mt tl">\'+(t.time?"<span>📥 รับ "+E(t.time)+"</span>":"")+(t.status=="รอทีม AI"?\'<span style="color:#C8842A">⏰ คิวเริ่ม \'+E(NEXT)+\'</span>\':"")+(t.startedAt?"<span>⚙️ เริ่ม "+E(t.startedAt)+"</span>":"")+(t.doneAt?"<span>✅ เสร็จ "+E(t.doneAt)+"</span>":"")+\'</div>\'+'
-+ '(t.result?\'<div class="rs">💬 \'+E(String(t.result).slice(0,300))+\'</div>\':"")+\'</div>\'}).join("")}'
-+ 'document.getElementById("up").textContent="อัปเดต "+new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});'
-+ 'render();setTimeout(function(){location.reload()},120000);'
-+ '</scr' + 'ipt></body></html>';
++ '<script>' + boardScript(json) + '</scr' + 'ipt></body></html>';
+}
+
+// ── สคริปต์ฝั่งหน้าเว็บของบอร์ด (แยกออกมาให้อ่าน/แก้ง่ายกว่าเดิม) ──────────
+// ตัวกรองมี 2 ชั้นที่ใช้ร่วมกันได้:
+//   FD = ฝ่าย  ("" = ทุกฝ่าย, "_sec" = คุณเลขา, นอกนั้นคือรหัสแผนก)
+//   F  = สถานะ (open/urgent/wait/ai/doing/blocked/human/done/all)
+// เช่น เลือกฝ่ายดีไซน์ แล้วกดไทล์ "เสร็จแล้ว" = เห็นเฉพาะงานดีไซน์ที่เสร็จแล้ว
+function boardScript(json) {
+  return [
+    'var ALL=' + json + ';',
+    'var NEXT=' + JSON.stringify(nextRoundText()) + ';',
+    'var F="open";var FD="";',
+    'var TEAM=[{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"coder",e:"💻",n:"โค้ด"}];',
+    'var FS=[["open","ค้างอยู่"],["urgent","🔴 ด่วนมาก"],["wait","⏳ รออนุมัติ"],["ai","🤖 รอทีม AI"],["doing","⚙️ กำลังทำ"],["blocked","⏸️ รอข้อมูล"],["human","👤 งานคน"],["done","✅ เสร็จแล้ว"],["all","ทั้งหมด"]];',
+    'function E(s){return String(s==null?"":s).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[m]})}',
+    'function done(t){return /เสร็จ|ปิด|ยกเลิก/.test(t.status||"")}',
+
+    // ตัวกรอง: ฝ่าย × สถานะ
+    'function inDept(t){if(!FD)return 1;return FD=="_sec"?!t.dept:t.dept==FD}',
+    'function stMatch(t){if(F=="all")return 1;if(F=="open")return !done(t);if(F=="urgent")return t.urgency=="ด่วนมาก"&&!done(t);'
+    + 'if(F=="wait")return t.status=="รออนุมัติ";if(F=="ai")return t.status=="รอทีม AI";if(F=="doing")return t.status=="กำลังทำ (AI)";'
+    + 'if(F=="blocked")return t.status=="รอข้อมูล";if(F=="human")return (t.assignee=="คน"||!t.assignee)&&!done(t);if(F=="done")return done(t);return 1}',
+    'function mt(t){return inDept(t)&&stMatch(t)}',
+
+    // กดเลือก: การ์ดฝ่าย (กดซ้ำ = ยกเลิก) / ไทล์สถิติ / ชิปสถานะ
+    'function pick(k){if(FD==k){FD="";F="open"}else{FD=k;F="all"}render();window.scrollTo(0,0)}',
+    'function setF(f){F=f;render()}',
+    'function bind(sel,fn){Array.prototype.forEach.call(document.querySelectorAll(sel),function(el){el.onclick=function(){fn(el)}})}',
+    'function deptName(k){if(k=="_sec")return "🗓️ คุณเลขา";for(var i=0;i<TEAM.length;i++)if(TEAM[i].k==k)return TEAM[i].e+" "+TEAM[i].n;return k}',
+
+    // แถบทีม AI
+    'function team(){var h="",nw=ALL.filter(function(t){return t.status=="ใหม่"||t.status=="รออนุมัติ"}).length;'
+    + 'h+=\'<div class="mb\'+(nw?" busy":"")+(FD=="_sec"?" sel":"")+\'" data-k="_sec"><div class="av">🗓️</div><div class="mn">คุณเลขา</div><div class="ms">\'+(nw?\'<span class="dot o"></span>จัดคิว/รออนุมัติ \'+nw:\'<span class="dot g"></span>เฝ้าบอร์ดอยู่ค่ะ\')+\'</div></div>\';'
+    + 'TEAM.forEach(function(m){var w=null,q=0,d=0;ALL.forEach(function(t){if(t.dept!=m.k)return;if(t.status=="กำลังทำ (AI)")w=t;if(t.status=="รอทีม AI")q++;if(t.status=="เสร็จ (AI)")d++});'
+    + 'var s=w?\'<span class="dot o"></span>ทำ #\'+E(w.ref)+(w.startedAt?\'<br><span style="color:#C8842A">เริ่ม \'+E(w.startedAt)+\'</span>\':"")'
+    + ':(q?\'<span class="dot a"></span>คิว \'+q+\' งาน<br><span style="color:#7A8A9B">รอบหน้า \'+NEXT+\'</span>\':\'<span class="dot g"></span>ว่าง\'+(d?\'<br><span style="color:#3D9970">เสร็จแล้ว \'+d+\'</span>\':""));'
+    + 'h+=\'<div class="mb\'+(w?" busy":"")+(FD==m.k?" sel":"")+\'" data-k="\'+m.k+\'"><div class="av">\'+m.e+\'</div><div class="mn">\'+m.n+\'</div><div class="ms">\'+s+\'</div></div>\'});'
+    + 'document.getElementById("tm").innerHTML=h;bind("#tm .mb",function(el){pick(el.getAttribute("data-k"))})}',
+
+    // วาดบอร์ด — ไทล์สถิตินับเฉพาะขอบเขตฝ่ายที่เลือกอยู่ และกดเพื่อกรองสถานะได้
+    'function render(){team();'
+    + 'var scope=ALL.filter(inDept),op=scope.filter(function(t){return !done(t)});'
+    + 'var S=[["open",op.length,"งานค้าง",""],["urgent",op.filter(function(t){return t.urgency=="ด่วนมาก"}).length,"ด่วนมาก","red"],'
+    + '["ai",scope.filter(function(t){return t.status=="รอทีม AI"}).length,"รอทีม AI","ai"],["done",scope.filter(done).length,"เสร็จแล้ว","dn"]];'
+    + 'document.getElementById("sx").innerHTML=S.map(function(s){return \'<div class="st \'+s[3]+(F==s[0]?" on":"")+\'" data-f="\'+s[0]+\'"><div class="n">\'+s[1]+\'</div><div class="l">\'+s[2]+\'</div></div>\'}).join("");'
+    + 'bind("#sx .st",function(el){setF(el.getAttribute("data-f"))});'
+    + 'var chips=FS.map(function(f){return \'<button class="ch\'+(f[0]==F?" on":"")+\'" data-f="\'+f[0]+\'">\'+f[1]+\'</button>\'}).join("");'
+    + 'if(FD)chips=\'<button class="ch on" data-d="\'+FD+\'">\'+deptName(FD)+\' ✕</button>\'+chips;'
+    + 'document.getElementById("fx").innerHTML=chips;'
+    + 'bind("#fx .ch",function(el){var d=el.getAttribute("data-d");if(d)pick(d);else setF(el.getAttribute("data-f"))});'
+    + 'var list=ALL.filter(mt),ph="",seen={};'
+    + 'list.filter(function(t){return t.project}).forEach(function(t){if(seen[t.project])return;seen[t.project]=1;'
+    + 'var st=ALL.filter(function(x){return x.project==t.project}).sort(function(a,b){return a.step-b.step});'
+    + 'var dn=st.filter(done).length,pc=Math.round(dn/st.length*100);'
+    + 'ph+=\'<div class="prj"><h3>📁 \'+E(t.projectTitle||t.project)+\'</h3><div class="mt">\'+E(t.project)+\' · \'+dn+\'/\'+st.length+\' เสร็จ</div>\'+'
+    + '\'<div class="bar"><i style="width:\'+pc+\'%"></i></div>\'+st.map(function(s){var ic=done(s)?"✅":(s.status=="กำลังทำ (AI)"?"⚙️":(s.status=="รอข้อมูล"?"⏸️":(s.status=="รออนุมัติ"?"📝":"⏳")));'
+    + 'return \'<div class="sub"><span>\'+ic+\'</span><span><b>\'+s.step+\'.</b> \'+E(s.detail)+\' <span style="color:#7A8A9B">— \'+E(s.dept||s.assignee)+\' · \'+E(s.status)+(s.startedAt?\' · เริ่ม \'+E(s.startedAt):"")+(s.doneAt?\' · เสร็จ \'+E(s.doneAt):"")+\'</span>\'+(s.blocked?\'<br><span style="color:#C8842A;font-size:.75rem">\'+E(s.blocked)+\'</span>\':"")+\'</span></div>\'}).join("")+\'</div>\'});'
+    + 'document.getElementById("pj").innerHTML=ph;'
+    + 'var solo=list.filter(function(t){return !t.project});'
+    + 'var ord={"ด่วนมาก":0,"ปกติ":1,"ไม่เร่ง":2};solo.sort(function(a,b){return (ord[a.urgency]==null?1:ord[a.urgency])-(ord[b.urgency]==null?1:ord[b.urgency])});'
+    + 'document.getElementById("ex").style.display=(list.length?"none":"block");'
+    + 'document.getElementById("cx").innerHTML=solo.map(function(t){var u=t.urgency=="ด่วนมาก"?"u":(t.urgency=="ไม่เร่ง"?"l":"n");'
+    + 'var ub=t.urgency=="ด่วนมาก"?"background:#FBE9E7;color:#C0392B":(t.urgency=="ไม่เร่ง"?"background:#E8F5EC;color:#3D9970":"background:#FFF3E0;color:#C8842A");'
+    + 'return \'<div class="cd \'+u+\'"><div style="display:flex;justify-content:space-between;gap:6px"><span class="rf">#\'+E(t.ref)+\'</span>\'+'
+    + '\'<span><span class="bg" style="\'+ub+\'">\'+E(t.urgency||"ปกติ")+\'</span> <span class="bg" style="background:#EAF0F7;color:#1B3558">\'+E(t.status)+\'</span></span></div>\'+'
+    + '\'<div class="dt">\'+E(t.detail)+\'</div><div class="mt">\'+(t.biz?"<span>🏢 "+E(t.biz)+"</span>":"")+(t.dept?"<span>🤖 "+E(t.dept)+"</span>":"")+(t.due?"<span>⏳ "+E(t.due)+"</span>":"")+\'</div>\'+'
+    + '\'<div class="mt tl">\'+(t.time?"<span>📥 รับ "+E(t.time)+"</span>":"")+(t.status=="รอทีม AI"?\'<span style="color:#C8842A">⏰ คิวเริ่ม \'+E(NEXT)+\'</span>\':"")+(t.startedAt?"<span>⚙️ เริ่ม "+E(t.startedAt)+"</span>":"")+(t.doneAt?"<span>✅ เสร็จ "+E(t.doneAt)+"</span>":"")+\'</div>\'+'
+    + '(t.result?\'<div class="rs">💬 \'+E(String(t.result).slice(0,300))+\'</div>\':"")+\'</div>\'}).join("")}',
+    'document.getElementById("up").textContent="อัปเดต "+new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});',
+    'render();setTimeout(function(){location.reload()},120000);'
+  ].join('\n');
 }
 
 // ════════════════════════════════════════════════════════════
