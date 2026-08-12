@@ -430,7 +430,7 @@ function handleEvent(ev) {
   // 0.2) มีคำถามค้างอยู่ในห้องนี้ → ถือว่าข้อความนี้คือคำตอบ → ปลดล็อกงาน
   if (tryAnswerPendingQuestion(chatId, senderId, text, replyToken)) return;
 
-  // 0.3) ขอสรุปแชทในกลุ่ม
+  // 0.3) ขอสรุปแชทในกลุ่ม (พิมพ์ในกลุ่มนั้นเอง)
   if (inGroup && isChatSummaryRequest(text)) {
     const log = readGroupChat(chatId, 120);
     const q = 'นี่คือบทสนทนาล่าสุดในกลุ่มนี้ (เก่า→ใหม่):\n' + log
@@ -439,6 +439,19 @@ function handleEvent(ev) {
     lineReply(replyToken, reply);
     logRow(['สรุปแชทกลุ่ม', senderId, text, reply]);
     return;
+  }
+
+  // 0.4) เจ้าของถามถึง "กลุ่ม" จากแชทเดี่ยว → ดึงล็อกแชทกลุ่มนั้นมาประกอบคำตอบ
+  //      (ครอบทั้งถามข้อมูล "ผลิตได้กี่โหล" และสั่ง "สรุปแชทกลุ่ม...")
+  let groupCtx = '';
+  if (owner && !inGroup) {
+    const g = matchGroupInText(text);
+    if (g) {
+      const log = readGroupChat(g.id, 100);
+      if (log) groupCtx = 'บทสนทนาล่าสุดในกลุ่ม "' + g.name + '" (เก่า→ใหม่ รวมคำบรรยายรูปที่คนส่ง):\n' + log
+                        + '\n\nใช้ข้อมูลข้างบนตอบ ถ้าไม่มีข้อมูลที่ถามให้บอกตรงๆ ว่าไม่พบในแชทกลุ่ม ห้ามเดา\n\n';
+      else groupCtx = '(หมายเหตุระบบ: กลุ่ม "' + g.name + '" ยังไม่มีข้อความในล็อกเลย ให้ตอบตามนี้ ห้ามแต่งเนื้อหา)\n\n';
+    }
   }
 
   // 1) เรื่องการเงินวงใน → ปฏิเสธ + เด้งเตือนคุณปาล์ม (โหมด A + B)
@@ -477,8 +490,8 @@ function handleEvent(ev) {
     return;
   }
 
-  // 3) เรื่องทั่วไป → ให้คุณเลขา (Claude) ตอบ พร้อมความจำ + คลังข้อมูลธุรกิจ
-  const p = parseBlocks(askClaude(text, history));
+  // 3) เรื่องทั่วไป → ให้คุณเลขา (Claude) ตอบ พร้อมความจำ + คลังข้อมูลธุรกิจ (+ล็อกกลุ่มถ้าถามถึง)
+  const p = parseBlocks(askClaude(groupCtx ? (groupCtx + 'คำถาม/คำสั่ง: ' + text) : text, history));
   let reply = p.reply;
 
   // 3.1 ถ้าเป็นการฝากงาน → คัดแยกตาม assignee
@@ -706,6 +719,30 @@ function mediaFolder() {
   return it.hasNext() ? it.next() : DriveApp.createFolder(name);
 }
 
+// ให้ AI ดูรูปแล้วบรรยายสั้นๆ (เก็บลงล็อก — เลขาจะ "จำ" ได้ว่ารูปนั้นคืออะไร)
+function describeImage(blob) {
+  try {
+    const apiKey = cfg('ANTHROPIC_API_KEY');
+    if (!apiKey) return '';
+    const bytes = blob.getBytes();
+    if (bytes.length > 3500000) return '(รูปใหญ่เกินอ่าน)';
+    const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post', contentType: 'application/json',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({
+        model: MODEL, max_tokens: 250,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: blob.getContentType(), data: Utilities.base64Encode(bytes) } },
+          { type: 'text', text: 'บรรยายภาพนี้ 1-2 ประโยคภาษาไทย ถ้ามีตัวเลข ยอด ราคา ชื่อ หรือข้อความสำคัญในภาพ ให้ระบุออกมาให้ครบ' }
+        ] }]
+      }),
+      muteHttpExceptions: true
+    });
+    const d = JSON.parse(res.getContentText());
+    return (d && d.content && d.content[0] && d.content[0].text) ? d.content[0].text.trim() : '';
+  } catch (err) { console.error('describeImage: ' + err); return ''; }
+}
+
 function handleMediaMessage(ev) {
   const replyToken = ev.replyToken;
   const src = ev.source || {};
@@ -726,12 +763,24 @@ function handleMediaMessage(ev) {
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     const url = file.getUrl();
 
-    // แนบกับงานล่าสุดที่คนนี้ฝากไว้และยังไม่ปิด
+    // อ่านภาพด้วย AI — เลขาจะรู้ว่าในรูปมีอะไร เอาไปตอบคำถามทีหลังได้
+    const desc = (ev.message.type === 'image') ? describeImage(blob) : '';
+
+    if (inGroup) {
+      // ในกลุ่ม: เก็บเงียบๆ ลงล็อกแชทกลุ่ม (พร้อมคำบรรยายภาพ) ไม่เด้งตอบรบกวนวงคุย
+      logGroupChat(chatId, ev, '[ส่งรูป/ไฟล์] ' + (desc || base) + ' ' + url);
+      attachMediaToLatestTask(senderId, url);
+      logRow(['รับไฟล์(กลุ่ม)', senderId, base, (desc ? desc + ' ' : '') + url]);
+      return;
+    }
+
+    // แชทเดี่ยว: แนบกับงานล่าสุดที่คนนี้ฝากไว้และยังไม่ปิด + บอกว่าเห็นอะไรในรูป
     const ref = attachMediaToLatestTask(senderId, url);
-    lineReply(replyToken, ref
-      ? ('📎 เก็บไฟล์ให้แล้วค่ะ แนบไว้กับงาน #' + ref + ' เรียบร้อย\n' + url)
-      : ('📎 เก็บไฟล์ไว้ให้แล้วค่ะ\n' + url + '\n\nยังไม่มีงานค้างของคุณให้แนบ — เล่ารายละเอียดงานมาได้เลยนะคะ เดี๋ยวดิฉันผูกไฟล์นี้ให้'));
-    logRow(['รับไฟล์', senderId, ev.message.type + ' ' + base, url]);
+    lineReply(replyToken, (ref
+      ? ('📎 เก็บไฟล์ให้แล้วค่ะ แนบไว้กับงาน #' + ref + ' เรียบร้อย')
+      : ('📎 เก็บไฟล์ไว้ให้แล้วค่ะ (ยังไม่มีงานค้างให้แนบ — เล่ารายละเอียดงานมาได้เลยนะคะ)'))
+      + (desc ? ('\n👁️ ที่เห็นในรูป: ' + desc) : '') + '\n' + url);
+    logRow(['รับไฟล์', senderId, ev.message.type + ' ' + base, (desc ? desc + ' ' : '') + url]);
   } catch (err) {
     console.error('handleMediaMessage: ' + err);
     lineReply(replyToken, 'ขออภัยค่ะ เก็บไฟล์ไม่สำเร็จ (' + err + ')');
@@ -894,6 +943,18 @@ function normGroupName(x) {
     .replace(/["'\u201c\u201d\u2018\u2019]/g, '')   // เครื่องหมายคำพูด
     .replace(/^\s*กลุ่ม\s*/, '')                      // คำนำหน้า "กลุ่ม..."
     .replace(/\s+/g, '');                              // ช่องว่างทั้งหมด (กัน "ทดสอบ เลขา")
+}
+
+// หาว่าในข้อความพูดถึงกลุ่มไหนที่เลขารู้จักบ้าง (ใช้ดึงล็อกแชทกลุ่มมาประกอบคำตอบ)
+function matchGroupInText(text) {
+  const t = normGroupName(text);
+  if (!t) return null;
+  const gs = listKnownGroups();
+  for (let i = 0; i < gs.length; i++) {
+    const n = normGroupName(gs[i].name);
+    if (n && t.indexOf(n) !== -1) return { id: gs[i].id, name: gs[i].name };
+  }
+  return null;
 }
 
 function findGroupByName(name) {
