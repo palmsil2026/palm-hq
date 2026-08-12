@@ -165,6 +165,11 @@ function doGet(e) {
       due: p.due, assignee: p.assignee, dept: p.dept
     }));
   }
+  // คอมเมนต์ปรับแผน (สำรองของ google.script.run)
+  if (p.action === 'comment') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    return jsonOut(rpcComment(p.key, p.ref, p.text, p.redo === '1'));
+  }
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
   if (p.page === 'board') {
     if (p.key !== cfg('QUEUE_KEY')) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ</h3>');
@@ -1148,7 +1153,7 @@ function readBoardAll() {
         ref: r[0], time: fmtTime(r[1]), status: r[2], urgency: r[3], biz: r[4],
         type: r[5], from: r[6], detail: r[8], due: r[9], assignee: r[11] || '', result: r[12] || '', dept: r[13] || '',
         project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', blocked: r[17] || '',
-        startedAt: fmtTime(r[19]), doneAt: fmtTime(r[20])
+        notes: r[18] || '', startedAt: fmtTime(r[19]), doneAt: fmtTime(r[20])
       });
     }
     return out;
@@ -1321,6 +1326,64 @@ function rpcAddTask(key, t) {
   return r;
 }
 
+// 💬 คอมเมนต์เพื่อปรับแผน — จดลงคอลัมน์ "โน้ตจากเจ้าของ" ให้ทีม AI อ่านก่อนลงมือ
+// redo = true → ส่งงานกลับเข้าคิวให้ทำใหม่ตามคอมเมนต์ (ใช้กับงานที่เสร็จแล้วหรือรออนุมัติ)
+function rpcComment(key, ref, text, redo) {
+  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  const note = String(text || '').trim();
+  if (!note) return { ok: false, msg: 'กรุณาพิมพ์คอมเมนต์' };
+  try {
+    const sheet = reqSheet();
+    if (!sheet) return { ok: false, msg: 'ยังไม่ได้ตั้งค่าชีตงาน' };
+    const isProject = /^PRJ/i.test(String(ref)) && String(ref).indexOf('.') === -1;
+    const stamp = Utilities.formatDate(new Date(), 'GMT+7', 'd/M HH:mm');
+    const line = '[' + stamp + '] ' + note;
+
+    // คอมเมนต์ที่หัวโปรเจกต์ → ลงทุกงานย่อยของโปรเจกต์นั้น
+    if (isProject) {
+      appendProjectNote(String(ref), line);
+      let n = 0;
+      if (redo) {
+        const data = sheet.getDataRange().getValues();
+        for (let i = 1; i < data.length; i++) {
+          if (String(data[i][14]) !== String(ref)) continue;
+          if (/เสร็จ|ยกเลิก/.test(String(data[i][2]))) continue;
+          sheet.getRange(i + 1, 3).setValue(String(data[i][11]) === 'ทีมAI' ? 'รอทีม AI' : 'ใหม่');
+          n++;
+        }
+      }
+      logRow(['คอมเมนต์แผน', '', String(ref), note]);
+      return { ok: true, msg: 'จดคอมเมนต์ลงโปรเจกต์ ' + ref + ' แล้ว' + (redo ? (' และส่งกลับให้ทีม ' + n + ' งาน') : ''), notes: line };
+    }
+
+    const row = findRefRow(sheet, ref);
+    if (!row) return { ok: false, msg: 'ไม่พบงาน #' + ref };
+    ensureTimeCols(sheet);
+    if (sheet.getRange(1, 19).getValue() !== 'โน้ตจากเจ้าของ') sheet.getRange(1, 19).setValue('โน้ตจากเจ้าของ');
+    const cur = String(sheet.getRange(row, 19).getValue() || '');
+    const all = (cur ? cur + '\n' : '') + line;
+    sheet.getRange(row, 19).setValue(all);
+
+    let status = String(sheet.getRange(row, 3).getValue() || '');
+    if (redo) {
+      if (String(sheet.getRange(row, 12).getValue()) === 'ทีมAI') {
+        sheet.getRange(row, 3).setValue('รอทีม AI');
+        sheet.getRange(row, 20).setValue('');   // ล้างเวลาเริ่ม/เสร็จ ให้รอบใหม่จับเวลาใหม่
+        sheet.getRange(row, 21).setValue('');
+        status = 'รอทีม AI';
+      } else {
+        sheet.getRange(row, 3).setValue('ใหม่');
+        status = 'ใหม่';
+      }
+    }
+    logRow(['คอมเมนต์งาน', '', String(ref), note + (redo ? ' [สั่งทำใหม่]' : '')]);
+    return { ok: true, status: status, notes: all,
+             msg: 'จดคอมเมนต์ลงงาน #' + ref + ' แล้ว' + (redo ? ' — ส่งกลับให้ทีมทำใหม่ตามนี้' : '') };
+  } catch (err) {
+    return { ok: false, msg: 'บันทึกคอมเมนต์ไม่สำเร็จ: ' + err };
+  }
+}
+
 function rpcBoardAction(key, action, ref) {
   if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
   const parts = String(boardAction(action, ref) || '⚠️|ทำรายการไม่สำเร็จ').split('|');
@@ -1420,6 +1483,8 @@ function boardHtml(key, notice) {
 + '.bt.run{border-color:var(--teal);color:var(--teal);background:var(--teal-l)}'
 + '.bt.run:hover{background:var(--teal);color:#fff}'
 + '.bt.cancel:hover{border-color:var(--red);color:var(--red);background:#FBE9E7}'
++ '.bt.cmt{border-color:var(--gold);color:#8A6A22;background:var(--gold-l)}'
++ '.bt.cmt:hover{background:var(--gold);color:#fff}'
 + '.sub .act{margin:6px 0 2px;max-width:280px}'
 + '.notice{background:#E8F5EC;border:1px solid var(--green);color:#26694E;border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:.85rem}'
 + '.notice.warn{background:#FFF3E0;border-color:var(--orange);color:#8A5A12}'
@@ -1438,6 +1503,11 @@ function boardHtml(key, notice) {
 + '.modal textarea{resize:vertical}'
 + '.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
 + '.acts{display:flex;gap:9px;margin-top:5px}.acts .bt{padding:10px}'
++ '.cref{font-size:.78rem;color:var(--sub);margin-bottom:9px;padding-bottom:9px;border-bottom:1px dashed var(--bd)}'
++ '.modal label.chk{display:flex;align-items:center;gap:7px;font-weight:400;color:var(--text);font-size:.8rem}'
++ '.modal label.chk input{width:auto;margin:0}'
++ '.notes{background:#FFFDF5;border:1px dashed var(--gold);border-radius:8px;padding:7px 9px;font-size:.76rem;color:#7A5A18;white-space:pre-line}'
++ '.prevbox{max-height:120px;overflow-y:auto;margin-bottom:11px}'
 + '</style></head><body>'
 + '<div class="hd"><h1>📋 บอร์ดงาน</h1><div class="s">โรงน้ำละกอน 💧 &amp; คาเฟ่ ☕ — <span id="up"></span></div></div>'
 + '<div class="wrap"><div class="tt">👥 ทีมงาน AI <span style="font-weight:400;color:#7A8A9B">— รอบทำงานถัดไป: ' + nextRoundText() + ' · แตะการ์ดเพื่อดูงานเฉพาะฝ่าย</span></div><div class="team" id="tm"></div>'
@@ -1455,6 +1525,13 @@ function boardHtml(key, notice) {
 + '<div class="row2"><label>ใครทำ<select id="f_who"><option value="ทีมAI">🤖 ทีม AI</option><option value="คน">👤 คน</option></select></label>'
 + '<label id="deptWrap">แผนก<select id="f_dept"></select></label></div>'
 + '<div class="acts"><button class="bt cancel" id="fClose">ยกเลิก</button><button class="bt run" id="fSave">บันทึกงาน</button></div>'
++ '</div></div>'
++ '<div class="mask" id="cmask"><div class="modal">'
++ '<h2>💬 คอมเมนต์ / ปรับแผน</h2><div class="cref" id="c_ref"></div>'
++ '<div id="c_prev"></div>'
++ '<label>คอมเมนต์ของคุณ *<textarea id="c_text" rows="4" placeholder="เช่น ขอให้เน้นกลุ่มร้านอาหารก่อน / เปลี่ยนโทนให้เป็นทางการกว่านี้ / ตัดขั้นที่ 3 ออก"></textarea></label>'
++ '<label class="chk"><input type="checkbox" id="c_redo"> <span>ส่งกลับให้ทีมทำใหม่ตามคอมเมนต์นี้เลย</span></label>'
++ '<div class="acts"><button class="bt cancel" id="cClose">ปิด</button><button class="bt run" id="cSave">บันทึกคอมเมนต์</button></div>'
 + '</div></div>'
 + '<div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
 + '<script>' + boardScript(json, key, notice) + '</scr' + 'ipt></body></html>';
@@ -1518,7 +1595,9 @@ function boardScript(json, key, notice) {
     + 'ph+=\'<div class="prj"><h3>📁 \'+E(t.projectTitle||t.project)+\'</h3><div class="mt">\'+E(t.project)+\' · \'+dn+\'/\'+st.length+\' เสร็จ</div>\'+'
     + '\'<div class="bar"><i style="width:\'+pc+\'%"></i></div>\'+st.map(function(s){var ic=done(s)?"✅":(s.status=="กำลังทำ (AI)"?"⚙️":(s.status=="รอข้อมูล"?"⏸️":(s.status=="รออนุมัติ"?"📝":"⏳")));'
     + 'return \'<div class="sub"><span>\'+ic+\'</span><span><b>\'+s.step+\'.</b> \'+E(s.detail)+\' <span style="color:#7A8A9B">— \'+E(s.dept||s.assignee)+\' · \'+E(s.status)+(s.startedAt?\' · เริ่ม \'+E(s.startedAt):"")+(s.doneAt?\' · เสร็จ \'+E(s.doneAt):"")+\'</span>\'+(s.blocked?\'<br><span style="color:#C8842A;font-size:.75rem">\'+E(s.blocked)+\'</span>\':"")'
-    + '+(done(s)?"":\'<div class="act"><button class="bt run" data-run="\'+E(s.ref)+\'">⚡ เริ่มทันที</button><button class="bt cancel" data-cancel="\'+E(s.ref)+\'">✕ ยกเลิก</button></div>\')+\'</span></div>\'}).join("")+\'</div>\'});'
+    + '+(s.notes?\'<div class="notes" style="margin-top:5px">💬 \'+E(s.notes)+\'</div>\':"")'
+    + '+(done(s)?"":\'<div class="act"><button class="bt run" data-run="\'+E(s.ref)+\'">⚡ เริ่มทันที</button><button class="bt cmt" data-cmt="\'+E(s.ref)+\'">💬</button><button class="bt cancel" data-cancel="\'+E(s.ref)+\'">✕</button></div>\')+\'</span></div>\'}).join("")'
+    + '+\'<div class="act" style="max-width:200px"><button class="bt cmt" data-cmt="\'+E(t.project)+\'">💬 คอมเมนต์ทั้งโปรเจกต์</button></div>\'+\'</div>\'});'
     + 'document.getElementById("pj").innerHTML=ph;'
     + 'var solo=list.filter(function(t){return !t.project});'
     + 'var ord={"ด่วนมาก":0,"ปกติ":1,"ไม่เร่ง":2};solo.sort(function(a,b){return (ord[a.urgency]==null?1:ord[a.urgency])-(ord[b.urgency]==null?1:ord[b.urgency])});'
@@ -1530,7 +1609,10 @@ function boardScript(json, key, notice) {
     + '\'<div class="dt">\'+E(t.detail)+\'</div><div class="mt">\'+(t.biz?"<span>🏢 "+E(t.biz)+"</span>":"")+(t.dept?"<span>🤖 "+E(t.dept)+"</span>":"")+(t.due?"<span>⏳ "+E(t.due)+"</span>":"")+\'</div>\'+'
     + '\'<div class="mt tl">\'+(t.time?"<span>📥 รับ "+E(t.time)+"</span>":"")+(t.status=="รอทีม AI"?\'<span style="color:#C8842A">⏰ คิวเริ่ม \'+E(NEXT)+\'</span>\':"")+(t.startedAt?"<span>⚙️ เริ่ม "+E(t.startedAt)+"</span>":"")+(t.doneAt?"<span>✅ เสร็จ "+E(t.doneAt)+"</span>":"")+\'</div>\'+'
     + '(t.result?\'<div class="rs">💬 \'+E(String(t.result).slice(0,300))+\'</div>\':"")'
-    + '+(done(t)?"":\'<div class="act"><button class="bt run" data-run="\'+E(t.ref)+\'">⚡ เริ่มทันที</button><button class="bt cancel" data-cancel="\'+E(t.ref)+\'">✕ ยกเลิก</button></div>\')'
+    + '+(t.notes?\'<div class="notes">💬 \'+E(t.notes)+\'</div>\':"")'
+    + '+\'<div class="act">\'+(done(t)?"":\'<button class="bt run" data-run="\'+E(t.ref)+\'">⚡ เริ่มทันที</button>\')'
+    + '+\'<button class="bt cmt" data-cmt="\'+E(t.ref)+\'">💬 คอมเมนต์</button>\''
+    + '+(done(t)?"":\'<button class="bt cancel" data-cancel="\'+E(t.ref)+\'">✕ ยกเลิก</button>\')+\'</div>\''
     + '+\'</div>\'}).join("");'
     + 'bindActions()}',
 
@@ -1579,10 +1661,31 @@ function boardScript(json, key, notice) {
     + 'bind("#cx [data-cancel],#pj [data-cancel]",function(el){var r=el.getAttribute("data-cancel");'
     + 'if(confirm("ยืนยันยกเลิกงาน #"+r+" ?\\n\\nงานนี้จะถูกปิดและทีม AI จะไม่ทำต่อ"))go("cancel",r)});'
     + 'bind("#cx [data-run],#pj [data-run]",function(el){var r=el.getAttribute("data-run");'
-    + 'if(confirm("ให้ทีม AI เริ่มทำงาน #"+r+" ทันทีเลยไหม ?\\n\\nไม่ต้องรอรอบ "+NEXT))go("runnow",r)})}',
+    + 'if(confirm("ให้ทีม AI เริ่มทำงาน #"+r+" ทันทีเลยไหม ?\\n\\nไม่ต้องรอรอบ "+NEXT))go("runnow",r)});'
+    + 'bind("#cx [data-cmt],#pj [data-cmt]",function(el){openCmt(el.getAttribute("data-cmt"))})}',
+
+    // ── กล่องคอมเมนต์ปรับแผน ──
+    'var CREF="";',
+    'function openCmt(r){CREF=r;var t=null;ALL.forEach(function(x){if(x.ref==r)t=x});'
+    + 'document.getElementById("c_ref").innerHTML=t?("#"+E(r)+" — "+E(t.detail)):("โปรเจกต์ "+E(r)+" (ลงทุกงานย่อย)");'
+    + 'document.getElementById("c_prev").innerHTML=(t&&t.notes)?\'<div class="notes prevbox">\'+E(t.notes)+"</div>":"";'
+    + 'document.getElementById("c_text").value="";document.getElementById("c_redo").checked=false;'
+    + 'document.getElementById("cmask").className="mask on";document.getElementById("c_text").focus()}',
+    'function initCmt(){var m=document.getElementById("cmask");'
+    + 'document.getElementById("cClose").onclick=function(){m.className="mask"};'
+    + 'm.onclick=function(e){if(e.target===m)m.className="mask"};'
+    + 'document.getElementById("cSave").onclick=function(){'
+    + 'var tx=document.getElementById("c_text").value.trim(),rd=document.getElementById("c_redo").checked;'
+    + 'if(!tx){toast("พิมพ์คอมเมนต์ก่อนนะคะ",false);return}'
+    + 'var b=this;b.disabled=true;b.textContent="กำลังบันทึก...";'
+    + 'rpc("rpcComment",[KEY,CREF,tx,rd],"action=comment&key="+encodeURIComponent(KEY)+"&ref="+encodeURIComponent(CREF)'
+    + '+"&text="+encodeURIComponent(tx)+"&redo="+(rd?"1":"0"),'
+    + 'function(j){b.disabled=false;b.textContent="บันทึกคอมเมนต์";toast(j.msg,j.ok);'
+    + 'if(j.ok){ALL.forEach(function(x){if(x.ref==CREF){if(j.notes)x.notes=j.notes;if(j.status)x.status=j.status}});'
+    + 'm.className="mask";render()}})}}',
     'if(NOTICE){var pr=NOTICE.split("|");toast(pr.slice(1).join("|"),pr[0]=="✅")}',
     'document.getElementById("up").textContent="อัปเดต "+new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});',
-    'initForm();render();setTimeout(function(){location.reload()},120000);'
+    'initForm();initCmt();render();setTimeout(function(){location.reload()},120000);'
   ].join('\n');
 }
 
@@ -2070,7 +2173,9 @@ function getAIQueue() {
       const r = data[i];
       if (String(r[2]) === 'รอทีม AI') {
         out.push({ ref: r[0], biz: r[4], type: r[5], detail: r[8], urgency: r[3], due: r[9],
-                   dept: r[13] || '', project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', needs: r[17] || '' });
+                   dept: r[13] || '', project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', needs: r[17] || '',
+                   ownerNotes: r[18] || '',            // 💬 คอมเมนต์/คำสั่งแก้จากคุณปาล์ม — ต้องทำตามนี้ก่อน
+                   previousResult: r[12] || '' });     // ผลงานรอบก่อน (กรณีสั่งทำใหม่)
       }
     }
     return out;
