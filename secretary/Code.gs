@@ -121,6 +121,8 @@ function doPost(e) {
     if (body.action === 'completeTask') return handleCompleteTask(body);
     if (body.action === 'startTask') return handleStartTask(body);
     if (body.action === 'askInfo') return handleAskInfo(body);
+    // ฟอร์มฝากงาน (request.html) — เขียนลงชีตตรง ๆ ไม่เรียก Claude = ไม่กิน token
+    if (body.action === 'submitRequest') return handleSubmitRequest(body);
     // นอกนั้น = webhook จาก LINE
     (body.events || []).forEach(handleEvent);
   } catch (err) {
@@ -154,6 +156,14 @@ function doGet(e) {
     const r = String(boardAction(p['do'], p.ref) || '⚠️|ทำรายการไม่สำเร็จ');
     const parts = r.split('|');
     return jsonOut({ ok: parts[0] === '✅', msg: parts.slice(1).join('|') });
+  }
+  // เพิ่มงานจากบอร์ด (สำรองของ google.script.run)
+  if (p.action === 'addTask') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    return jsonOut(rpcAddTask(p.key, {
+      biz: p.biz, type: p.type, detail: p.detail, urgency: p.urgency,
+      due: p.due, assignee: p.assignee, dept: p.dept
+    }));
   }
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
   if (p.page === 'board') {
@@ -1252,6 +1262,71 @@ function logTaskToBoard(task, senderId) {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+//  ➕ ฝากงานแบบไม่ผ่าน Claude (0 token) — ใช้ทั้งฟอร์มบนบอร์ดและ request.html
+// ════════════════════════════════════════════════════════════
+// t = { biz, type, detail, urgency, due, assignee, dept, from, contact, image }
+// preApproved = true เมื่อคุณปาล์มกรอกเองจากบอร์ด (เขาเป็นคนอนุมัติอยู่แล้ว)
+function createTaskDirect(t, preApproved) {
+  const sheet = reqSheet();
+  if (!sheet) return { ok: false, msg: 'ยังไม่ได้ตั้งค่าชีตงาน' };
+  const detail = String(t.detail || '').trim();
+  if (!detail) return { ok: false, msg: 'กรุณากรอกรายละเอียดงาน' };
+
+  const now = new Date();
+  const ref = 'REQ' + Utilities.formatDate(now, 'GMT+7', 'yyMMdd') + '-' + Math.floor(1000 + Math.random() * 9000);
+  const assignee = (String(t.assignee || '') === 'ทีมAI') ? 'ทีมAI' : 'คน';
+  const dept = (assignee === 'ทีมAI') ? String(t.dept || '') : '';
+  const status = (assignee !== 'ทีมAI') ? 'ใหม่'
+               : ((needsApproval(dept) && !preApproved) ? 'รออนุมัติ' : 'รอทีม AI');
+
+  sheet.appendRow([
+    ref, now, status, String(t.urgency || 'ปกติ'), String(t.biz || ''),
+    String(t.type || 'ฝากงาน'), String(t.from || 'บอร์ด'), String(t.contact || ''),
+    detail, String(t.due || ''), String(t.image || ''), assignee, '', dept
+  ]);
+
+  // งานที่ต้องอนุมัติ หรือ งานด่วนมากจากคนอื่น → เด้งบอกคุณปาล์ม
+  if (status === 'รออนุมัติ') pushTaskForApproval(ref, { dept: dept, detail: detail, biz: t.biz, urgency: t.urgency }, '');
+  else if (String(t.urgency) === 'ด่วนมาก' && !preApproved) {
+    const owner = cfg('OWNER_LINE_USER_ID');
+    if (owner) linePush(owner, '🔴 งานด่วนมากเข้าใหม่ค่ะ\n#' + ref + ' ' + (t.biz || '') + '\n' + detail
+      + (t.from ? ('\nโดย ' + t.from) : ''));
+  }
+  return { ok: true, ref: ref, status: status,
+           msg: 'บันทึกงาน #' + ref + ' แล้ว' + (status === 'รออนุมัติ' ? ' (รออนุมัติ)' : status === 'รอทีม AI' ? ' — เข้าคิวทีม AI' : '') };
+}
+
+// ฟอร์มฝากงานของทีม (request.html) → ไม่ pre-approve, ผ่านด่านอนุมัติปกติ
+function handleSubmitRequest(body) {
+  const r = createTaskDirect({
+    biz: body.biz, type: body.type, detail: body.detail, urgency: body.urgency,
+    due: body.due, assignee: body.assignee, dept: body.dept,
+    from: body.name || body.from || 'ฟอร์มฝากงาน', contact: body.contact || '', image: body.image || ''
+  }, false);
+  return jsonOut(r);
+}
+
+// ── RPC ให้หน้าบอร์ดเรียกผ่าน google.script.run (ไม่ติด CORS) ──
+function rpcAddTask(key, t) {
+  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  const r = createTaskDirect(t, true);   // คุณปาล์มกรอกเอง = อนุมัติแล้ว
+  if (r.ok) {
+    r.task = { ref: r.ref, time: fmtTime(new Date()), status: r.status, urgency: String(t.urgency || 'ปกติ'),
+               biz: String(t.biz || ''), type: String(t.type || ''), detail: String(t.detail || ''),
+               due: String(t.due || ''), assignee: (String(t.assignee) === 'ทีมAI' ? 'ทีมAI' : 'คน'),
+               result: '', dept: (String(t.assignee) === 'ทีมAI' ? String(t.dept || '') : ''),
+               project: '', step: '', projectTitle: '', blocked: '', startedAt: '', doneAt: '' };
+  }
+  return r;
+}
+
+function rpcBoardAction(key, action, ref) {
+  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  const parts = String(boardAction(action, ref) || '⚠️|ทำรายการไม่สำเร็จ').split('|');
+  return { ok: parts[0] === '✅', msg: parts.slice(1).join('|') };
+}
+
 // แผนกที่ต้องให้คุณปาล์มอนุมัติก่อนเสมอ (งานเปลี่ยนระบบ / โค้ด / ฐานข้อมูล)
 const APPROVE_DEPTS = ['coder', 'data'];
 function needsApproval(dept) {
@@ -1350,10 +1425,37 @@ function boardHtml(key, notice) {
 + '.notice.warn{background:#FFF3E0;border-color:var(--orange);color:#8A5A12}'
 + '.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;max-width:90%;background:#26694E;color:#fff;padding:11px 18px;border-radius:12px;font-size:.87rem;box-shadow:0 6px 18px rgba(0,0,0,.25);z-index:99;transition:opacity .5s}'
 + '.toast.warn{background:#8A5A12}'
++ '.bar2{display:flex;align-items:center;gap:11px;margin-bottom:11px;flex-wrap:wrap}'
++ '.add{padding:9px 17px;border-radius:99px;border:none;background:var(--navy);color:#fff;font-family:inherit;font-size:.85rem;font-weight:700;cursor:pointer}'
++ '.add:hover{background:var(--navy-d)}'
++ '.hint{font-size:.7rem;color:var(--sub)}'
++ '.mask{display:none;position:fixed;inset:0;background:rgba(18,37,64,.55);z-index:100;align-items:center;justify-content:center;padding:16px}'
++ '.mask.on{display:flex}'
++ '.modal{background:#fff;border-radius:15px;padding:19px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto}'
++ '.modal h2{font-size:1rem;color:var(--navy);margin-bottom:13px}'
++ '.modal label{display:block;font-size:.74rem;font-weight:700;color:var(--sub);margin-bottom:10px}'
++ '.modal input,.modal select,.modal textarea{width:100%;margin-top:4px;padding:9px 11px;border:1.5px solid var(--bd);border-radius:9px;font-family:inherit;font-size:.87rem;color:var(--text);background:#fff}'
++ '.modal textarea{resize:vertical}'
++ '.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
++ '.acts{display:flex;gap:9px;margin-top:5px}.acts .bt{padding:10px}'
 + '</style></head><body>'
 + '<div class="hd"><h1>📋 บอร์ดงาน</h1><div class="s">โรงน้ำละกอน 💧 &amp; คาเฟ่ ☕ — <span id="up"></span></div></div>'
 + '<div class="wrap"><div class="tt">👥 ทีมงาน AI <span style="font-weight:400;color:#7A8A9B">— รอบทำงานถัดไป: ' + nextRoundText() + ' · แตะการ์ดเพื่อดูงานเฉพาะฝ่าย</span></div><div class="team" id="tm"></div>'
-+ '<div class="stats" id="sx"></div><div class="fl" id="fx"></div>'
++ '<div class="stats" id="sx"></div>'
++ '<div class="bar2"><button class="add" id="addBtn">➕ ฝากงานใหม่</button>'
++ '<span class="hint">กรอกเองไม่ผ่าน AI — ไม่กิน token</span></div>'
++ '<div class="fl" id="fx"></div>'
++ '<div class="mask" id="mask"><div class="modal">'
++ '<h2>➕ ฝากงานใหม่</h2>'
++ '<label>รายละเอียดงาน *<textarea id="f_detail" rows="3" placeholder="อยากให้ทำอะไร บอกให้ชัดที่สุด"></textarea></label>'
++ '<div class="row2"><label>ธุรกิจ<select id="f_biz"><option>โรงน้ำ</option><option>คาเฟ่</option><option>อื่นๆ</option></select></label>'
++ '<label>ความเร่งด่วน<select id="f_urg"><option>ปกติ</option><option>ด่วนมาก</option><option>ไม่เร่ง</option></select></label></div>'
++ '<div class="row2"><label>หัวข้อสั้น ๆ<input id="f_type" placeholder="เช่น ทำโพสต์, หาอะไหล่"></label>'
++ '<label>กำหนดเสร็จ<input id="f_due" placeholder="เช่น ศุกร์นี้ (ไม่ใส่ก็ได้)"></label></label></div>'
++ '<div class="row2"><label>ใครทำ<select id="f_who"><option value="ทีมAI">🤖 ทีม AI</option><option value="คน">👤 คน</option></select></label>'
++ '<label id="deptWrap">แผนก<select id="f_dept"></select></label></div>'
++ '<div class="acts"><button class="bt cancel" id="fClose">ยกเลิก</button><button class="bt run" id="fSave">บันทึกงาน</button></div>'
++ '</div></div>'
 + '<div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
 + '<script>' + boardScript(json, key, notice) + '</scr' + 'ipt></body></html>';
 }
@@ -1436,11 +1538,43 @@ function boardScript(json, key, notice) {
     'function toast(msg,ok){var t=document.createElement("div");t.className="toast"+(ok?"":" warn");'
     + 't.textContent=(ok?"✅ ":"⚠️ ")+msg;document.body.appendChild(t);'
     + 'setTimeout(function(){t.style.opacity="0"},3400);setTimeout(function(){t.remove()},4000)}',
-    // ปุ่ม: ยืนยันก่อน → ยิง fetch อยู่หน้าเดิม → อัปเดตการ์ดทันที + ป๊อปอัปแจ้งผล
-    'function go(a,r){fetch(BASE+"?action=boardDo&key="+encodeURIComponent(KEY)+"&do="+a+"&ref="+encodeURIComponent(r))'
-    + '.then(function(x){return x.json()}).then(function(j){toast(j.msg,j.ok);'
-    + 'if(j.ok){ALL.forEach(function(t){if(t.ref==r){if(a=="cancel")t.status="ยกเลิก";if(a=="runnow")t.status="รอทีม AI"}});render()}})'
-    + '.catch(function(){toast("เชื่อมต่อไม่สำเร็จ ลองใหม่อีกครั้งนะคะ",false)})}',
+    // เรียกฟังก์ชันบนเซิร์ฟเวอร์ — ใช้ google.script.run ก่อน (ไม่ติด CORS) ถ้าไม่มีค่อย fallback เป็น fetch
+    'function rpc(fn,args,qs,cb){'
+    + 'try{if(window.google&&google.script&&google.script.run){'
+    + 'google.script.run.withSuccessHandler(cb).withFailureHandler(function(e){cb({ok:false,msg:String(e&&e.message||e)})})[fn].apply(null,args);return}}catch(e){}'
+    + 'fetch(BASE+"?"+qs).then(function(x){return x.json()}).then(cb)'
+    + '.catch(function(){cb({ok:false,msg:"เชื่อมต่อไม่สำเร็จ ลองใหม่อีกครั้งนะคะ"})})}',
+    // ปุ่มยกเลิก/เริ่มทันที — อยู่หน้าเดิม อัปเดตการ์ดทันที + ป๊อปอัปแจ้งผล
+    'function go(a,r){rpc("rpcBoardAction",[KEY,a,r],'
+    + '"action=boardDo&key="+encodeURIComponent(KEY)+"&do="+a+"&ref="+encodeURIComponent(r),'
+    + 'function(j){toast(j.msg,j.ok);'
+    + 'if(j.ok){ALL.forEach(function(t){if(t.ref==r){if(a=="cancel")t.status="ยกเลิก";if(a=="runnow")t.status="รอทีม AI"}});render()}})}',
+
+    // ── ฟอร์มฝากงาน (เขียนลงชีตตรง ๆ ไม่เรียก Claude) ──
+    'var DEPTS=[["","— ให้เลือกให้ —"],["content","🎨 ดีไซน์/คอนเทนต์"],["writer","✍️ นักเขียน"],["analyst","📈 นักวิเคราะห์"],'
+    + '["researcher","🔍 นักวิจัย"],["procurement","🛒 จัดซื้อ"],["finance","💰 การเงิน"],["data","🗄️ ฝ่ายข้อมูล"],["coder","💻 โค้ด/ระบบ"]];',
+    'function initForm(){'
+    + 'document.getElementById("f_dept").innerHTML=DEPTS.map(function(d){return \'<option value="\'+d[0]+\'">\'+d[1]+"</option>"}).join("");'
+    + 'var mask=document.getElementById("mask"),who=document.getElementById("f_who");'
+    + 'function tgl(){document.getElementById("deptWrap").style.display=(who.value=="ทีมAI"?"block":"none")}'
+    + 'who.onchange=tgl;tgl();'
+    + 'document.getElementById("addBtn").onclick=function(){mask.className="mask on";document.getElementById("f_detail").focus()};'
+    + 'document.getElementById("fClose").onclick=function(){mask.className="mask"};'
+    + 'mask.onclick=function(e){if(e.target===mask)mask.className="mask"};'
+    + 'document.getElementById("fSave").onclick=function(){'
+    + 'var d=document.getElementById("f_detail").value.trim();'
+    + 'if(!d){toast("กรอกรายละเอียดงานก่อนนะคะ",false);return}'
+    + 'var t={detail:d,biz:document.getElementById("f_biz").value,urgency:document.getElementById("f_urg").value,'
+    + 'type:document.getElementById("f_type").value,due:document.getElementById("f_due").value,'
+    + 'assignee:who.value,dept:(who.value=="ทีมAI"?document.getElementById("f_dept").value:"")};'
+    + 'var b=this;b.disabled=true;b.textContent="กำลังบันทึก...";'
+    + 'rpc("rpcAddTask",[KEY,t],"action=addTask&key="+encodeURIComponent(KEY)+"&detail="+encodeURIComponent(t.detail)'
+    + '+"&biz="+encodeURIComponent(t.biz)+"&urgency="+encodeURIComponent(t.urgency)+"&type="+encodeURIComponent(t.type)'
+    + '+"&due="+encodeURIComponent(t.due)+"&assignee="+encodeURIComponent(t.assignee)+"&dept="+encodeURIComponent(t.dept),'
+    + 'function(j){b.disabled=false;b.textContent="บันทึกงาน";toast(j.msg,j.ok);'
+    + 'if(j.ok){if(j.task)ALL.unshift(j.task);mask.className="mask";'
+    + 'document.getElementById("f_detail").value="";document.getElementById("f_type").value="";document.getElementById("f_due").value="";'
+    + 'F="open";FD="";render()}})}}',
     'function bindActions(){'
     + 'bind("#cx [data-cancel],#pj [data-cancel]",function(el){var r=el.getAttribute("data-cancel");'
     + 'if(confirm("ยืนยันยกเลิกงาน #"+r+" ?\\n\\nงานนี้จะถูกปิดและทีม AI จะไม่ทำต่อ"))go("cancel",r)});'
@@ -1448,7 +1582,7 @@ function boardScript(json, key, notice) {
     + 'if(confirm("ให้ทีม AI เริ่มทำงาน #"+r+" ทันทีเลยไหม ?\\n\\nไม่ต้องรอรอบ "+NEXT))go("runnow",r)})}',
     'if(NOTICE){var pr=NOTICE.split("|");toast(pr.slice(1).join("|"),pr[0]=="✅")}',
     'document.getElementById("up").textContent="อัปเดต "+new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});',
-    'render();setTimeout(function(){location.reload()},120000);'
+    'initForm();render();setTimeout(function(){location.reload()},120000);'
   ].join('\n');
 }
 
