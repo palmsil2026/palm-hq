@@ -1248,15 +1248,45 @@ function normGroupName(x) {
     .replace(/\s+/g, '');                              // ช่องว่างทั้งหมด (กัน "ทดสอบ เลขา")
 }
 
-// หาว่าในข้อความพูดถึงกลุ่มไหนที่เลขารู้จักบ้าง (ใช้ดึงล็อกแชทกลุ่มมาประกอบคำตอบ)
+// คำที่ไม่ช่วยแยกกลุ่ม (รูปแบบบริษัท/คำนำหน้า) — ตัดทิ้งก่อนเทียบ จะได้ไม่พลาดเพราะ "บริษัท" ↔ "บจก"
+function stripCorpWords(s) {
+  return String(s || '').replace(/บริษัท|บจก\.?|หจก\.?|จำกัด(?:\s*\(?มหาชน\)?)?|กลุ่ม/g, ' ');
+}
+
+// ให้คะแนน 0-1 ว่าข้อความพูดถึงกลุ่มนี้แค่ไหน (นับคำในชื่อกลุ่มที่โผล่ในข้อความ)
+function groupMatchScore(text, name) {
+  const t = normGroupName(stripCorpWords(text));
+  if (!t) return 0;
+  const tokens = stripCorpWords(name).split(/\s+/)
+    .map(normGroupName).filter(function (x) { return x && x.length >= 2; });
+  if (!tokens.length) return 0;
+  let hit = 0;
+  tokens.forEach(function (k) { if (t.indexOf(k) !== -1) hit++; });
+  return hit / tokens.length;
+}
+
+// หาว่าในข้อความพูดถึงกลุ่มไหนที่เลขารู้จักบ้าง (ใช้ทั้งดึงล็อกกลุ่มและหากลุ่มปลายทางประกาศ)
 function matchGroupInText(text) {
   const t = normGroupName(text);
   if (!t) return null;
   const gs = listKnownGroups();
+  // 1) ชื่อเต็มอยู่ในข้อความ — ชัวร์สุด
   for (let i = 0; i < gs.length; i++) {
     const n = normGroupName(gs[i].name);
     if (n && t.indexOf(n) !== -1) return { id: gs[i].id, name: gs[i].name };
   }
+  // 2) เทียบรายคำ เผื่อพิมพ์ไม่ตรงทั้งชื่อ (เช่น "บริษัท"↔"บจก", เรียกชื่อย่อ "กลุ่มออริจิ้น")
+  let best = null, bestScore = 0, second = 0, hitGroups = 0;
+  gs.forEach(function (g) {
+    if (!g.name) return;
+    const sc = groupMatchScore(text, g.name);
+    if (sc > 0) hitGroups++;
+    if (sc > bestScore) { second = bestScore; bestScore = sc; best = g; }
+    else if (sc > second) second = sc;
+  });
+  if (!best) return null;
+  if (bestScore === second) return null;                    // คะแนนเท่ากันหลายกลุ่ม = กำกวม ให้ถามกลับ
+  if (bestScore >= 0.6 || hitGroups === 1) return { id: best.id, name: best.name };
   return null;
 }
 
@@ -1268,7 +1298,8 @@ function findGroupByName(name) {
   for (let i = 0; i < gs.length; i++) if (gs[i].n === q) return gs[i].id;                 // ตรงตัว
   for (let i = 0; i < gs.length; i++) if (gs[i].n.indexOf(q) !== -1) return gs[i].id;     // ชื่อกลุ่มมีคำที่พิมพ์
   for (let i = 0; i < gs.length; i++) if (q.indexOf(gs[i].n) !== -1) return gs[i].id;     // คำที่พิมพ์มีชื่อกลุ่ม
-  return '';
+  const m = matchGroupInText(name);                                                       // เทียบรายคำ (บริษัท↔บจก ฯลฯ)
+  return m ? m.id : '';
 }
 
 // แปลง "ชื่อกลุ่มตามที่พูด" → group id (ใช้ทั้งส่งทันทีและตั้งเวลา)
