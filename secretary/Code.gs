@@ -88,6 +88,11 @@ const SYSTEM_PROMPT = [
   '[[SENDGROUP]]{"target":"<ชื่อกลุ่มตามที่คุณปาล์มพูด>","message":"ข้อความที่จะส่งเข้ากลุ่ม"}[[/SENDGROUP]]',
   'target: ใส่ชื่อกลุ่มตามที่คุณปาล์มเรียกได้เลย (เช่น "ทดสอบเลขา", "คาเฟ่", "ทีมเซลล์") ระบบจะหากลุ่มที่ดิฉันอยู่ให้เอง',
   '',
+  'ความสามารถที่มี (บอกได้ถ้ามีคนถามว่าทำอะไรได้): รับฝากงานลงบอร์ด, ตอบเรื่องงานในบอร์ด,',
+  'รับรูป/ไฟล์เก็บลง Drive แล้วแนบกับงาน, ตั้งเตือนความจำ ("เตือนฉันพรุ่งนี้ 9 โมง ..."),',
+  'ประกาศเข้ากลุ่มไลน์ตามชื่อกลุ่ม, สรุปแชทในกลุ่ม, ตามงานค้างให้ทุกเย็น',
+  'เฉพาะคุณปาล์ม: "เช็คระบบ" (ตรวจสุขภาพระบบ), "รายชื่อกลุ่ม", "อนุมัติ <เลขงาน>", "เสร็จ <เลขงาน>"',
+  '',
   'บริบทธุรกิจ: โรงน้ำดื่ม "ละกอน" ผลิต/ส่งน้ำดื่ม สั่งผ่าน LINE app | ร้านคาเฟ่ กาแฟ/เครื่องดื่ม'
 ].join('\n');
 
@@ -309,6 +314,11 @@ function handleEvent(ev) {
       + 'มีอะไรให้ช่วยเรียก "เลขา" ได้เลยค่ะ (จำกลุ่มนี้ไว้เรียบร้อยแล้ว)');
     return;
   }
+  // 📷 รับรูป/ไฟล์ → เซฟลง Drive แล้วแนบกับงานล่าสุดของคนส่ง
+  if (ev.type === 'message' && ev.message && (ev.message.type === 'image' || ev.message.type === 'file')) {
+    handleMediaMessage(ev);
+    return;
+  }
   if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
 
   const text = String(ev.message.text || '').trim();
@@ -318,6 +328,12 @@ function handleEvent(ev) {
   const inGroup = (src.type === 'group' || src.type === 'room');
   const chatId = src.groupId || src.roomId || senderId; // คีย์ห้อง + ความจำ
   const owner = isOwner(senderId);
+
+  // 🩺 เช็คระบบ (เฉพาะเจ้าของ)
+  if (owner && /^(เลขา\s*)?(เช็คระบบ|เชคระบบ|ตรวจระบบ|สุขภาพระบบ|status)$/i.test(text)) {
+    lineReply(replyToken, healthCheck());
+    return;
+  }
 
   // ดูรายชื่อกลุ่มที่เลขาอยู่/รู้จัก (เฉพาะเจ้าของ)
   if (owner && /^(เลขา\s*)?(รายชื่อกลุ่ม|กลุ่มไหนบ้าง|อยู่กลุ่มไหนบ้าง)$/i.test(text)) {
@@ -375,6 +391,12 @@ function handleEvent(ev) {
     alertOwner(senderId, text);
     memAppend(chatId, text, FINANCE_DECLINE);
     logRow(['การเงิน(ปฏิเสธ)', senderId, text, '']);
+    return;
+  }
+
+  // 1.4) ตั้งเตือนความจำ
+  if (handleReminder(text, chatId, senderId, replyToken)) {
+    logRow(['ตั้งเตือน', senderId, text, '']);
     return;
   }
 
@@ -466,6 +488,288 @@ function pushToGroup(propName, text) {
 }
 
 // ส่งเข้ากลุ่มตาม target ที่คุณปาล์มสั่ง (cafe / sales / group id ตรงๆ / ชื่อ property)
+// ════════════════════════════════════════════════════════════
+//  ⏰ ตามงานค้าง — งานที่ "รอข้อมูล"/"รออนุมัติ" นานเกินไป เลขาเด้งเตือนเอง
+//  ตั้งจำนวนวันได้ที่ NUDGE_DAYS (ค่าเริ่มต้น 2 วัน) — รันวันละครั้งผ่าน trigger
+// ════════════════════════════════════════════════════════════
+function nudgeStaleTasks() {
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (!owner) return;
+  const days = Number(cfg('NUDGE_DAYS')) || 2;
+  const limit = days * 86400000;
+  try {
+    const sheet = reqSheet(); if (!sheet) return;
+    const d = sheet.getDataRange().getValues();
+    const now = Date.now();
+    const wait = [], blocked = [], human = [];
+    for (let i = 1; i < d.length; i++) {
+      const st = String(d[i][2]);
+      if (['รออนุมัติ', 'รอข้อมูล', 'ใหม่'].indexOf(st) === -1) continue;
+      const t = (d[i][1] instanceof Date) ? d[i][1].getTime() : 0;
+      if (!t || (now - t) < limit) continue;
+      const age = Math.floor((now - t) / 86400000);
+      const line = '• #' + d[i][0] + ' (' + age + ' วัน) ' + String(d[i][8] || '').slice(0, 60);
+      if (st === 'รออนุมัติ') wait.push(line);
+      else if (st === 'รอข้อมูล') blocked.push(line + (d[i][17] ? ('\n     ' + String(d[i][17]).slice(0, 80)) : ''));
+      else human.push(line);
+    }
+    if (!wait.length && !blocked.length && !human.length) return;
+    let msg = '⏰ ขอตามงานค้างหน่อยนะคะ (ค้างเกิน ' + days + ' วัน)\n';
+    if (wait.length)    msg += '\n📝 รออนุมัติจากคุณปาล์ม:\n' + wait.slice(0, 5).join('\n') + '\n   → พิมพ์ "อนุมัติ <เลขงาน>"\n';
+    if (blocked.length) msg += '\n⏸️ รอข้อมูล/คำตอบ:\n' + blocked.slice(0, 5).join('\n') + '\n   → พิมพ์ "ตอบ ..." ให้ดิฉันนะคะ\n';
+    if (human.length)   msg += '\n👤 งานที่คนต้องทำ:\n' + human.slice(0, 5).join('\n') + '\n   → ทำเสร็จแล้วพิมพ์ "เสร็จ <เลขงาน>"\n';
+    linePush(owner, msg);
+  } catch (err) { console.error('nudgeStaleTasks: ' + err); }
+}
+
+// ════════════════════════════════════════════════════════════
+//  🔔 เตือนความจำ — "เลขา เตือนฉันพรุ่งนี้ 9 โมง โทรหาซัพพลายเออร์"
+//  เก็บในแท็บ Reminders แล้วมี trigger เช็คทุก 15 นาที
+// ════════════════════════════════════════════════════════════
+function remSheet() {
+  const id = boardSheetId(); if (!id) return null;
+  const ss = ssById(id);
+  let sh = ss.getSheetByName('Reminders');
+  if (!sh) { sh = ss.insertSheet('Reminders'); sh.appendRow(['เวลาเตือน', 'chatId', 'ผู้สั่ง', 'เรื่อง', 'สถานะ', 'สร้างเมื่อ']); }
+  return sh;
+}
+
+// แปลงภาษาคนเป็นเวลา — คืน Date หรือ null
+function parseThaiWhen(text) {
+  const t = String(text);
+  const now = new Date();
+  let d = new Date(now.getTime());
+  let hasDay = false, hasTime = false;
+
+  if (/มะรืน/.test(t)) { d.setDate(d.getDate() + 2); hasDay = true; }
+  else if (/พรุ่งนี้|พรุงนี้/.test(t)) { d.setDate(d.getDate() + 1); hasDay = true; }
+  else if (/วันนี้|เย็นนี้|คืนนี้/.test(t)) hasDay = true;
+  const mDay = t.match(/อีก\s*(\d+)\s*วัน/);
+  if (mDay) { d.setDate(d.getDate() + Number(mDay[1])); hasDay = true; }
+  const mHr = t.match(/อีก\s*(\d+)\s*(ชม|ชั่วโมง)/);
+  if (mHr) { return new Date(now.getTime() + Number(mHr[1]) * 3600000); }
+  const mMin = t.match(/อีก\s*(\d+)\s*นาที/);
+  if (mMin) { return new Date(now.getTime() + Number(mMin[1]) * 60000); }
+
+  // เวลา: "9 โมง", "9 โมงเช้า", "บ่าย 2", "5 โมงเย็น", "14:30", "20.00", "เที่ยง"
+  let hh = -1, mm = 0;
+  const mClock = t.match(/(\d{1,2})[:.](\d{2})/);
+  const mMong  = t.match(/(?:บ่าย\s*)?(\d{1,2})\s*โมง(?:\s*(เช้า|เย็น))?/);
+  const mTum   = t.match(/(\d{1,2})\s*ทุ่ม/);
+  const mBai   = t.match(/บ่าย\s*(\d{1,2})/);          // "บ่าย 2" (ไม่มีคำว่าโมง)
+  const mYen   = t.match(/(\d{1,2})\s*โมงเย็น|เย็น\s*(\d{1,2})\s*โมง/);
+  if (mClock) { hh = Number(mClock[1]); mm = Number(mClock[2]); }
+  else if (mTum) { hh = Number(mTum[1]) + 18; }
+  else if (mMong) {
+    hh = Number(mMong[1]);
+    const isAfternoon = /บ่าย/.test(t) || mMong[2] === 'เย็น';
+    if (isAfternoon && hh < 12) hh += 12;
+  }
+  else if (mBai) { hh = Number(mBai[1]); if (hh < 12) hh += 12; }
+  else if (mYen) { hh = Number(mYen[1] || mYen[2]); if (hh < 12) hh += 12; }
+  else if (/เที่ยง/.test(t)) hh = 12;
+  if (hh >= 0 && hh <= 23) { d.setHours(hh, mm, 0, 0); hasTime = true; }
+
+  if (!hasDay && !hasTime) return null;
+  if (!hasTime) d.setHours(9, 0, 0, 0);            // บอกแต่วัน → เตือน 9 โมง
+  if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1);  // เวลาผ่านไปแล้ว → วันถัดไป
+  return d;
+}
+
+// จับคำสั่งเตือน คืน true ถ้าจัดการแล้ว
+function handleReminder(text, chatId, senderId, replyToken) {
+  const m = String(text).trim().match(/^(?:เลขา\s*)?เตือน(?:ฉัน|ผม|หน่อย)?\s*(.+)$/i);
+  if (!m) return false;
+  const rest = m[1].trim();
+  const when = parseThaiWhen(rest);
+  if (!when) {
+    lineReply(replyToken, 'ได้ค่ะ แต่ขอเวลาชัด ๆ หน่อยนะคะ เช่น\n'
+      + '• "เตือนฉันพรุ่งนี้ 9 โมง โทรหาซัพพลายเออร์"\n• "เตือนฉันอีก 30 นาที เช็คเตาต้มน้ำ"');
+    return true;
+  }
+  // ตัดคำบอกเวลาออกจากเนื้อเรื่อง
+  const what = rest
+    .replace(/พรุ่งนี้|พรุงนี้|มะรืน|วันนี้|เย็นนี้|คืนนี้/g, '')
+    .replace(/อีก\s*\d+\s*(วัน|ชม|ชั่วโมง|นาที)/g, '')
+    .replace(/(?:บ่าย|เย็น)\s*\d{1,2}\s*โมง(?:\s*(?:เช้า|เย็น))?|\d{1,2}\s*โมง(?:\s*(?:เช้า|เย็น))?|บ่าย\s*\d{1,2}|\d{1,2}\s*ทุ่ม|\d{1,2}[:.]\d{2}|เที่ยง/g, '')
+    .replace(/^[\s,ว่าที่]+|[\s,]+$/g, '').trim();
+  const sh = remSheet();
+  if (!sh) { lineReply(replyToken, 'ขออภัยค่ะ ยังตั้งค่าชีตไม่เรียบร้อย'); return true; }
+  sh.appendRow([when, chatId, senderId, what || '(ไม่ได้ระบุเรื่อง)', 'รอเตือน', new Date()]);
+  lineReply(replyToken, '🔔 จดไว้แล้วค่ะ — จะเตือนเรื่อง "' + (what || '-') + '"\n'
+    + '🗓️ ' + Utilities.formatDate(when, 'GMT+7', 'd/M/yyyy เวลา HH:mm') + ' น.');
+  return true;
+}
+
+// trigger ทุก 15 นาที — ยิงเตือนที่ถึงเวลาแล้ว
+function fireDueReminders() {
+  try {
+    const sh = remSheet(); if (!sh || sh.getLastRow() < 2) return;
+    const n = sh.getLastRow() - 1;
+    const d = sh.getRange(2, 1, n, 5).getValues();
+    const now = Date.now();
+    for (let i = 0; i < d.length; i++) {
+      if (String(d[i][4]) !== 'รอเตือน') continue;
+      const t = (d[i][0] instanceof Date) ? d[i][0].getTime() : 0;
+      if (!t || t > now) continue;
+      linePush(String(d[i][1]), '🔔 ถึงเวลาแล้วค่ะ — ' + String(d[i][3] || ''));
+      sh.getRange(i + 2, 5).setValue('เตือนแล้ว');
+    }
+  } catch (err) { console.error('fireDueReminders: ' + err); }
+}
+
+// ════════════════════════════════════════════════════════════
+//  📷 รับรูป/ไฟล์จากไลน์ → เก็บลง Google Drive → แนบลิงก์กับงาน
+//  โฟลเดอร์ปลายทาง: ตั้ง MEDIA_FOLDER_ID ได้ ถ้าไม่ตั้งจะสร้าง "ละกอน-รูปจากไลน์" ให้เอง
+// ════════════════════════════════════════════════════════════
+function mediaFolder() {
+  const fid = cfg('MEDIA_FOLDER_ID');
+  if (fid) { try { return DriveApp.getFolderById(sheetIdFrom(fid)); } catch (e) {} }
+  const name = 'ละกอน-รูปจากไลน์';
+  const it = DriveApp.getFoldersByName(name);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(name);
+}
+
+function handleMediaMessage(ev) {
+  const replyToken = ev.replyToken;
+  const src = ev.source || {};
+  const senderId = src.userId || '';
+  const inGroup = (src.type === 'group' || src.type === 'room');
+  const chatId = src.groupId || src.roomId || senderId;
+  if (inGroup) registerGroup(chatId);
+  try {
+    const res = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/message/' + ev.message.id + '/content', {
+      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+    });
+    if (res.getResponseCode() !== 200) { lineReply(replyToken, 'ขออภัยค่ะ ดาวน์โหลดไฟล์ไม่สำเร็จ รบกวนส่งอีกครั้งนะคะ 🙏'); return; }
+
+    const blob = res.getBlob();
+    const stamp = Utilities.formatDate(new Date(), 'GMT+7', 'yyMMdd-HHmmss');
+    const base = (ev.message.type === 'image') ? ('รูป-' + stamp) : ((ev.message.fileName || ('ไฟล์-' + stamp)));
+    const file = mediaFolder().createFile(blob.setName(base));
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const url = file.getUrl();
+
+    // แนบกับงานล่าสุดที่คนนี้ฝากไว้และยังไม่ปิด
+    const ref = attachMediaToLatestTask(senderId, url);
+    lineReply(replyToken, ref
+      ? ('📎 เก็บไฟล์ให้แล้วค่ะ แนบไว้กับงาน #' + ref + ' เรียบร้อย\n' + url)
+      : ('📎 เก็บไฟล์ไว้ให้แล้วค่ะ\n' + url + '\n\nยังไม่มีงานค้างของคุณให้แนบ — เล่ารายละเอียดงานมาได้เลยนะคะ เดี๋ยวดิฉันผูกไฟล์นี้ให้'));
+    logRow(['รับไฟล์', senderId, ev.message.type + ' ' + base, url]);
+  } catch (err) {
+    console.error('handleMediaMessage: ' + err);
+    lineReply(replyToken, 'ขออภัยค่ะ เก็บไฟล์ไม่สำเร็จ (' + err + ')');
+  }
+}
+
+// หางานล่าสุดของคนส่งที่ยังไม่ปิด แล้วต่อลิงก์รูปในคอลัมน์ "ลิงก์รูป" (K)
+function attachMediaToLatestTask(senderId, url) {
+  if (!senderId) return '';
+  try {
+    const sheet = reqSheet(); if (!sheet) return '';
+    const last = sheet.getLastRow(); if (last < 2) return '';
+    const start = Math.max(2, last - 199);
+    const d = sheet.getRange(start, 1, last - start + 1, 12).getValues();
+    for (let i = d.length - 1; i >= 0; i--) {
+      if (String(d[i][7]) !== String(senderId)) continue;           // คอลัมน์ ติดต่อ = userId ผู้ฝาก
+      if (/เสร็จ|ปิด|ยกเลิก/.test(String(d[i][2]))) continue;
+      const row = start + i;
+      const cur = String(sheet.getRange(row, 11).getValue() || '');
+      sheet.getRange(row, 11).setValue(cur ? (cur + '\n' + url) : url);
+      return String(d[i][0]);
+    }
+  } catch (err) { console.error('attachMediaToLatestTask: ' + err); }
+  return '';
+}
+
+// ════════════════════════════════════════════════════════════
+//  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
+// ════════════════════════════════════════════════════════════
+function healthCheck() {
+  const L = [];
+  function ok(t) { L.push('✅ ' + t); }
+  function bad(t, fix) { L.push('❌ ' + t + (fix ? ('\n     → ' + fix) : '')); }
+  function warn(t, fix) { L.push('⚠️ ' + t + (fix ? ('\n     → ' + fix) : '')); }
+
+  // 1. LINE
+  cfg('LINE_TOKEN') ? ok('LINE token ตั้งแล้ว') : bad('ไม่มี LINE_TOKEN', 'ออก Channel access token ใหม่ใน LINE Developers');
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (!owner) bad('ไม่รู้ userId ของคุณปาล์ม', 'ทักหาดิฉันแล้วพิมพ์ "chat id" เอาค่าไปใส่ OWNER_LINE_USER_ID');
+  else if (!/^U[0-9a-f]{20,}$/i.test(owner)) bad('OWNER_LINE_USER_ID รูปแบบผิด (' + owner + ')', 'ต้องขึ้นต้นด้วย U และเป็นรหัสยาว');
+  else ok('รู้จักคุณปาล์มแล้ว (เด้งเตือนได้)');
+
+  // 2. Claude API — ยิงจริงเพื่อดูว่า key ใช้ได้
+  const key = cfg('ANTHROPIC_API_KEY');
+  if (!key) bad('ไม่มี ANTHROPIC_API_KEY', 'สร้าง key ที่ console.anthropic.com');
+  else {
+    try {
+      const r = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+        method: 'post', contentType: 'application/json',
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+        payload: JSON.stringify({ model: MODEL, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] }),
+        muteHttpExceptions: true
+      });
+      const c = r.getResponseCode();
+      if (c === 200) ok('สมองดิฉันทำงานปกติ (' + MODEL + ')');
+      else if (c === 401) bad('API key ใช้ไม่ได้แล้ว (401)', 'สร้าง key ใหม่แล้วเปลี่ยนใน Script properties');
+      else if (c === 429) warn('โควตา Claude เต็มชั่วคราว (429)', 'รอสักครู่แล้วลองใหม่');
+      else bad('เรียก Claude ไม่ผ่าน (HTTP ' + c + ')');
+    } catch (e) { bad('เรียก Claude ไม่ได้: ' + e); }
+  }
+
+  // 3. ชีต
+  const bid = boardSheetId();
+  if (!bid) bad('ไม่มี LOG_SHEET_ID', 'ใส่ลิงก์ Google Sheet กลางใน Script properties');
+  else {
+    try {
+      const sh = ssById(bid).getSheetByName('Requests');
+      ok('บอร์ดงานต่อติด (' + (sh ? Math.max(0, sh.getLastRow() - 1) : 0) + ' งานในระบบ)');
+    } catch (e) { bad('เปิดชีตบอร์ดไม่ได้', 'เช็คว่า LOG_SHEET_ID ถูกต้องและแชร์สิทธิ์ให้สคริปต์'); }
+  }
+  const did = cfg('DATA_SHEET_ID');
+  if (!did) warn('ยังไม่ได้ตั้ง DATA_SHEET_ID', 'ทีม AI จะดูข้อมูลธุรกิจโรงน้ำไม่ได้');
+  else {
+    try { ok('ชีตข้อมูลธุรกิจต่อติด (' + ssById(did).getSheets().length + ' แท็บ)'); }
+    catch (e) { bad('เปิดชีตข้อมูลธุรกิจไม่ได้', 'เช็ค DATA_SHEET_ID'); }
+  }
+
+  // 4. กลุ่ม
+  const gs = listKnownGroups();
+  gs.length ? ok('รู้จัก ' + gs.length + ' กลุ่ม: ' + gs.map(function (g) { return g.name || g.id.slice(0, 8); }).join(', '))
+            : warn('ยังไม่รู้จักกลุ่มไหนเลย', 'เชิญดิฉันเข้ากลุ่ม แล้วให้ใครทักในกลุ่ม 1 ข้อความ');
+
+  // 5. ปลุกทีม AI ทันที
+  (cfg('ROUTINE_FIRE_URL') && cfg('ROUTINE_TOKEN'))
+    ? ok('ปุ่ม "เริ่มทันที" บนบอร์ดใช้ได้')
+    : warn('ปลุกทีม AI ทันทีไม่ได้', 'ตั้ง ROUTINE_FIRE_URL + ROUTINE_TOKEN (หน้า Edit routine → API)');
+
+  // 6. คิว + งานค้าง
+  try {
+    const sheet = reqSheet();
+    if (sheet) {
+      const d = sheet.getDataRange().getValues();
+      let q = 0, doing = 0, wait = 0, blocked = 0;
+      for (let i = 1; i < d.length; i++) {
+        const st = String(d[i][2]);
+        if (st === 'รอทีม AI') q++;
+        else if (st === 'กำลังทำ (AI)') doing++;
+        else if (st === 'รออนุมัติ') wait++;
+        else if (st === 'รอข้อมูล') blocked++;
+      }
+      L.push('📊 คิวตอนนี้: รอทีม AI ' + q + ' · กำลังทำ ' + doing + ' · รออนุมัติ ' + wait + ' · รอข้อมูล ' + blocked);
+      if (wait) L.push('     (พิมพ์ "อนุมัติ <เลขงาน>" เพื่อปล่อยงานที่รออนุมัติ)');
+    }
+  } catch (e) {}
+
+  // 7. trigger
+  try {
+    const fns = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
+    fns.length ? ok('งานอัตโนมัติทำงานอยู่: ' + fns.join(', ')) : warn('ยังไม่ได้ตั้ง trigger', 'รันฟังก์ชัน setupTriggers ใน Apps Script');
+  } catch (e) {}
+
+  return '🩺 รายงานสุขภาพระบบค่ะ\n\n' + L.join('\n');
+}
+
 // ทะเบียนกลุ่ม — เลขาจำเอง ไม่ต้องตั้ง Script property ทีละกลุ่ม
 // บันทึกลงแท็บ Groups ทุกครั้งที่ (1) ถูกเชิญเข้ากลุ่ม (2) มีคนพูดในกลุ่ม (แคช 6 ชม. กันเขียนถี่)
 function registerGroup(chatId) {
@@ -609,11 +913,13 @@ function boardWatch() {
 function setupTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     const fn = t.getHandlerFunction();
-    if (fn === 'morningBrief' || fn === 'boardWatch') ScriptApp.deleteTrigger(t);
+    if (['morningBrief', 'boardWatch', 'nudgeStaleTasks', 'fireDueReminders'].indexOf(fn) !== -1) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('morningBrief').timeBased().atHour(8).everyDays(1).create();
   ScriptApp.newTrigger('boardWatch').timeBased().everyMinutes(30).create();
-  Logger.log('✅ ตั้ง trigger แล้ว: morningBrief (8 โมง/วัน), boardWatch (ทุก 30 นาที)');
+  ScriptApp.newTrigger('nudgeStaleTasks').timeBased().atHour(17).everyDays(1).create();
+  ScriptApp.newTrigger('fireDueReminders').timeBased().everyMinutes(15).create();
+  Logger.log('✅ ตั้ง trigger แล้ว: morningBrief (8 โมง), boardWatch (ทุก 30 นาที), nudgeStaleTasks (17 โมง), fireDueReminders (ทุก 15 นาที)');
 }
 
 function isFinanceTopic(text) {
