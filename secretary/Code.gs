@@ -121,6 +121,9 @@ const FINANCE_DECLINE =
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    // LINE ส่งรูปกับข้อความมาเป็นคนละ event แต่มาใน webhook ก้อนเดียวกัน
+    // เก็บข้อความในก้อนนี้ไว้ก่อน เพื่อให้ตอนวิเคราะห์รูปรู้ว่าคนส่ง "พิมพ์อะไรมาพร้อมรูป"
+    stashBatchCaptions(body.events || []);
     // ช่องเชื่อมกับทีม AI ใน Claude Code: ส่งผลงานกลับมาปิดงาน
     if (body.action === 'completeTask') return handleCompleteTask(body);
     if (body.action === 'startTask') return handleStartTask(body);
@@ -719,10 +722,48 @@ function mediaFolder() {
   return it.hasNext() ? it.next() : DriveApp.createFolder(name);
 }
 
-// ให้ AI ดูรูปก่อนว่า "เกี่ยวกับงานควรเก็บไหม" + บรรยายสั้นๆ ในทีเดียว (1 คอลครบ ประหยัดกว่าถามสองรอบ)
-// เกณฑ์เกี่ยวข้อง: ใบเสร็จ/บิล/สลิปโอนเงิน สินค้า-วัตถุดิบ เมนู ราคา สต๊อก เอกสารงาน สกรีนช็อตแชท/ระบบ
-// ตัวอย่างที่ต้องใช้ทำงานต่อ ฯลฯ — รูปอาหารกินเล่น เซลฟี่ วิว มีม ไม่เกี่ยวธุรกิจ = ไม่เกี่ยวข้อง
-function analyzeImage(blob) {
+// ── ข้อความที่มาพร้อมรูปใน webhook ก้อนเดียวกัน (LINE แยกรูปกับข้อความเป็นคนละ event) ──
+// เก็บไว้ชั่วคราว 5 นาที เพื่อให้ตอนวิเคราะห์รูปรู้ว่า "คนส่งพิมพ์อะไรมาด้วย"
+function captionKey(chatId, senderId) { return 'cap:' + chatId + ':' + senderId; }
+function stashBatchCaptions(events) {
+  try {
+    const cache = CacheService.getScriptCache();
+    events.forEach(function (ev) {
+      if (!ev || ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
+      const src = ev.source || {};
+      const chatId = src.groupId || src.roomId || src.userId || '';
+      const senderId = src.userId || '';
+      if (!chatId) return;
+      cache.put(captionKey(chatId, senderId), String(ev.message.text || '').slice(0, 500), 300);
+    });
+  } catch (err) { console.error('stashBatchCaptions: ' + err); }
+}
+// รวมบริบทรอบตัวรูป: ข้อความที่ส่งมาพร้อมกัน + สิ่งที่คุยกันล่าสุด (ให้ AI เข้าใจว่า "ทำไมส่งรูปนี้มา")
+function mediaContext(chatId, senderId) {
+  const parts = [];
+  try {
+    const cap = CacheService.getScriptCache().get(captionKey(chatId, senderId));
+    if (cap) parts.push('ข้อความที่คนส่งพิมพ์มาพร้อมรูป: "' + cap + '"');
+  } catch (e) {}
+  try {
+    const hist = memGet(chatId);
+    if (hist && hist.length) {
+      const recent = hist.slice(-4).map(function (m) {
+        return (m.role === 'user' ? 'คน: ' : 'เลขา: ') + String(m.content || '').slice(0, 200);
+      }).join('\n');
+      if (recent) parts.push('บทสนทนาล่าสุดก่อนหน้านี้:\n' + recent);
+    }
+  } catch (e) {}
+  try {
+    if (hasPendingQuestion(chatId)) parts.push('หมายเหตุ: มีคำถามของเลขา/ทีมค้างรอคำตอบอยู่ในห้องนี้ — รูปนี้อาจเป็นคำตอบ');
+  } catch (e) {}
+  return parts.join('\n\n');
+}
+
+// ให้ AI ดูรูป + บริบทข้อความรอบตัว แล้วตัดสินว่า "เกี่ยวกับงานควรเก็บไหม" + บรรยายสั้นๆ ในทีเดียว
+// บริบทสำคัญกว่าหน้าตารูป เช่นรูปอาหารจานเดียวกัน ถ้าคนพิมพ์ว่า "เมนูใหม่คาเฟ่ ลองดู" = เกี่ยวข้อง
+// แต่ถ้าไม่พิมพ์อะไรเลย/คุยเล่น = ไม่เกี่ยวข้อง
+function analyzeImage(blob, context) {
   try {
     const apiKey = cfg('ANTHROPIC_API_KEY');
     if (!apiKey) return { relevant: true, desc: '' }; // วิเคราะห์ไม่ได้ → เก็บไว้ก่อนดีกว่าเสียของสำคัญไป
@@ -735,12 +776,16 @@ function analyzeImage(blob) {
         model: MODEL, max_tokens: 300,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: blob.getContentType(), data: Utilities.base64Encode(bytes) } },
-          { type: 'text', text: 'ดูภาพนี้แล้วตอบตามรูปแบบนี้เป๊ะๆ 2 บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
+          { type: 'text', text: 'คุณเป็นเลขาของธุรกิจโรงน้ำดื่ม "ละกอน" และร้านคาเฟ่ '
+              + 'มีคนส่งรูปนี้เข้ามาในแชท ช่วยตัดสินว่าควรเก็บรูปนี้ไว้ใช้ทำงานต่อไหม\n\n'
+              + (context ? ('บริบทตอนที่ส่งรูปมา:\n' + context + '\n\n') : '(คนส่งไม่ได้พิมพ์ข้อความอะไรมาพร้อมรูป)\n\n')
+              + 'ตอบตามรูปแบบนี้เป๊ะๆ 2 บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
               + 'เกี่ยวข้อง: ใช่ หรือ ไม่\n'
-              + 'บรรยาย: (1-2 ประโยคภาษาไทย บอกว่าในรูปมีอะไร ถ้ามีตัวเลข/ยอด/ราคา/ชื่อสำคัญ ให้ระบุครบ)\n\n'
-              + 'เกณฑ์ "เกี่ยวข้อง" (ตอบใช่): ใบเสร็จ/บิล/สลิปโอนเงิน สินค้า-วัตถุดิบ เมนู ราคา สต๊อก เอกสารงาน '
-              + 'สกรีนช็อตแชท/ระบบ ของตัวอย่างที่ดูแล้วน่าจะเอาไปใช้ทำงานต่อได้\n'
-              + 'ไม่เกี่ยวข้อง (ตอบไม่): รูปอาหารกินเล่น เซลฟี่ วิว มีม การ์ตูน หรือรูปทั่วไปที่ไม่เกี่ยวธุรกิจ' }
+              + 'บรรยาย: (1-2 ประโยคภาษาไทย บอกว่าในรูปมีอะไรและคนส่งน่าจะส่งมาทำไม ถ้ามีตัวเลข/ยอด/ราคา/ชื่อสำคัญ ให้ระบุครบ)\n\n'
+              + 'ให้น้ำหนัก "บริบทข้อความ" มากกว่าหน้าตาของรูป — รูปแบบเดียวกันอาจเกี่ยวหรือไม่เกี่ยวก็ได้ ขึ้นกับว่าคนส่งพูดว่าอะไร\n'
+              + 'ตอบ "ใช่" เมื่อ: คนส่งพูดถึงงาน/สั่งงาน/ขอให้ดู-ตรวจ-ทำอะไรต่อกับรูปนี้ เป็นคำตอบของคำถามที่ค้างอยู่ '
+              + 'หรือเนื้อรูปเป็นเรื่องธุรกิจชัดเจน (ใบเสร็จ บิล สลิปโอนเงิน สินค้า-วัตถุดิบ เมนู ราคา สต๊อก เอกสาร สกรีนช็อตแชท/ระบบ ตัวอย่างงาน)\n'
+              + 'ตอบ "ไม่" เมื่อ: ส่งมาคุยเล่นเฉยๆ ไม่มีบริบทงาน (รูปอาหารที่กิน เซลฟี่ วิว มีม การ์ตูน) และไม่มีใครขออะไรกับรูปนั้น' }
         ] }]
       }),
       muteHttpExceptions: true
@@ -772,7 +817,7 @@ function handleMediaMessage(ev) {
     // 📄 ไฟล์อื่น (เอกสาร/สเปรดชีตฯลฯ): ถือว่าตั้งใจส่งมาทำงานอยู่แล้ว → เก็บเลยไม่ต้องวิเคราะห์
     let relevant = true, desc = '';
     if (ev.message.type === 'image') {
-      const a = analyzeImage(blob);
+      const a = analyzeImage(blob, mediaContext(chatId, senderId));
       relevant = a.relevant;
       desc = a.desc;
     }
