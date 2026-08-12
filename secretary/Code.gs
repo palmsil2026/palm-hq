@@ -203,6 +203,14 @@ function boardAction(action, ref) {
 
     if (action === 'runnow') {
       if (/เสร็จ|ปิด|ยกเลิก/.test(status)) return '⚠️|งาน #' + ref + ' ปิดไปแล้ว (' + status + ')';
+      // กันกดซ้ำ/ชนกับรอบปกติ — ถ้าเพิ่งเริ่มทำไปไม่นาน ไม่ต้องปลุกอีก ไม่งั้นจะได้งานซ้ำสองชุด
+      if (status === 'กำลังทำ (AI)') {
+        const sAt = sheet.getRange(row, 20).getValue();
+        const ms = (sAt instanceof Date) ? (Date.now() - sAt.getTime()) : 0;
+        if (sAt instanceof Date && ms < STALE_MIN * 60000) {
+          return '⚠️|ทีม AI กำลังทำงาน #' + ref + ' อยู่แล้ว (เริ่ม ' + fmtTime(sAt) + ') ไม่ต้องสั่งซ้ำค่ะ';
+        }
+      }
       if (status !== 'รอทีม AI') sheet.getRange(row, 3).setValue('รอทีม AI'); // ดันเข้าคิวก่อน แล้วค่อยปลุก
       const r = fireRoutine('คุณปาล์มกดสั่งให้เริ่มงาน #' + ref + ' ทันทีจากบอร์ด — ให้ดึงคิวมาทำเลยโดยไม่ต้องรอรอบถัดไป');
       logRow(['สั่งเริ่มทันที(บอร์ด)', '', ref, r.msg]);
@@ -1423,6 +1431,28 @@ function loadPlaybook() {
 //  ช่องเชื่อมกับทีม AI ใน Claude Code (คิวงาน + ปิดงาน)
 // ════════════════════════════════════════════════════════════
 
+// งานที่ขึ้น "กำลังทำ (AI)" นานเกินกี่นาที ถือว่ารอบนั้นตายกลางทาง → ดึงกลับเข้าคิว
+const STALE_MIN = 30;
+
+// กู้งานค้าง: ถ้ารอบทำงานตายกลางคัน (session หมดเวลา/เน็ตหลุด/โควตาหมด) งานจะค้าง
+// สถานะ "กำลังทำ (AI)" ตลอดไป เพราะคิวหยิบเฉพาะ "รอทีม AI" — และโปรเจกต์จะค้างตามไปด้วย
+function recoverStuckTasks(sheet, data) {
+  const now = Date.now();
+  const revived = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][2]) !== 'กำลังทำ (AI)') continue;
+    const sAt = data[i][19];
+    const ms = (sAt instanceof Date) ? (now - sAt.getTime()) : Infinity; // ไม่มีเวลาเริ่ม = ของเก่า ให้กู้เลย
+    if (ms > STALE_MIN * 60000) {
+      sheet.getRange(i + 1, 3).setValue('รอทีม AI');
+      data[i][2] = 'รอทีม AI';
+      revived.push(String(data[i][0]));
+    }
+  }
+  if (revived.length) logRow(['กู้งานค้าง', '', revived.join(','), 'ค้างเกิน ' + STALE_MIN + ' นาที → กลับเข้าคิว']);
+  return revived;
+}
+
 // คืนงานที่สถานะ "รอทีม AI" (ให้ Claude Code ดึงไปทำ)
 function getAIQueue() {
   const id = boardSheetId();
@@ -1432,6 +1462,7 @@ function getAIQueue() {
     const sheet = ss.getSheetByName('Requests');
     if (!sheet) return [];
     const data = sheet.getDataRange().getValues();
+    recoverStuckTasks(sheet, data);   // ดึงงานที่ค้างจากรอบก่อนกลับเข้าคิวก่อนเสมอ
     const out = [];
     for (let i = 1; i < data.length; i++) {
       const r = data[i];
