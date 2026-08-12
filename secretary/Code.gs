@@ -91,8 +91,11 @@ const SYSTEM_PROMPT = [
   'เช่น "บอกในกลุ่มคาเฟ่ว่า...", "แจ้งทีมเซลล์ว่า..." ให้ตอบรับ แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
   '[[SENDGROUP]]{"target":"<ชื่อกลุ่มตามที่คุณปาล์มพูด>","message":"ข้อความที่จะส่งเข้ากลุ่ม"}[[/SENDGROUP]]',
   'target: ใส่ชื่อกลุ่มตามที่คุณปาล์มเรียกได้เลย (เช่น "ทดสอบเลขา", "คาเฟ่", "ทีมเซลล์") ระบบจะหากลุ่มที่ดิฉันอยู่ให้เอง',
-  '⚠️ SENDGROUP = ส่งออกทันทีเท่านั้น! ถ้าคุณปาล์มระบุเวลา (เช่น "ตอน 8 โมงครึ่ง", "พรุ่งนี้เช้า") ห้ามใช้ SENDGROUP',
-  'ให้ตอบแนะนำว่าพิมพ์ "เลขา ตั้งประกาศเข้ากลุ่ม <ชื่อกลุ่ม> <วัน เวลา> ว่า <ข้อความ>" แทน (ระบบตั้งเวลาจะจัดการเอง)',
+  '⚠️ SENDGROUP = ส่งออกทันทีเท่านั้น! ถ้าคุณปาล์มระบุเวลาส่ง ให้ใช้บล็อก SCHEDULE แทน (ผู้ใช้ไม่เห็น):',
+  '[[SCHEDULE]]{"target":"<ชื่อกลุ่ม>","when":"<เวลา เช่น พรุ่งนี้ 8 โมงครึ่ง | วันนี้ 18:00 | อีก 2 ชั่วโมง>","message":"ข้อความเต็มที่จะส่ง","replace":false}[[/SCHEDULE]]',
+  'SCHEDULE ใช้ได้ทั้งตั้งประกาศใหม่ และแก้ประกาศที่ตั้งค้างไว้ — ถ้าคุณปาล์มขอแก้เนื้อหา/เวลาของประกาศเดิม ใส่ "replace":true (= แทนที่ประกาศค้างล่าสุดของกลุ่มนั้น)',
+  'ถ้าคุณปาล์มขอให้ช่วยแต่ง/ปรับข้อความประกาศ ให้แต่งจนเสร็จแล้วใส่ใน message เลย ห้ามให้เขาไปพิมพ์คำสั่งเองซ้ำ',
+  'ตอบรับสั้นๆ พอ ระบบจะต่อท้ายผลการตั้งเวลา (วัน-เวลา-กลุ่ม) ให้เอง — ห้ามเคลมเองว่าตั้งเสร็จแล้ว',
   '',
   'ความสามารถที่มี (บอกได้ถ้ามีคนถามว่าทำอะไรได้): รับฝากงานลงบอร์ด, ตอบเรื่องงานในบอร์ด,',
   'รับรูป/ไฟล์เก็บลง Drive แล้วแนบกับงาน, ตั้งเตือนความจำ ("เตือนฉันพรุ่งนี้ 9 โมง ..."),',
@@ -498,8 +501,19 @@ function handleEvent(ev) {
     return;
   }
 
-  // 3) เรื่องทั่วไป → ให้คุณเลขา (Claude) ตอบ พร้อมความจำ + คลังข้อมูลธุรกิจ (+ล็อกกลุ่มถ้าถามถึง)
-  const p = parseBlocks(askClaude(groupCtx ? (groupCtx + 'คำถาม/คำสั่ง: ' + text) : text, history));
+  // 2.5) กำลังคุยเรื่องประกาศ/ตั้งเวลา → ป้อนคิวประกาศจริงให้สมอง AI เห็น (จะได้ไม่มั่วเวลา/เนื้อหาเก่า)
+  let schedCtx = '';
+  if (owner && /ประกาศ|โพสต์|กำหนดส่ง|ตั้งเวลา|แก้เนื้อหา|เลื่อนเวลา/.test(text)) {
+    const pend = listPendingPosts();
+    if (pend.length) {
+      schedCtx = '(ประกาศที่ตั้งเวลาค้างอยู่ในระบบตอนนี้ — ข้อมูลจริง ใช้อ้างอิงแทนความจำแชท:\n' + pend.join('\n')
+               + '\nถ้าคุณปาล์มขอแก้เนื้อหา/เลื่อนเวลาของรายการพวกนี้ ให้ใช้บล็อก SCHEDULE พร้อม "replace":true)\n\n';
+    }
+  }
+
+  // 3) เรื่องทั่วไป → ให้คุณเลขา (Claude) ตอบ พร้อมความจำ + คลังข้อมูลธุรกิจ (+ล็อกกลุ่ม/คิวประกาศถ้าเกี่ยว)
+  const preCtx = groupCtx + schedCtx;
+  const p = parseBlocks(askClaude(preCtx ? (preCtx + 'คำถาม/คำสั่ง: ' + text) : text, history));
   let reply = p.reply;
 
   // 3.1 ถ้าเป็นการฝากงาน → คัดแยกตาม assignee
@@ -551,6 +565,45 @@ function handleEvent(ev) {
     if (pid) {
       reply += '\n\n📁 ร่างแผนงานเป็นโปรเจกต์ ' + pid + ' แล้วค่ะ — ส่งให้คุณปาล์มพิจารณาอยู่นะคะ';
       pushPlanForApproval(pid, p.blocks.PLAN, senderId);
+    }
+  }
+  // 3.25 ตั้ง/แก้ประกาศตามเวลา ผ่านบทสนทนา — AI แต่งข้อความ+ระบุเวลาให้ ระบบบันทึกและยืนยันเอง
+  if (p.blocks.SCHEDULE) {
+    if (owner) {
+      const sc = p.blocks.SCHEDULE;
+      const gid = resolveGroupTarget(sc.target);
+      const when = parseThaiWhen(String(sc.when || ''));
+      const msg2 = String(sc.message || '').trim();
+      const sh = schedSheet();
+      if (!sh) reply += '\n\n⚠️ ยังตั้งค่าชีตไม่เรียบร้อยค่ะ ตั้งเวลาไม่สำเร็จ';
+      else if (!gid) reply += '\n\n⚠️ ดิฉันยังไม่รู้จักกลุ่ม "' + String(sc.target || '') + '" ค่ะ — พิมพ์ "เลขา รายชื่อกลุ่ม" เช็คชื่อได้นะคะ';
+      else if (!when) reply += '\n\n⚠️ ดิฉันอ่านเวลา "' + String(sc.when || '') + '" ไม่ออกค่ะ ขอแบบ "พรุ่งนี้ 8 โมงครึ่ง" หรือ "วันนี้ 18:00" นะคะ';
+      else if (!msg2) reply += '\n\n⚠️ ยังไม่มีเนื้อหาที่จะส่งค่ะ';
+      else {
+        // replace: ยกเลิกประกาศค้างล่าสุดของกลุ่มเดียวกันก่อน (= แก้ไขรายการเดิม)
+        let replaced = 0;
+        const n2 = sh.getLastRow() - 1;
+        if (sc.replace && n2 > 0) {
+          const d2 = sh.getRange(2, 1, n2, 7).getValues();
+          for (let i2 = d2.length - 1; i2 >= 0; i2--) {
+            if (String(d2[i2][6]) === 'รอส่ง' && String(d2[i2][1]) === String(gid)) {
+              sh.getRange(i2 + 2, 7).setValue('ยกเลิก(แก้ไข)');
+              replaced++;
+              break;
+            }
+          }
+        }
+        const gname = (listKnownGroups().filter(function (x) { return x.id === gid; })[0] || {}).name || String(sc.target || '');
+        sh.appendRow([when, gid, gname, 'ข้อความ', /ทุกวัน/.test(String(sc.when || '')) ? 'ทุกวัน' : 'ครั้งเดียว',
+                      msg2, 'รอส่ง', senderId, new Date()]);
+        reply += '\n\n📣 ' + (replaced ? 'แก้ประกาศเดิมเรียบร้อย — ' : '') + 'ตั้งเวลาส่งแล้วค่ะ'
+          + '\n🗓️ ' + Utilities.formatDate(when, 'GMT+7', 'd/M/yyyy เวลา HH:mm') + ' น. → ' + gname
+          + '\n💬 ' + msg2.slice(0, 200) + (msg2.length > 200 ? '…' : '')
+          + '\n(คลาดเคลื่อนได้ ~15 นาที · เช็คด้วย "เลขา ดูประกาศ")';
+        logRow(['ตั้งประกาศ(AI)', senderId, String(text).slice(0, 80), gname + ' @ ' + when]);
+      }
+    } else {
+      reply += '\n\n(ขออภัยค่ะ การตั้งประกาศเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น)';
     }
   }
   // 3.3 คุณปาล์มสั่งให้ส่งข้อความเข้ากลุ่ม (อนุญาตเฉพาะเจ้าของ)
@@ -737,21 +790,29 @@ function schedSheet() {
   return sh;
 }
 
+// รายการประกาศที่ยัง "รอส่ง" (ใช้ทั้งคำสั่ง "ดูประกาศ" และป้อนบริบทให้สมอง AI ตอนคุยเรื่องประกาศ)
+function listPendingPosts() {
+  try {
+    const sh = schedSheet(); if (!sh || sh.getLastRow() < 2) return [];
+    const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues();
+    const items = [];
+    rows.forEach(function (r, i) {
+      if (String(r[6]) !== 'รอส่ง') return;
+      items.push('#' + (i + 1) + ' 🗓️ ' + Utilities.formatDate(new Date(r[0]), 'GMT+7', 'd/M HH:mm')
+        + (String(r[4]) === 'ทุกวัน' ? ' (ทุกวัน)' : '')
+        + ' → ' + (r[2] || r[1]) + '\n   ' + (String(r[3]) === 'สรุปงาน' ? '📊 สรุปงานจากบอร์ด (สร้างสดตอนส่ง)' : String(r[5]).slice(0, 80)));
+    });
+    return items;
+  } catch (e) { return []; }
+}
+
 // จับคำสั่งตั้งประกาศ/ดู/ยกเลิก — คืน true ถ้าจัดการแล้ว
 function handleScheduledPost(text, chatId, senderId, replyToken, owner) {
   const t = String(text).replace(/^เลขา\s*/i, '').trim();
 
   // ดูรายการที่ตั้งไว้
   if (/^(ดู|เช็ค|รายการ)(ประกาศ|กำหนดส่ง|โพสต์)/.test(t)) {
-    const sh = schedSheet(); if (!sh) { lineReply(replyToken, 'ขออภัยค่ะ ยังตั้งค่าชีตไม่เรียบร้อย'); return true; }
-    const rows = sh.getLastRow() < 2 ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues();
-    const items = [];
-    rows.forEach(function (r, i) {
-      if (String(r[6]) !== 'รอส่ง') return;
-      items.push('#' + (i + 1) + ' 🗓️ ' + Utilities.formatDate(new Date(r[0]), 'GMT+7', 'd/M HH:mm')
-        + (String(r[4]) === 'ทุกวัน' ? ' (ทุกวัน)' : '')
-        + ' → ' + (r[2] || r[1]) + '\n   ' + (String(r[3]) === 'สรุปงาน' ? '📊 สรุปงานจากบอร์ด (สร้างสดตอนส่ง)' : String(r[5]).slice(0, 60)));
-    });
+    const items = listPendingPosts();
     lineReply(replyToken, items.length
       ? '📣 ประกาศที่ตั้งไว้ค่ะ:\n' + items.join('\n') + '\n\nยกเลิกได้ด้วย "เลขา ยกเลิกประกาศ <เลข>"'
       : 'ยังไม่มีประกาศที่ตั้งเวลาไว้ค่ะ');
@@ -823,7 +884,8 @@ function handleScheduledPost(text, chatId, senderId, replyToken, owner) {
   lineReply(replyToken, '📣 รับทราบค่ะ ตั้งเวลาส่งให้แล้ว\n'
     + '🗓️ ' + Utilities.formatDate(when, 'GMT+7', 'd/M/yyyy เวลา HH:mm') + ' น.' + (daily ? ' (ทุกวัน)' : '') + '\n'
     + '👥 กลุ่ม: ' + (g.name || g.id) + '\n'
-    + (isSummary ? '📊 เนื้อหา: สรุปงานจากบอร์ด (ดิฉันจะสรุปสดๆ ตอนถึงเวลาส่ง)' : '💬 เนื้อหา: ' + body.slice(0, 120))
+    + (isSummary ? '📊 เนื้อหา: สรุปงานจากบอร์ด (ดิฉันจะสรุปสดๆ ตอนถึงเวลาส่ง)'
+        : '💬 เนื้อหา: ' + body.slice(0, 200) + (body.length > 200 ? '… (เก็บเนื้อหาเต็มไว้ครบแล้วค่ะ)' : ''))
     + '\n\n(เวลาส่งจริงอาจคลาดเคลื่อนได้ไม่เกิน ~15 นาทีนะคะ)\nดูรายการ: "เลขา ดูประกาศ" | ยกเลิก: "เลขา ยกเลิกประกาศ <เลข>"');
   logRow(['ตั้งประกาศ', senderId, text, g.name + ' @ ' + when]);
   return true;
@@ -1209,18 +1271,23 @@ function findGroupByName(name) {
   return '';
 }
 
-function sendToGroupByTarget(sg) {
+// แปลง "ชื่อกลุ่มตามที่พูด" → group id (ใช้ทั้งส่งทันทีและตั้งเวลา)
+function resolveGroupTarget(target) {
   const map = {
     'cafe': 'GROUP_CAFE_ID', 'คาเฟ่': 'GROUP_CAFE_ID', 'กลุ่มคาเฟ่': 'GROUP_CAFE_ID',
     'sales': 'GROUP_SALES_ID', 'เซลล์': 'GROUP_SALES_ID', 'ทีมเซลล์': 'GROUP_SALES_ID'
   };
-  const t = String(sg.target || '').trim();
+  const t = String(target || '').trim();
   let gid = '';
   if (map[t]) gid = cfg(map[t]);
   else if (/^[CRU][0-9a-fA-F]{20,}$/.test(t)) gid = t;   // ใส่ group id ตรงๆ
   else if (cfg(t)) gid = cfg(t);                          // เผื่อใส่ชื่อ property
   if (!gid) gid = findGroupByName(t);                     // หาในทะเบียนกลุ่มที่เลขาอยู่
-  if (!gid && map[t]) return false;
+  return gid;
+}
+
+function sendToGroupByTarget(sg) {
+  const gid = resolveGroupTarget(sg.target);
   if (!gid) return false;
   linePush(gid, String(sg.message || ''));
   return true;
@@ -1521,7 +1588,7 @@ function boardSheetId() {
 function parseBlocks(raw) {
   let reply = String(raw);
   const blocks = {};
-  ['TASK', 'ALERT', 'SENDGROUP', 'PLAN'].forEach(function (name) {
+  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN'].forEach(function (name) {
     const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
     const m = reply.match(re);
     if (m) {
