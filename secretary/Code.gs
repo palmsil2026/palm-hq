@@ -257,6 +257,44 @@ function boardAction(action, ref) {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+//  ⚡ ยิง Routine เมื่อ "มีงานเข้าคิว" แทนการตั้งเวลาถามทุกชั่วโมง
+//  เดิม: 11 รอบ/วัน ส่วนใหญ่คิวว่าง = เผา token ฟรี
+//  ใหม่: มีงานเมื่อไหร่ทำเมื่อนั้น + cron สำรองวันละ 2 รอบกันตกหล่น
+// ════════════════════════════════════════════════════════════
+const AUTO_FIRE_DEBOUNCE_SEC = 300;  // ฝากงานรัว ๆ ในช่วงนี้ = ยิงรอบเดียว
+const AUTO_FIRE_DAILY_MAX = 20;      // เพดานกันลูป/กันบานปลาย
+
+function autoFireCount(inc) {
+  const key = 'AUTOFIRE_' + Utilities.formatDate(new Date(), 'GMT+7', 'yyyyMMdd');
+  const props = PropertiesService.getScriptProperties();
+  const n = Number(props.getProperty(key) || 0);
+  if (inc) props.setProperty(key, String(n + 1));
+  return n;
+}
+
+// เรียกทุกจุดที่งานเปลี่ยนเป็น "รอทีม AI" — ตัดสินใจเองว่าจะยิงหรือข้าม
+function maybeFireRoutine(reason) {
+  try {
+    if (!cfg('ROUTINE_FIRE_URL') || !cfg('ROUTINE_TOKEN')) return false;
+    if (cfg('AUTO_FIRE') === 'off') return false;
+    const cache = CacheService.getScriptCache();
+    if (cache.get('autofire_lock')) return false;                  // เพิ่งยิงไป รอรอบนั้นทำก่อน
+    if (autoFireCount(false) >= AUTO_FIRE_DAILY_MAX) {
+      console.warn('autoFire: ถึงเพดานวันละ ' + AUTO_FIRE_DAILY_MAX + ' ครั้งแล้ว');
+      return false;
+    }
+    cache.put('autofire_lock', '1', AUTO_FIRE_DEBOUNCE_SEC);
+    autoFireCount(true);
+    const r = fireRoutine('มีงานเข้าคิวใหม่ (' + (reason || '') + ') — ดึงคิวมาทำได้เลยค่ะ');
+    logRow(['ยิงทีม AI อัตโนมัติ', '', reason || '', r.msg]);
+    return r.ok;
+  } catch (err) {
+    console.error('maybeFireRoutine: ' + err);
+    return false;
+  }
+}
+
 // ปลุก Claude Code Routine ให้รันทันที (ตั้ง 2 ค่านี้ใน Script properties ก่อนใช้งาน)
 //   ROUTINE_FIRE_URL = URL จากหน้า Edit routine → Select a trigger → API
 //   ROUTINE_TOKEN    = token ที่กด Generate ในหน้าเดียวกัน (แสดงครั้งเดียว เก็บให้ดี)
@@ -454,6 +492,7 @@ function handleEvent(ev) {
             ? '\n\n🤖 ส่งเข้าคิวทีม AI แล้วค่ะ (งาน #' + ref + ')'
             : '\n\n📋 บันทึกเป็นงาน #' + ref + ' ลงบอร์ดให้แล้วค่ะ';
         if (gated) pushTaskForApproval(ref, p.blocks.TASK, senderId);
+        else if (assignee === 'ทีมAI') maybeFireRoutine('ฝากงานทางไลน์ #' + ref);
         if (String(p.blocks.TASK.urgency) === 'ด่วนมาก' && !owner) {
           alertOwnerUrgentTask(p.blocks.TASK, ref, senderId);
         }
@@ -1298,6 +1337,7 @@ function createTaskDirect(t, preApproved) {
     if (owner) linePush(owner, '🔴 งานด่วนมากเข้าใหม่ค่ะ\n#' + ref + ' ' + (t.biz || '') + '\n' + detail
       + (t.from ? ('\nโดย ' + t.from) : ''));
   }
+  if (status === 'รอทีม AI') maybeFireRoutine('ฝากงานผ่านฟอร์ม #' + ref);
   return { ok: true, ref: ref, status: status,
            msg: 'บันทึกงาน #' + ref + ' แล้ว' + (status === 'รออนุมัติ' ? ' (รออนุมัติ)' : status === 'รอทีม AI' ? ' — เข้าคิวทีม AI' : '') };
 }
@@ -1371,6 +1411,7 @@ function rpcComment(key, ref, text, redo) {
         sheet.getRange(row, 20).setValue('');   // ล้างเวลาเริ่ม/เสร็จ ให้รอบใหม่จับเวลาใหม่
         sheet.getRange(row, 21).setValue('');
         status = 'รอทีม AI';
+        maybeFireRoutine('สั่งแก้ตามคอมเมนต์ ' + ref);
       } else {
         sheet.getRange(row, 3).setValue('ใหม่');
         status = 'ใหม่';
@@ -1421,13 +1462,15 @@ function pushTaskForApproval(ref, task, senderId) {
 // ตั้งช่วงเวลาทำงานได้ที่ Script property: AI_ROUND_HOURS (ค่าเริ่มต้น "8-18" เวลาไทย)
 function nextRoundText() {
   try {
-    const rng = (cfg('AI_ROUND_HOURS') || '8-18').split('-');
-    const from = parseInt(rng[0], 10), to = parseInt(rng[1], 10);
+    // โหมดยิงทันที: งานใหม่เริ่มภายในไม่กี่นาที รอบตั้งเวลาเหลือแค่กันตกหล่น
+    if (cfg('ROUTINE_FIRE_URL') && cfg('ROUTINE_TOKEN') && cfg('AUTO_FIRE') !== 'off') {
+      return 'ทันทีที่งานเข้าคิว ⚡ (สำรอง 8:15 / 17:15 น.)';
+    }
     const nowH = parseInt(Utilities.formatDate(new Date(), 'GMT+7', 'H'), 10);
-    if (nowH < from) return String(from).padStart(2, '0') + ':15 น. วันนี้';
-    if (nowH >= to) return String(from).padStart(2, '0') + ':15 น. พรุ่งนี้';
-    return String(nowH + 1).padStart(2, '0') + ':15 น. (ทุกชั่วโมง ' + from + ':00-' + to + ':00)';
-  } catch (e) { return 'ทุกชั่วโมงในเวลาทำการ'; }
+    if (nowH < 8) return '08:15 น. วันนี้';
+    if (nowH < 17) return '17:15 น. วันนี้';
+    return '08:15 น. พรุ่งนี้';
+  } catch (e) { return 'รอบถัดไปตามตาราง'; }
 }
 
 function boardHtml(key, notice) {
@@ -1785,6 +1828,7 @@ function handlePlanVerdict(text, replyToken, chatId) {
     }
     const isAI = String(sheet.getRange(row, 12).getValue()) === 'ทีมAI';
     sheet.getRange(row, 3).setValue(isAI ? 'รอทีม AI' : 'ใหม่');
+    if (isAI) maybeFireRoutine('อนุมัติงาน ' + pid);
     lineReply(replyToken, '✅ อนุมัติแล้วค่ะ ' + pid
       + (isAI ? ' — ส่งเข้าคิวทีม AI แล้ว จะเริ่มทำรอบถัดไป (หรือกด "เริ่มทันที" บนบอร์ดก็ได้ค่ะ)' : ' — ขึ้นบอร์ดให้แล้วนะคะ'));
     return true;
@@ -1803,6 +1847,7 @@ function handlePlanVerdict(text, replyToken, chatId) {
     return true;
   }
   const n = approveProject(pid);
+  if (n) maybeFireRoutine('อนุมัติแผน ' + pid);
   lineReply(replyToken, n
     ? ('✅ อนุมัติแล้วค่ะ ' + pid + ' — ทีมจะเริ่มงานย่อย ' + n + ' รายการในรอบถัดไปนะคะ')
     : ('ไม่พบแผน ' + pid + ' ที่รออนุมัติค่ะ'));
@@ -2011,6 +2056,7 @@ function tryAnswerPendingQuestion(chatId, senderId, text, replyToken) {
             const isAI = String(rows[j][11]) === 'ทีมAI';
             sheet.getRange(j + 1, 3).setValue(isAI ? 'รอทีม AI' : 'ใหม่');
             sheet.getRange(j + 1, 18).setValue('ได้ข้อมูลแล้ว: ' + answer.slice(0, 500));
+            if (isAI) maybeFireRoutine('ได้คำตอบแล้ว ' + ref);
             break;
           }
         }
