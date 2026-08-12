@@ -773,7 +773,7 @@ function analyzeImage(blob, context) {
       method: 'post', contentType: 'application/json',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       payload: JSON.stringify({
-        model: MODEL, max_tokens: 300,
+        model: MODEL, max_tokens: 2048,   // เผื่อโควตาให้โหมดคิดก่อนตอบ ไม่งั้นคิดจนหมดโควตาแล้วไม่เหลือคำตอบ
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: blob.getContentType(), data: Utilities.base64Encode(bytes) } },
           { type: 'text', text: 'คุณเป็นเลขาของธุรกิจโรงน้ำดื่ม "ละกอน" และร้านคาเฟ่ '
@@ -791,7 +791,7 @@ function analyzeImage(blob, context) {
       muteHttpExceptions: true
     });
     const d = JSON.parse(res.getContentText());
-    const t = (d && d.content && d.content[0] && d.content[0].text) ? d.content[0].text.trim() : '';
+    const t = claudeText(d).trim();
     const relevant = /เกี่ยวข้อง\s*:\s*ใช่/i.test(t);
     const m = t.match(/บรรยาย\s*:\s*([\s\S]*)/i);
     return { relevant: relevant, desc: (m ? m[1].trim() : t) };
@@ -1185,6 +1185,18 @@ const PLANNER_PROMPT = [
   '- แยกให้ชัดว่าโรงน้ำหรือคาเฟ่'
 ].join('\n');
 
+// ดึงข้อความจากคำตอบของ Claude — ต้องไล่หาบล็อกชนิด text ห้ามอ่าน content[0] ตรง ๆ
+// เพราะโมเดลรุ่นใหม่ (Sonnet 5 / Opus 5) เปิดโหมดคิดก่อนตอบอัตโนมัติ เวลาเจอคำสั่งซับซ้อน
+// บล็อกแรกจะเป็น thinking (ข้อความว่าง) แล้วข้อความจริงอยู่บล็อกถัดไป
+function claudeText(data) {
+  if (!data || !data.content || !data.content.length) return '';
+  for (let i = 0; i < data.content.length; i++) {
+    const b = data.content[i];
+    if (b && b.type === 'text' && b.text) return b.text;
+  }
+  return '';
+}
+
 // เรียกนักวางแผน — คืน object แผนงาน หรือ null ถ้าไม่สำเร็จ
 function askPlanner(userText) {
   const apiKey = cfg('ANTHROPIC_API_KEY');
@@ -1199,14 +1211,14 @@ function askPlanner(userText) {
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       payload: JSON.stringify({
         model: PLANNER_MODEL,
-        max_tokens: 2048,
+        max_tokens: 8192,   // เผื่อโควตาให้โหมดคิดก่อนตอบด้วย ไม่งั้นคำตอบจะถูกตัดกลางคัน
         system: [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: 'ออกแบบแผนงานสำหรับคำขอนี้: ' + userText }]
       }),
       muteHttpExceptions: true
     });
     const data = JSON.parse(res.getContentText());
-    let raw = (data && data.content && data.content[0] && data.content[0].text) || '';
+    let raw = claudeText(data);
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) { console.error('askPlanner: no JSON in ' + raw.slice(0, 200)); return null; }
@@ -1237,7 +1249,7 @@ function askClaude(userText, history) {
   const messages = (history || []).concat([{ role: 'user', content: userText }]);
   const payload = {
     model: MODEL,
-    max_tokens: 1024,
+    max_tokens: 4096,   // เผื่อโควตาให้โหมดคิดก่อนตอบด้วย ไม่งั้นคำตอบยาว ๆ จะถูกตัดกลางคัน
     system: [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }],
     messages: messages
   };
@@ -1255,9 +1267,8 @@ function askClaude(userText, history) {
 
   try {
     const data = JSON.parse(res.getContentText());
-    if (data && data.content && data.content[0] && data.content[0].text) {
-      return data.content[0].text;
-    }
+    const text = claudeText(data);
+    if (text) return text;
     console.error('Claude response: ' + res.getContentText());
   } catch (err) {
     console.error('askClaude parse error: ' + err);
