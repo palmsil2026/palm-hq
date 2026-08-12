@@ -85,11 +85,13 @@ const SYSTEM_PROMPT = [
 ].join('\n');
 
 // ===== คำที่ถือว่าเป็น "เรื่องการเงินวงใน" → ปฏิเสธ + เด้งเตือนคุณปาล์ม =====
+// ⚠️ ระวังคำที่เป็น "ส่วนหนึ่ง" ของคำอื่น เช่น "ดีล" อยู่ใน "ดีลิเวอรี่", "งบ" อยู่ใน "งบประมาณโครงการ"
+// จึงใช้คำที่เจาะจงพอ ไม่ให้จับผิดคำทั่วไปในงานประจำวัน
 const FINANCE_KEYWORDS = [
   'ต้นทุน', 'ราคาทุน', 'กำไร', 'ขาดทุน', 'มาร์จิ้น', 'margin',
-  'ยอดขาย', 'รายรับ', 'รายจ่าย', 'งบ', 'งบการเงิน', 'บัญชี',
-  'ซัพพลายเออร์', 'ซัพพลาย', 'supplier', 'ดีล', 'ราคาซื้อ', 'ราคาส่ง',
-  'เงินเดือน', 'ค่าจ้าง', 'สูตร', 'กี่บาททุน'
+  'ยอดขาย', 'รายรับ', 'รายจ่าย', 'งบการเงิน', 'งบกำไร', 'งบดุล', 'บัญชีบริษัท',
+  'ซัพพลายเออร์', 'supplier', 'ดีลลับ', 'ราคาซื้อ', 'ราคาส่ง', 'ราคาต้นทุน',
+  'เงินเดือน', 'ค่าจ้าง', 'สูตรลับ', 'สูตรผลิต', 'กี่บาททุน'
 ];
 
 // ข้อความปฏิเสธสไตล์ดอนน่า
@@ -223,6 +225,9 @@ function handleEvent(ev) {
     if (pv) return;
   }
 
+  // 0.1b) ปิดงานที่คน/เลขาทำเอง: "เสร็จ <เลขงาน>" หรือ "ปิดงาน <เลขงาน>"
+  if (owner && handleManualDone(text, replyToken)) return;
+
   // 0.2) มีคำถามค้างอยู่ในห้องนี้ → ถือว่าข้อความนี้คือคำตอบ → ปลดล็อกงาน
   if (tryAnswerPendingQuestion(chatId, senderId, text, replyToken)) return;
 
@@ -238,9 +243,10 @@ function handleEvent(ev) {
   }
 
   // 1) เรื่องการเงินวงใน → ปฏิเสธ + เด้งเตือนคุณปาล์ม (โหมด A + B)
-  if (isFinanceTopic(text)) {
+  //    เจ้าของถามเองไม่ต้องปิดกั้น (เป็นข้อมูลของเขา) — กันเฉพาะคนอื่น
+  if (!owner && isFinanceTopic(text)) {
     lineReply(replyToken, FINANCE_DECLINE);
-    if (!owner) alertOwner(senderId, text);
+    alertOwner(senderId, text);
     memAppend(chatId, text, FINANCE_DECLINE);
     logRow(['การเงิน(ปฏิเสธ)', senderId, text, '']);
     return;
@@ -816,7 +822,7 @@ function reqSheet() {
     sheet = ss.insertSheet('Requests');
     sheet.appendRow(['เลขงาน', 'เวลาที่ส่ง', 'สถานะ', 'ความเร่งด่วน', 'ธุรกิจ', 'ประเภท', 'ผู้ฝาก',
                      'ติดต่อ', 'รายละเอียด', 'กำหนดเสร็จ', 'ลิงก์รูป', 'ผู้รับผิดชอบ', 'ผลงาน', 'แผนก',
-                     'โปรเจกต์', 'ลำดับ', 'ชื่อโปรเจกต์', 'ติดขัด']);
+                     'โปรเจกต์', 'ลำดับ', 'ชื่อโปรเจกต์', 'ติดขัด', 'โน้ตจากเจ้าของ']);
   }
   return sheet;
 }
@@ -866,12 +872,14 @@ function pushPlanForApproval(pid, plan, senderId) {
 // คุณปาล์มตอบกลับ: อนุมัติ / แก้ / ยกเลิก
 function handlePlanVerdict(text, replyToken, chatId) {
   const t = String(text).trim();
-  const mApprove = t.match(/^(อนุมัติ|ok|โอเค|เอาเลย)\s*(PRJ[\w-]+)?/i);
-  const mRevise  = t.match(/^(แก้|ปรับ|แก้ไข)\s*(PRJ[\w-]+)\s*[:：]?\s*([\s\S]*)$/i);
-  const mCancel  = t.match(/^(ยกเลิก)\s*(PRJ[\w-]+)/i);
+  // ⚠️ ต้องระบุเจาะจง — กันเผลออนุมัติจากคำว่า "โอเค/ok" ที่พิมพ์ในบทสนทนาปกติ
+  // รับเฉพาะ: มีเลข PRJ ชัดเจน  หรือ  ขึ้นต้นด้วยคำว่า "อนุมัติ/ยกเลิก" ตรง ๆ (ไม่มีอย่างอื่นต่อท้าย)
+  const mApprove = t.match(/^อนุมัติ\s*(PRJ[\w.-]+)?\s*$/i) || t.match(/^(?:อนุมัติ|ok|โอเค|เอาเลย)\s+(PRJ[\w.-]+)\s*$/i);
+  const mRevise  = t.match(/^(?:แก้|ปรับ|แก้ไข)\s*(PRJ[\w.-]+)\s*[:：]?\s*([\s\S]*)$/i);
+  const mCancel  = t.match(/^ยกเลิก\s*(PRJ[\w.-]+)?\s*$/i);
   if (!mApprove && !mRevise && !mCancel) return false;
 
-  const pid = (mApprove && mApprove[2]) || (mRevise && mRevise[2]) || (mCancel && mCancel[2]) || latestPendingProject();
+  const pid = (mApprove && mApprove[1]) || (mRevise && mRevise[1]) || (mCancel && mCancel[1]) || latestPendingProject();
   if (!pid) { lineReply(replyToken, 'ตอนนี้ไม่มีแผนงานที่รออนุมัติอยู่ค่ะ'); return true; }
 
   if (mCancel) {
@@ -880,7 +888,7 @@ function handlePlanVerdict(text, replyToken, chatId) {
     return true;
   }
   if (mRevise) {
-    const note = (mRevise[3] || '').trim();
+    const note = (mRevise[2] || '').trim();
     appendProjectNote(pid, note);
     lineReply(replyToken, 'รับทราบค่ะ จดข้อแก้ไขของ ' + pid + ' ไว้แล้ว:\n"' + note + '"\n'
       + 'เดี๋ยวทีมปรับตามนี้ พิมพ์ "อนุมัติ ' + pid + '" เมื่อพร้อมให้เริ่มได้เลยค่ะ');
@@ -890,6 +898,28 @@ function handlePlanVerdict(text, replyToken, chatId) {
   lineReply(replyToken, n
     ? ('✅ อนุมัติแล้วค่ะ ' + pid + ' — ทีมจะเริ่มงานย่อย ' + n + ' รายการในรอบถัดไปนะคะ')
     : ('ไม่พบแผน ' + pid + ' ที่รออนุมัติค่ะ'));
+  return true;
+}
+
+// ปิดงานที่ "คน" หรือ "เลขา" รับผิดชอบ (ทีม AI ปิดเองผ่าน endpoint อยู่แล้ว)
+// เจ้าของพิมพ์: "เสร็จ PRJ260812-1234.3" หรือ "ปิดงาน REQ260812-4821"
+function handleManualDone(text, replyToken) {
+  const m = String(text).trim().match(/^(?:เสร็จ|ปิดงาน|ทำแล้ว)\s+((?:REQ|PRJ)[\w.-]+)\s*([\s\S]*)$/i);
+  if (!m) return false;
+  const ref = m[1], note = (m[2] || '').trim();
+  const sheet = reqSheet();
+  if (!sheet) { lineReply(replyToken, 'ยังไม่ได้ตั้งชีตบอร์ดค่ะ'); return true; }
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) !== ref) continue;
+    sheet.getRange(i + 1, 3).setValue('เสร็จ');
+    if (note) sheet.getRange(i + 1, 13).setValue(note);
+    const pid = String(data[i][14] || '');
+    lineReply(replyToken, '✅ ปิดงาน ' + ref + ' ให้แล้วค่ะ' + (note ? ('\nโน้ต: ' + note) : ''));
+    if (pid) advanceProject(pid);
+    return true;
+  }
+  lineReply(replyToken, 'ไม่พบงาน ' + ref + ' ในบอร์ดค่ะ');
   return true;
 }
 
@@ -916,11 +946,22 @@ function approveProject(pid) {
     if (String(data[i][14]) === pid && String(data[i][2]) === 'รออนุมัติ') {
       const step = Number(data[i][15]) || 1;
       const isAI = String(data[i][11]) === 'ทีมAI';
-      sheet.getRange(i + 1, 3).setValue(step === firstStep ? (isAI ? 'รอทีม AI' : 'ใหม่') : 'รอลำดับ');
+      const active = (step === firstStep);
+      sheet.getRange(i + 1, 3).setValue(active ? (isAI ? 'รอทีม AI' : 'ใหม่') : 'รอลำดับ');
+      if (active && !isAI) notifyHumanStep(data[i][0], data[i][8]);
       count++;
     }
   }
   return count;
+}
+
+// ขั้นนี้เป็นงานของคน/เลขา → เตือนคุณปาล์มว่าถึงคิวแล้ว (ไม่งั้นโปรเจกต์จะค้าง)
+function notifyHumanStep(ref, detail) {
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (!owner) return;
+  linePush(owner, '👤 ถึงคิวงานที่ต้องให้คนทำแล้วค่ะ\n'
+    + '#' + ref + ' — ' + (detail || '') + '\n\n'
+    + 'ทำเสร็จแล้วพิมพ์ "เสร็จ ' + ref + '" เพื่อให้โปรเจกต์เดินต่อนะคะ');
 }
 
 function setProjectStatus(pid, status) {
@@ -931,14 +972,15 @@ function setProjectStatus(pid, status) {
   }
 }
 
+// จดข้อสั่งแก้จากเจ้าของ → คอลัมน์ 19 "โน้ตจากเจ้าของ" (ทุกงานย่อยของโปรเจกต์นั้น ทีมจะได้เห็น)
 function appendProjectNote(pid, note) {
   const sheet = reqSheet(); if (!sheet) return;
+  if (sheet.getRange(1, 19).getValue() !== 'โน้ตจากเจ้าของ') sheet.getRange(1, 19).setValue('โน้ตจากเจ้าของ');
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][14]) === pid && String(data[i][15]) == 1) {
-      const cur = String(data[i][9] || '');
-      sheet.getRange(i + 1, 10).setValue((cur ? cur + ' | ' : '') + 'แก้ไขจากเจ้าของ: ' + note);
-      return;
+    if (String(data[i][14]) === pid) {
+      const cur = String(data[i][18] || '');
+      sheet.getRange(i + 1, 19).setValue((cur ? cur + ' | ' : '') + note);
     }
   }
 }
@@ -956,7 +998,19 @@ function advanceProject(pid) {
     if (st === 'รอทีม AI' || st === 'กำลังทำ (AI)' || st === 'ใหม่' || st === 'รอข้อมูล') return; // ยังมีงานค้างอยู่
   }
   rows.filter(function (r) { return r.step === nextStep; })
-      .forEach(function (r) { sheet.getRange(r.i + 1, 3).setValue(r.ai ? 'รอทีม AI' : 'ใหม่'); });
+      .forEach(function (r) {
+        sheet.getRange(r.i + 1, 3).setValue(r.ai ? 'รอทีม AI' : 'ใหม่');
+        if (!r.ai) notifyHumanStep(data[r.i][0], data[r.i][8]);
+      });
+  // ไม่เหลือขั้นไหนเลย = โปรเจกต์จบ
+  if (!rows.length) {
+    const title = (function () {
+      for (let k = 1; k < data.length; k++) if (String(data[k][14]) === pid) return String(data[k][16] || pid);
+      return pid;
+    })();
+    const owner = cfg('OWNER_LINE_USER_ID');
+    if (owner) linePush(owner, '🎉 โปรเจกต์เสร็จครบทุกขั้นแล้วค่ะ\n📁 ' + title + ' (' + pid + ')');
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -994,7 +1048,9 @@ function handleAskInfo(body) {
     }
   }
   linePush(chatId, '🙋‍♀️ ขอรบกวนสอบถามค่ะ (เกี่ยวกับงาน ' + (body.ref || '') + ')\n\n'
-    + (body.question || '') + '\n\nตอบกลับข้อความนี้ได้เลยค่ะ (ขึ้นต้นว่า "เลขา" ถ้าอยู่ในกลุ่ม) 🙏');
+    + (body.question || '')
+    + '\n\n📝 ตอบโดย**ขึ้นต้นว่า "ตอบ"** นะคะ เช่น "ตอบ ..." '
+    + '(ถ้าอยู่ในกลุ่มพิมพ์ "เลขา ตอบ ...") 🙏');
   return jsonOut({ ok: true, qid: qid });
 }
 
@@ -1007,13 +1063,23 @@ function resolveChatTarget(target) {
   return cfg(t) || '';
 }
 
-// มีคำถามค้างในห้องนี้ไหม → ถ้ามี ถือว่าข้อความนี้คือคำตอบ
+// มีคำถามค้างในห้องนี้ไหม → รับเป็น "คำตอบ" เฉพาะเมื่อผู้ใช้ระบุชัดว่าตอบ
+// (ขึ้นต้นด้วย "ตอบ" / อ้างเลขงาน / อ้าง Q_ID) — กันข้อความทั่วไปโดนกินเป็นคำตอบ
 function tryAnswerPendingQuestion(chatId, senderId, text, replyToken) {
   const s = qSheet(); if (!s) return false;
+  const raw = String(text).replace(/^เลขา\s*/i, '').trim();
   const data = s.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) {
     if (String(data[i][3]) === String(chatId) && String(data[i][5]) === 'รอตอบ') {
-      const answer = String(text).replace(/^เลขา\s*/i, '').trim();
+      const qid = String(data[i][0] || '');
+      const qref = String(data[i][2] || '');
+      const isAnswer =
+        /^(ตอบ|คำตอบ)\b/i.test(raw) ||
+        /^(ตอบ|คำตอบ)[\s:：]/i.test(raw) ||
+        (qid && raw.indexOf(qid) !== -1) ||
+        (qref && raw.indexOf(qref) !== -1);
+      if (!isAnswer) return false; // ไม่ใช่การตอบ → ปล่อยให้ไหลไปตามปกติ
+      const answer = raw.replace(/^(ตอบ|คำตอบ)[\s:：]*/i, '').replace(qid, '').replace(qref, '').trim();
       if (answer.length < 2) return false;
       s.getRange(i + 1, 6).setValue('ตอบแล้ว');
       s.getRange(i + 1, 7).setValue(answer);
@@ -1056,14 +1122,23 @@ function logGroupChat(chatId, ev, text) {
     const ss = SpreadsheetApp.openById(sheetIdFrom(id));
     let s = ss.getSheetByName('GroupChat');
     if (!s) { s = ss.insertSheet('GroupChat'); s.appendRow(['เวลา', 'chatId', 'ผู้พูด(userId)', 'ชื่อ', 'ข้อความ']); }
+    // ชื่อคนพูด: cache ไว้ 6 ชม. (เดิมยิง LINE API ทุกข้อความ = ช้าและเปลืองโควตา)
     let name = '';
     try {
       const uid = (ev.source && ev.source.userId) || '';
       if (uid) {
-        const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + chatId + '/member/' + uid, {
-          headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
-        });
-        if (res.getResponseCode() === 200) name = JSON.parse(res.getContentText()).displayName || '';
+        const cache = CacheService.getScriptCache();
+        const ck = 'nm_' + chatId + '_' + uid;
+        name = cache.get(ck) || '';
+        if (!name) {
+          const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + chatId + '/member/' + uid, {
+            headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+          });
+          if (res.getResponseCode() === 200) {
+            name = JSON.parse(res.getContentText()).displayName || '';
+            if (name) cache.put(ck, name, 21600); // 6 ชั่วโมง
+          }
+        }
       }
     } catch (e) {}
     s.appendRow([new Date(), chatId, (ev.source && ev.source.userId) || '', name, text]);
