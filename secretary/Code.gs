@@ -53,7 +53,14 @@ const SYSTEM_PROMPT = [
   'สรุปข้อมูลสั้นๆ, คิดเลขทั่วไป (ที่ไม่ใช่ต้นทุน/กำไร), ตอบคำถาม → ให้ "ทำให้เลยในคำตอบ" ไม่ต้องแค่จดไว้',
   '',
   'คัดแยกและบันทึกงาน: เมื่อข้อความเป็นการ "ฝากงาน/มอบหมายงาน" ให้ตอบตามปกติ แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
-  '[[TASK]]{"biz":"โรงน้ำ|คาเฟ่|อื่นๆ","type":"ประเภทสั้นๆ","detail":"สรุปงานให้ชัด","urgency":"ด่วนมาก|ปกติ|ไม่เร่ง","due":"กำหนดถ้ามี","assignee":"เลขา|ทีมAI|คน","dept":"แผนกถ้าเป็นทีมAI"}[[/TASK]]',
+  '[[TASK]]{"biz":"โรงน้ำ|คาเฟ่|อื่นๆ","type":"ประเภทสั้นๆ","detail":"สรุปงานให้ชัด","urgency":"ด่วนมาก|ปกติ|ไม่เร่ง","due":"กำหนดถ้ามี","assignee":"เลขา|ทีมAI|คน","dept":"แผนกถ้าเป็นทีมAI","comment":"ความเห็นของคุณเลขาต่องานนี้"}[[/TASK]]',
+  'ช่อง comment: ให้ใส่ความเห็นมืออาชีพสั้น ๆ (1-3 บรรทัด) ว่าคุณมองงานนี้ยังไง —',
+  'เช่น ควรทำไหม เสี่ยง/กระทบอะไร ควรทำอะไรก่อน มีทางที่ง่ายกว่าไหม หรือข้อมูลอะไรที่ยังขาด',
+  'ใส่เสมอเมื่องานเป็นของ coder หรือ data เพราะคุณปาล์มจะอ่านก่อนตัดสินใจอนุมัติ',
+  '',
+  'งานที่ต้องขออนุมัติก่อนเสมอ: งานแก้ระบบ/เขียนโค้ด (dept=coder) และงานฐานข้อมูล (dept=data)',
+  'งานสองกลุ่มนี้ห้ามส่งเข้าคิวทีม AI ทันที ระบบจะพักไว้ให้คุณปาล์มอนุมัติเอง — ให้บอกผู้ฝากงานว่า',
+  '"ขอเสนอคุณปาล์มพิจารณาก่อนนะคะ" อย่ารับปากว่าจะทำเลย',
   'ช่อง dept (ใส่เฉพาะเมื่อ assignee="ทีมAI"): finance=การเงิน/ต้นทุน, analyst=วิเคราะห์ข้อมูล/รายงาน,',
   'content=คอนเทนต์/ดีไซน์/โพสต์, writer=เขียนเอกสาร/ข้อความยาว, researcher=หาข้อมูล/เทียบราคา, coder=แอป/โค้ด/ระบบ,',
   'data=สร้าง/ดูแลฐานข้อมูล รวบรวม-ทำความสะอาดข้อมูล',
@@ -378,9 +385,13 @@ function handleEvent(ev) {
       const ref = logTaskToBoard(p.blocks.TASK, senderId);
       if (ref) {
         taskLogged = true;
-        reply += (assignee === 'ทีมAI')
-          ? '\n\n🤖 ส่งเข้าคิวทีม AI แล้วค่ะ (งาน #' + ref + ')'
-          : '\n\n📋 บันทึกเป็นงาน #' + ref + ' ลงบอร์ดให้แล้วค่ะ';
+        const gated = (assignee === 'ทีมAI') && needsApproval(p.blocks.TASK.dept);
+        reply += gated
+          ? '\n\n📝 งานนี้แตะระบบ/ข้อมูล ขอเสนอคุณปาล์มพิจารณาก่อนนะคะ (งาน #' + ref + ')'
+          : (assignee === 'ทีมAI')
+            ? '\n\n🤖 ส่งเข้าคิวทีม AI แล้วค่ะ (งาน #' + ref + ')'
+            : '\n\n📋 บันทึกเป็นงาน #' + ref + ' ลงบอร์ดให้แล้วค่ะ';
+        if (gated) pushTaskForApproval(ref, p.blocks.TASK, senderId);
         if (String(p.blocks.TASK.urgency) === 'ด่วนมาก' && !owner) {
           alertOwnerUrgentTask(p.blocks.TASK, ref, senderId);
         }
@@ -838,17 +849,44 @@ function logTaskToBoard(task, senderId) {
     const ref = 'REQ' + Utilities.formatDate(now, 'GMT+7', 'yyMMdd')
                 + '-' + Math.floor(1000 + Math.random() * 9000);
     const assignee = task.assignee || 'คน';
-    const status = (assignee === 'ทีมAI') ? 'รอทีม AI' : 'ใหม่';
     const dept = (assignee === 'ทีมAI') ? (task.dept || '') : '';
+    // งานเปลี่ยนระบบ/โค้ด/ฐานข้อมูล = พักรออนุมัติก่อน ไม่เข้าคิวทีม AI ทันที
+    const status = (assignee !== 'ทีมAI') ? 'ใหม่'
+                 : (needsApproval(dept) ? 'รออนุมัติ' : 'รอทีม AI');
     sheet.appendRow([
       ref, now, status, task.urgency || 'ปกติ', task.biz || '',
-      task.type || '', 'LINE', senderId || '', task.detail || '', task.due || '', '', assignee, '', dept
+      task.type || '', 'LINE', senderId || '', task.detail || '', task.due || '', '', assignee, '', dept,
+      '', '', '', '', (task.comment ? ('💬 เลขา: ' + task.comment) : '')
     ]);
     return ref;
   } catch (err) {
     console.error('logTaskToBoard error: ' + err);
     return '';
   }
+}
+
+// แผนกที่ต้องให้คุณปาล์มอนุมัติก่อนเสมอ (งานเปลี่ยนระบบ / โค้ด / ฐานข้อมูล)
+const APPROVE_DEPTS = ['coder', 'data'];
+function needsApproval(dept) {
+  return APPROVE_DEPTS.indexOf(String(dept || '').toLowerCase()) !== -1;
+}
+
+// ส่งงานเดี่ยวให้คุณปาล์มพิจารณา พร้อมความเห็นของคุณเลขา
+function pushTaskForApproval(ref, task, senderId) {
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (!owner) return;
+  const DEPT = { coder: '💻 โค้ด/ระบบ', data: '🗄️ ฝ่ายข้อมูล' };
+  let msg = '📝 ขออนุมัติก่อนจ่ายงานค่ะคุณปาล์ม\n'
+          + '#' + ref + '  ' + (DEPT[task.dept] || task.dept || '') + '\n'
+          + (task.biz ? ('🏢 ' + task.biz + '\n') : '')
+          + (task.urgency ? ('🚩 ' + task.urgency + '\n') : '')
+          + '\n📌 งานที่ขอมา:\n' + (task.detail || '') + '\n';
+  if (task.comment) msg += '\n💬 ความเห็นของดิฉัน:\n' + task.comment + '\n';
+  msg += '\nเอายังไงดีคะ?\n'
+       + '• "อนุมัติ ' + ref + '" — ให้ทีมลงมือเลย\n'
+       + '• "แก้ ' + ref + ' : ..." — บอกที่อยากปรับ\n'
+       + '• "ยกเลิก ' + ref + '" — ไม่ทำ';
+  linePush(owner, msg);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1085,13 +1123,42 @@ function handlePlanVerdict(text, replyToken, chatId) {
   const t = String(text).trim();
   // ⚠️ ต้องระบุเจาะจง — กันเผลออนุมัติจากคำว่า "โอเค/ok" ที่พิมพ์ในบทสนทนาปกติ
   // รับเฉพาะ: มีเลข PRJ ชัดเจน  หรือ  ขึ้นต้นด้วยคำว่า "อนุมัติ/ยกเลิก" ตรง ๆ (ไม่มีอย่างอื่นต่อท้าย)
-  const mApprove = t.match(/^อนุมัติ\s*(PRJ[\w.-]+)?\s*$/i) || t.match(/^(?:อนุมัติ|ok|โอเค|เอาเลย)\s+(PRJ[\w.-]+)\s*$/i);
-  const mRevise  = t.match(/^(?:แก้|ปรับ|แก้ไข)\s*(PRJ[\w.-]+)\s*[:：]?\s*([\s\S]*)$/i);
-  const mCancel  = t.match(/^ยกเลิก\s*(PRJ[\w.-]+)?\s*$/i);
+  const mApprove = t.match(/^อนุมัติ\s*((?:PRJ|REQ)[\w.-]+)?\s*$/i) || t.match(/^(?:อนุมัติ|ok|โอเค|เอาเลย)\s+((?:PRJ|REQ)[\w.-]+)\s*$/i);
+  const mRevise  = t.match(/^(?:แก้|ปรับ|แก้ไข)\s*((?:PRJ|REQ)[\w.-]+)\s*[:：]?\s*([\s\S]*)$/i);
+  const mCancel  = t.match(/^ยกเลิก\s*((?:PRJ|REQ)[\w.-]+)?\s*$/i);
   if (!mApprove && !mRevise && !mCancel) return false;
 
   const pid = (mApprove && mApprove[1]) || (mRevise && mRevise[1]) || (mCancel && mCancel[1]) || latestPendingProject();
-  if (!pid) { lineReply(replyToken, 'ตอนนี้ไม่มีแผนงานที่รออนุมัติอยู่ค่ะ'); return true; }
+  if (!pid) { lineReply(replyToken, 'ตอนนี้ไม่มีงานหรือแผนงานที่รออนุมัติอยู่ค่ะ'); return true; }
+
+  // งานเดี่ยว (REQ) — อนุมัติทีละงาน ไม่ใช่ทั้งโปรเจกต์
+  if (/^REQ/i.test(pid)) {
+    const sheet = reqSheet();
+    const row = sheet ? findRefRow(sheet, pid) : 0;
+    if (!row) { lineReply(replyToken, 'ไม่พบงาน ' + pid + ' ค่ะ'); return true; }
+    if (String(sheet.getRange(row, 3).getValue()) !== 'รออนุมัติ') {
+      lineReply(replyToken, 'งาน ' + pid + ' ไม่ได้อยู่ในสถานะรออนุมัติค่ะ (ตอนนี้: ' + sheet.getRange(row, 3).getValue() + ')');
+      return true;
+    }
+    if (mCancel) {
+      sheet.getRange(row, 3).setValue('ยกเลิก');
+      sheet.getRange(row, 21).setValue(new Date());
+      lineReply(replyToken, 'ยกเลิกงาน ' + pid + ' ให้แล้วค่ะ');
+      return true;
+    }
+    if (mRevise) {
+      const note = (mRevise[2] || '').trim();
+      appendTaskNote(sheet, row, note);
+      lineReply(replyToken, 'รับทราบค่ะ จดไว้แล้ว:\n"' + note + '"\n'
+        + 'พิมพ์ "อนุมัติ ' + pid + '" เมื่อพร้อมให้ทีมเริ่มได้เลยค่ะ');
+      return true;
+    }
+    const isAI = String(sheet.getRange(row, 12).getValue()) === 'ทีมAI';
+    sheet.getRange(row, 3).setValue(isAI ? 'รอทีม AI' : 'ใหม่');
+    lineReply(replyToken, '✅ อนุมัติแล้วค่ะ ' + pid
+      + (isAI ? ' — ส่งเข้าคิวทีม AI แล้ว จะเริ่มทำรอบถัดไป (หรือกด "เริ่มทันที" บนบอร์ดก็ได้ค่ะ)' : ' — ขึ้นบอร์ดให้แล้วนะคะ'));
+    return true;
+  }
 
   if (mCancel) {
     setProjectStatus(pid, 'ยกเลิก');
@@ -1138,9 +1205,17 @@ function latestPendingProject() {
   const sheet = reqSheet(); if (!sheet) return '';
   const data = sheet.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][2]) === 'รออนุมัติ' && data[i][14]) return String(data[i][14]);
+    if (String(data[i][2]) !== 'รออนุมัติ') continue;
+    return String(data[i][14] || data[i][0]);   // อยู่ในโปรเจกต์ → คืนเลขโปรเจกต์, ไม่งั้นคืนเลขงานเดี่ยว
   }
   return '';
+}
+
+// จดโน้ตของเจ้าของลงงานเดี่ยว
+function appendTaskNote(sheet, row, note) {
+  if (sheet.getRange(1, 19).getValue() !== 'โน้ตจากเจ้าของ') sheet.getRange(1, 19).setValue('โน้ตจากเจ้าของ');
+  const cur = String(sheet.getRange(row, 19).getValue() || '');
+  sheet.getRange(row, 19).setValue((cur ? cur + ' | ' : '') + note);
 }
 
 // อนุมัติ → งานย่อยขั้นแรกเข้าคิวทีม AI, ขั้นถัดไปเป็น "รอลำดับ"
