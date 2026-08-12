@@ -53,7 +53,9 @@ const SYSTEM_PROMPT = [
   'สรุปข้อมูลสั้นๆ, คิดเลขทั่วไป (ที่ไม่ใช่ต้นทุน/กำไร), ตอบคำถาม → ให้ "ทำให้เลยในคำตอบ" ไม่ต้องแค่จดไว้',
   '',
   'คัดแยกและบันทึกงาน: เมื่อข้อความเป็นการ "ฝากงาน/มอบหมายงาน" ให้ตอบตามปกติ แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
-  '[[TASK]]{"biz":"โรงน้ำ|คาเฟ่|อื่นๆ","type":"ประเภทสั้นๆ","detail":"สรุปงานให้ชัด","urgency":"ด่วนมาก|ปกติ|ไม่เร่ง","due":"กำหนดถ้ามี","assignee":"เลขา|ทีมAI|คน"}[[/TASK]]',
+  '[[TASK]]{"biz":"โรงน้ำ|คาเฟ่|อื่นๆ","type":"ประเภทสั้นๆ","detail":"สรุปงานให้ชัด","urgency":"ด่วนมาก|ปกติ|ไม่เร่ง","due":"กำหนดถ้ามี","assignee":"เลขา|ทีมAI|คน","dept":"แผนกถ้าเป็นทีมAI"}[[/TASK]]',
+  'ช่อง dept (ใส่เฉพาะเมื่อ assignee="ทีมAI"): finance=การเงิน/ต้นทุน, analyst=วิเคราะห์ข้อมูล/รายงาน,',
+  'content=คอนเทนต์/ดีไซน์/โพสต์, writer=เขียนเอกสาร/ข้อความยาว, researcher=หาข้อมูล/เทียบราคา, coder=แอป/โค้ด/ระบบ',
   'กติกาช่อง assignee:',
   '- "เลขา" = งานเบาที่คุณทำเสร็จให้แล้วในคำตอบนี้ (ไม่ต้องมีใครทำต่อ)',
   '- "ทีมAI" = งานหนักที่ต้องใช้ AI ทำต่อ เช่น วิเคราะห์ยอดขายเชิงลึก ทำสไลด์ เขียนโค้ด ค้นข้อมูลเชิงลึก ร่างเอกสารยาว',
@@ -95,6 +97,7 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
     // ช่องเชื่อมกับทีม AI ใน Claude Code: ส่งผลงานกลับมาปิดงาน
     if (body.action === 'completeTask') return handleCompleteTask(body);
+    if (body.action === 'startTask') return handleStartTask(body);
     // นอกนั้น = webhook จาก LINE
     (body.events || []).forEach(handleEvent);
   } catch (err) {
@@ -549,7 +552,7 @@ function readBoardAll() {
       const r = data[i];
       out.push({
         ref: r[0], time: r[1], status: r[2], urgency: r[3], biz: r[4],
-        type: r[5], from: r[6], detail: r[8], due: r[9], assignee: r[11] || '', result: r[12] || ''
+        type: r[5], from: r[6], detail: r[8], due: r[9], assignee: r[11] || '', result: r[12] || '', dept: r[13] || ''
       });
     }
     return out;
@@ -640,16 +643,17 @@ function logTaskToBoard(task, senderId) {
     if (!sheet) {
       sheet = ss.insertSheet('Requests');
       sheet.appendRow(['เลขงาน', 'เวลาที่ส่ง', 'สถานะ', 'ความเร่งด่วน', 'ธุรกิจ',
-                       'ประเภท', 'ผู้ฝาก', 'ติดต่อ', 'รายละเอียด', 'กำหนดเสร็จ', 'ลิงก์รูป', 'ผู้รับผิดชอบ']);
+                       'ประเภท', 'ผู้ฝาก', 'ติดต่อ', 'รายละเอียด', 'กำหนดเสร็จ', 'ลิงก์รูป', 'ผู้รับผิดชอบ', 'ผลงาน', 'แผนก']);
     }
     const now = new Date();
     const ref = 'REQ' + Utilities.formatDate(now, 'GMT+7', 'yyMMdd')
                 + '-' + Math.floor(1000 + Math.random() * 9000);
     const assignee = task.assignee || 'คน';
     const status = (assignee === 'ทีมAI') ? 'รอทีม AI' : 'ใหม่';
+    const dept = (assignee === 'ทีมAI') ? (task.dept || '') : '';
     sheet.appendRow([
       ref, now, status, task.urgency || 'ปกติ', task.biz || '',
-      task.type || '', 'LINE', senderId || '', task.detail || '', task.due || '', '', assignee
+      task.type || '', 'LINE', senderId || '', task.detail || '', task.due || '', '', assignee, '', dept
     ]);
     return ref;
   } catch (err) {
@@ -675,11 +679,31 @@ function getAIQueue() {
     for (let i = 1; i < data.length; i++) {
       const r = data[i];
       if (String(r[2]) === 'รอทีม AI') {
-        out.push({ ref: r[0], biz: r[4], type: r[5], detail: r[8], urgency: r[3], due: r[9] });
+        out.push({ ref: r[0], biz: r[4], type: r[5], detail: r[8], urgency: r[3], due: r[9], dept: r[13] || '' });
       }
     }
     return out;
   } catch (err) { console.error('getAIQueue error: ' + err); return []; }
+}
+
+// ทีม AI "เช็คอิน" ก่อนเริ่มทำงาน → สถานะ "กำลังทำ (AI)" + บันทึกแผนก (บอร์ดเห็นสดๆ)
+function handleStartTask(body) {
+  if (body.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+  const id = boardSheetId();
+  if (!id) return jsonOut({ ok: false, error: 'no sheet' });
+  const ss = SpreadsheetApp.openById(sheetIdFrom(id));
+  const sheet = ss.getSheetByName('Requests');
+  if (!sheet) return jsonOut({ ok: false, error: 'no board' });
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(body.ref)) {
+      sheet.getRange(i + 1, 3).setValue('กำลังทำ (AI)');
+      if (sheet.getRange(1, 14).getValue() !== 'แผนก') sheet.getRange(1, 14).setValue('แผนก');
+      if (body.dept) sheet.getRange(i + 1, 14).setValue(String(body.dept));
+      return jsonOut({ ok: true });
+    }
+  }
+  return jsonOut({ ok: false, error: 'ref not found' });
 }
 
 // ทีม AI ส่งผลงานกลับมาปิดงาน → อัปเดตสถานะ + แจ้งคุณปาล์ม

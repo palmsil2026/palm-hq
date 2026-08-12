@@ -22,6 +22,23 @@
     .refresh-btn { background:var(--gold); color:var(--navy-dark); border:none; border-radius:9px; padding:8px 16px; font-family:inherit; font-weight:700; cursor:pointer; font-size:.85rem; }
     .container { max-width:1100px; margin:0 auto; padding:16px; }
 
+    /* team row */
+    .team-title { font-size:.85rem; font-weight:700; color:var(--navy); margin:2px 0 8px; }
+    .team { display:flex; gap:10px; overflow-x:auto; padding-bottom:6px; margin-bottom:12px; -webkit-overflow-scrolling:touch; }
+    .member { min-width:148px; flex:0 0 auto; background:var(--white); border:1px solid var(--border); border-radius:12px; padding:12px 10px; text-align:center; box-shadow:0 2px 8px rgba(27,53,88,.05); }
+    .member.busy { border-color:var(--gold); background:linear-gradient(180deg,#fff, var(--gold-light)); }
+    .avatar { font-size:1.7rem; line-height:1; }
+    .m-name { font-size:.82rem; font-weight:700; color:var(--navy); margin-top:5px; }
+    .m-status { font-size:.7rem; margin-top:4px; color:var(--sub); min-height:2.1em; }
+    .m-status .working { color:var(--orange); font-weight:700; }
+    .m-status .free { color:var(--green); font-weight:600; }
+    .m-counts { font-size:.66rem; color:var(--sub); margin-top:5px; }
+    .dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; vertical-align:middle; }
+    .dot.g { background:var(--green); }
+    .dot.o { background:var(--orange); animation:pulse 1.2s infinite; }
+    .dot.a { background:var(--gold); }
+    @keyframes pulse { 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:.4; transform:scale(1.35);} }
+
     /* stat tiles */
     .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
     .stat { background:var(--white); border:1px solid var(--border); border-radius:12px; padding:12px 14px; text-align:center; }
@@ -87,6 +104,8 @@
   </div>
 
   <div class="container hidden" id="main">
+    <div class="team-title">👥 ทีมงาน AI</div>
+    <div class="team" id="team"></div>
     <div class="stats" id="stats"></div>
     <div class="filters" id="filters"></div>
     <div class="loading" id="loading">กำลังโหลด...</div>
@@ -102,6 +121,7 @@
       { k:'open',  label:'ค้างอยู่' },
       { k:'urgent',label:'🔴 ด่วนมาก' },
       { k:'ai',    label:'🤖 รอทีม AI' },
+      { k:'doing', label:'⚙️ กำลังทำ' },
       { k:'human', label:'👤 งานคน' },
       { k:'done',  label:'✅ เสร็จแล้ว' },
       { k:'all',   label:'ทั้งหมด' },
@@ -145,6 +165,7 @@
       if (filter==='open') return !isDone(t);
       if (filter==='urgent') return t.urgency==='ด่วนมาก' && !isDone(t);
       if (filter==='ai') return t.status==='รอทีม AI';
+      if (filter==='doing') return t.status==='กำลังทำ (AI)';
       if (filter==='human') return (t.assignee==='คน'||!t.assignee) && !isDone(t);
       if (filter==='done') return isDone(t);
       return true;
@@ -155,7 +176,49 @@
         `<button class="chip ${f.k===filter?'active':''}" onclick="filter='${f.k}';renderFilters();render()">${f.label}</button>`).join('');
     }
 
+    const TEAM = [
+      { k:'finance',    e:'💰', n:'การเงิน' },
+      { k:'analyst',    e:'📊', n:'นักวิเคราะห์' },
+      { k:'content',    e:'🎨', n:'คอนเทนต์' },
+      { k:'writer',     e:'✍️', n:'นักเขียน' },
+      { k:'researcher', e:'🔍', n:'นักวิจัย' },
+      { k:'coder',      e:'💻', n:'นักเขียนโค้ด' },
+    ];
+    const DEPT_LABEL = Object.fromEntries(TEAM.map(m=>[m.k, m.e+' '+m.n]));
+
+    function renderTeam() {
+      const workingOf = k => all.find(t=>t.status==='กำลังทำ (AI)' && t.dept===k);
+      const queueOf   = k => all.filter(t=>t.status==='รอทีม AI' && t.dept===k).length;
+      const doneOf    = k => all.filter(t=>t.status==='เสร็จ (AI)' && t.dept===k).length;
+      const unassigned = all.filter(t=>t.status==='รอทีม AI' && !t.dept).length;
+      const newTasks   = all.filter(t=>t.status==='ใหม่').length;
+
+      // การ์ดคุณเลขา (หน้าด่าน)
+      let html = `<div class="member ${newTasks||unassigned?'busy':''}">
+        <div class="avatar">🗓️</div><div class="m-name">คุณเลขา</div>
+        <div class="m-status">${(newTasks||unassigned)
+          ? `<span class="working"><span class="dot o"></span>กำลังจัดคิว/เฝ้าบอร์ด</span>`
+          : `<span class="free"><span class="dot g"></span>เฝ้าบอร์ดอยู่ค่ะ</span>`}</div>
+        <div class="m-counts">งานใหม่ ${newTasks} · รอจัดสรร ${unassigned}</div>
+      </div>`;
+
+      html += TEAM.map(m => {
+        const w = workingOf(m.k), q = queueOf(m.k), d = doneOf(m.k);
+        const status = w
+          ? `<span class="working"><span class="dot o"></span>กำลังทำ #${esc(w.ref)}</span>`
+          : q ? `<span><span class="dot a"></span>มีคิวรอ ${q} งาน</span>`
+              : `<span class="free"><span class="dot g"></span>ว่าง พร้อมรับงาน</span>`;
+        return `<div class="member ${w?'busy':''}">
+          <div class="avatar">${m.e}</div><div class="m-name">${m.n}</div>
+          <div class="m-status">${status}</div>
+          <div class="m-counts">คิว ${q} · เสร็จแล้ว ${d}</div>
+        </div>`;
+      }).join('');
+      $('team').innerHTML = html;
+    }
+
     function render() {
+      renderTeam();
       const open = all.filter(t=>!isDone(t));
       const stats = [
         { n: open.length, l:'งานค้าง', c:'' },
@@ -184,6 +247,7 @@
             ${t.biz?`<span>🏢 ${esc(t.biz)}</span>`:''}
             ${t.type?`<span>📂 ${esc(t.type)}</span>`:''}
             ${t.assignee?`<span>${t.assignee==='ทีมAI'?'🤖':'👤'} ${esc(t.assignee)}</span>`:''}
+            ${t.dept&&DEPT_LABEL[t.dept]?`<span>${DEPT_LABEL[t.dept]}</span>`:''}
             ${t.due?`<span>⏳ ${esc(t.due)}</span>`:''}
             ${d?`<span>🗓 ${d}</span>`:''}
           </div>
@@ -194,6 +258,7 @@
 
     function esc(s){ return String(s??'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
     init();
+    setInterval(()=>{ if(conf().url) load(); }, 60000); // รีเฟรชเองทุก 1 นาที ให้บอร์ดรู้สึกมีชีวิต
   </script>
 </body>
 </html>
