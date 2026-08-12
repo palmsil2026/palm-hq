@@ -416,16 +416,6 @@ function handleEvent(ev) {
     return;
   }
 
-  // ถึงตรงนี้แปลว่ากำลังคุยกับเลขาจริงๆ (แชทเดี่ยว หรือเรียก "เลขา" ในกลุ่มแล้ว)
-  // ถ้ามีรูป/ไฟล์ที่คนนี้ส่งไว้ก่อนหน้าแล้ว "จำไว้ก่อน" ยังไม่เก็บ → ถือว่าเกี่ยวกับงาน เก็บลง Drive จริงตอนนี้เลย
-  const resolvedMedia = resolvePendingMedia(chatId, senderId, inGroup);
-  if (resolvedMedia) {
-    linePush(inGroup ? chatId : senderId,
-      '📎 เก็บรูป/ไฟล์ที่ส่งไว้ก่อนหน้าให้แล้วค่ะ'
-      + (resolvedMedia.ref ? ' แนบกับงาน #' + resolvedMedia.ref + ' เรียบร้อย' : '')
-      + (resolvedMedia.desc ? '\n👁️ ที่เห็นในรูป: ' + resolvedMedia.desc : ''));
-  }
-
   const history = memGet(chatId);
 
   // 0.1) คุณปาล์มอนุมัติ/แก้แผนงาน (เฉพาะเจ้าของ)
@@ -729,43 +719,38 @@ function mediaFolder() {
   return it.hasNext() ? it.next() : DriveApp.createFolder(name);
 }
 
-// ให้ AI ดูรูปแล้วบรรยายสั้นๆ (เก็บลงล็อก — เลขาจะ "จำ" ได้ว่ารูปนั้นคืออะไร)
-function describeImage(blob) {
+// ให้ AI ดูรูปก่อนว่า "เกี่ยวกับงานควรเก็บไหม" + บรรยายสั้นๆ ในทีเดียว (1 คอลครบ ประหยัดกว่าถามสองรอบ)
+// เกณฑ์เกี่ยวข้อง: ใบเสร็จ/บิล/สลิปโอนเงิน สินค้า-วัตถุดิบ เมนู ราคา สต๊อก เอกสารงาน สกรีนช็อตแชท/ระบบ
+// ตัวอย่างที่ต้องใช้ทำงานต่อ ฯลฯ — รูปอาหารกินเล่น เซลฟี่ วิว มีม ไม่เกี่ยวธุรกิจ = ไม่เกี่ยวข้อง
+function analyzeImage(blob) {
   try {
     const apiKey = cfg('ANTHROPIC_API_KEY');
-    if (!apiKey) return '';
+    if (!apiKey) return { relevant: true, desc: '' }; // วิเคราะห์ไม่ได้ → เก็บไว้ก่อนดีกว่าเสียของสำคัญไป
     const bytes = blob.getBytes();
-    if (bytes.length > 3500000) return '(รูปใหญ่เกินอ่าน)';
+    if (bytes.length > 3500000) return { relevant: true, desc: '(รูปใหญ่เกินอ่าน)' };
     const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
       method: 'post', contentType: 'application/json',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       payload: JSON.stringify({
-        model: MODEL, max_tokens: 250,
+        model: MODEL, max_tokens: 300,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: blob.getContentType(), data: Utilities.base64Encode(bytes) } },
-          { type: 'text', text: 'บรรยายภาพนี้ 1-2 ประโยคภาษาไทย ถ้ามีตัวเลข ยอด ราคา ชื่อ หรือข้อความสำคัญในภาพ ให้ระบุออกมาให้ครบ' }
+          { type: 'text', text: 'ดูภาพนี้แล้วตอบตามรูปแบบนี้เป๊ะๆ 2 บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
+              + 'เกี่ยวข้อง: ใช่ หรือ ไม่\n'
+              + 'บรรยาย: (1-2 ประโยคภาษาไทย บอกว่าในรูปมีอะไร ถ้ามีตัวเลข/ยอด/ราคา/ชื่อสำคัญ ให้ระบุครบ)\n\n'
+              + 'เกณฑ์ "เกี่ยวข้อง" (ตอบใช่): ใบเสร็จ/บิล/สลิปโอนเงิน สินค้า-วัตถุดิบ เมนู ราคา สต๊อก เอกสารงาน '
+              + 'สกรีนช็อตแชท/ระบบ ของตัวอย่างที่ดูแล้วน่าจะเอาไปใช้ทำงานต่อได้\n'
+              + 'ไม่เกี่ยวข้อง (ตอบไม่): รูปอาหารกินเล่น เซลฟี่ วิว มีม การ์ตูน หรือรูปทั่วไปที่ไม่เกี่ยวธุรกิจ' }
         ] }]
       }),
       muteHttpExceptions: true
     });
     const d = JSON.parse(res.getContentText());
-    return (d && d.content && d.content[0] && d.content[0].text) ? d.content[0].text.trim() : '';
-  } catch (err) { console.error('describeImage: ' + err); return ''; }
-}
-
-// รูป/ไฟล์ที่ "รับไว้แต่ยังไม่เก็บถาวร" — รอดูก่อนว่าเกี่ยวกับงานไหม กันเปลืองพื้นที่ Drive
-// จากรูปคุยเล่น/รูปที่ไม่เกี่ยวงาน (คีย์ตามคนส่ง หมดอายุเองใน 30 นาทีถ้าไม่มีใครพูดถึง)
-function pendingMediaKey(chatId, senderId) { return 'pendingMedia:' + chatId + ':' + senderId; }
-function stashPendingMedia(chatId, senderId, item) {
-  CacheService.getScriptCache().put(pendingMediaKey(chatId, senderId), JSON.stringify(item), 1800);
-}
-function popPendingMedia(chatId, senderId) {
-  const cache = CacheService.getScriptCache();
-  const key = pendingMediaKey(chatId, senderId);
-  const raw = cache.get(key);
-  if (!raw) return null;
-  cache.remove(key);
-  try { return JSON.parse(raw); } catch (e) { return null; }
+    const t = (d && d.content && d.content[0] && d.content[0].text) ? d.content[0].text.trim() : '';
+    const relevant = /เกี่ยวข้อง\s*:\s*ใช่/i.test(t);
+    const m = t.match(/บรรยาย\s*:\s*([\s\S]*)/i);
+    return { relevant: relevant, desc: (m ? m[1].trim() : t) };
+  } catch (err) { console.error('analyzeImage: ' + err); return { relevant: true, desc: '' }; } // วิเคราะห์พลาด → เก็บไว้ก่อนกันเสียของ
 }
 
 function handleMediaMessage(ev) {
@@ -775,58 +760,60 @@ function handleMediaMessage(ev) {
   const inGroup = (src.type === 'group' || src.type === 'room');
   const chatId = src.groupId || src.roomId || senderId;
   if (inGroup) registerGroup(chatId);
-
-  // แค่ "จำไว้ก่อน" ยังไม่โหลด/อัปโหลดขึ้น Drive — พอมีคนเรียกเลขา หรือคุยต่อเกี่ยวกับรูปนี้
-  // (ดู resolvePendingMedia ใน handleEvent) ค่อยดึงมาเก็บจริง ถ้าไม่มีใครพูดถึงก็ปล่อยผ่านไปเฉยๆ ไม่เปลืองที่
-  stashPendingMedia(chatId, senderId, {
-    messageId: ev.message.id,
-    type: ev.message.type,
-    fileName: ev.message.fileName || '',
-    ts: Date.now()
-  });
-
-  if (!inGroup) {
-    lineReply(replyToken, 'รับรูป/ไฟล์ไว้แล้วค่ะ 📷 ถ้าเกี่ยวกับงานหรืออยากให้เก็บไว้ คุยต่อได้เลยนะคะ เดี๋ยวดิฉันเก็บให้อัตโนมัติ');
-  }
-  // ในกลุ่ม: เงียบไว้ก่อน ไม่รบกวนวงคุย — เก็บจริงเมื่อคนที่ส่งรูปเรียก "เลขา" ตามมา
-}
-
-// ดึงรูป/ไฟล์ที่ "จำไว้ก่อน" (ถ้ามี) มาเก็บจริงลง Drive — เรียกตอนรู้แล้วว่าเกี่ยวกับงาน
-// คืนค่า {url, desc, ref} ถ้าเก็บสำเร็จ, null ถ้าไม่มีอะไรค้างอยู่ (หรือหมดอายุ/โหลดไม่ได้แล้ว)
-function resolvePendingMedia(chatId, senderId, inGroup) {
-  const pending = popPendingMedia(chatId, senderId);
-  if (!pending) return null;
   try {
-    const res = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/message/' + pending.messageId + '/content', {
+    const res = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/message/' + ev.message.id + '/content', {
       headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
     });
-    if (res.getResponseCode() !== 200) return null; // โหลดไม่ได้/หมดอายุ — ปล่อยผ่านเงียบๆ ไม่ฟ้อง error รบกวน
+    if (res.getResponseCode() !== 200) { if (!inGroup) lineReply(replyToken, 'ขออภัยค่ะ ดาวน์โหลดไฟล์ไม่สำเร็จ รบกวนส่งอีกครั้งนะคะ 🙏'); return; }
 
     const blob = res.getBlob();
+
+    // 📷 รูปภาพ: ให้ AI ดูก่อนว่าเกี่ยวกับงานไหม ไม่เกี่ยว (เช่นรูปอาหาร/เซลฟี่คุยเล่น) → ปล่อยผ่าน ไม่เซฟกันเปลืองที่
+    // 📄 ไฟล์อื่น (เอกสาร/สเปรดชีตฯลฯ): ถือว่าตั้งใจส่งมาทำงานอยู่แล้ว → เก็บเลยไม่ต้องวิเคราะห์
+    let relevant = true, desc = '';
+    if (ev.message.type === 'image') {
+      const a = analyzeImage(blob);
+      relevant = a.relevant;
+      desc = a.desc;
+    }
+    if (!relevant) {
+      if (!inGroup) {
+        lineReply(replyToken, '👀 ดูรูปแล้วค่ะ ดูไม่น่าเกี่ยวกับงาน เลยยังไม่เก็บไว้นะคะ'
+          + (desc ? ('\n(' + desc + ')') : '')
+          + '\nถ้าจริง ๆ อยากให้เก็บไว้ บอกดิฉันได้เลยค่ะ 😊');
+      }
+      // ในกลุ่ม: เงียบไว้ ไม่รบกวนวงคุยด้วยรูปที่ไม่เกี่ยวงาน
+      logRow(['รับรูป(ไม่เกี่ยว-ไม่เซฟ)', senderId, desc, '']);
+      return;
+    }
+
     const stamp = Utilities.formatDate(new Date(), 'GMT+7', 'yyMMdd-HHmmss');
-    const base = (pending.type === 'image') ? ('รูป-' + stamp) : (pending.fileName || ('ไฟล์-' + stamp));
+    const base = (ev.message.type === 'image') ? ('รูป-' + stamp) : ((ev.message.fileName || ('ไฟล์-' + stamp)));
     const file = mediaFolder().createFile(blob.setName(base));
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     const url = file.getUrl();
 
-    // อ่านภาพด้วย AI — เลขาจะรู้ว่าในรูปมีอะไร เอาไปตอบคำถามทีหลังได้
-    const desc = (pending.type === 'image') ? describeImage(blob) : '';
-
     if (inGroup) {
-      logGroupChat(chatId, { source: { userId: senderId } }, '[ส่งรูป/ไฟล์] ' + (desc || base) + ' ' + url);
-      const ref = attachMediaToLatestTask(senderId, url);
+      // ในกลุ่ม: เก็บเงียบๆ ลงล็อกแชทกลุ่ม (พร้อมคำบรรยายภาพ) ไม่เด้งตอบรบกวนวงคุย
+      logGroupChat(chatId, ev, '[ส่งรูป/ไฟล์] ' + (desc || base) + ' ' + url);
+      attachMediaToLatestTask(senderId, url);
       logRow(['รับไฟล์(กลุ่ม)', senderId, base, (desc ? desc + ' ' : '') + url]);
-      return { url: url, desc: desc, ref: ref };
+      return;
     }
 
-    // แชทเดี่ยว: แนบกับงานล่าสุดที่คนนี้ฝากไว้และยังไม่ปิด
+    // แชทเดี่ยว: แนบกับงานล่าสุดที่คนนี้ฝากไว้และยังไม่ปิด + บอกว่าเห็นอะไรในรูป
     const ref = attachMediaToLatestTask(senderId, url, desc);
+    lineReply(replyToken, (ref
+      ? ('📎 เก็บไฟล์ให้แล้วค่ะ แนบไว้กับงาน #' + ref + ' เรียบร้อย')
+      : ('📎 เก็บไฟล์ไว้ให้แล้วค่ะ (ยังไม่มีงานค้างให้แนบ — เล่ารายละเอียดงานมาได้เลยนะคะ)'))
+      + (desc ? ('\n👁️ ที่เห็นในรูป: ' + desc) : '')
+      + '\n' + url);
+    // จำลงความจำแชท — คุยต่อจากรูปได้ เช่น "เอาตามภาพนี้เลย"
     memAppend(chatId, '[ส่งรูปมา 1 รูป]', '(รับรูปแล้ว' + (desc ? ' — ในรูป: ' + desc : '') + (ref ? ' แนบกับงาน #' + ref : '') + ')');
-    logRow(['รับไฟล์', senderId, pending.type + ' ' + base, (desc ? desc + ' ' : '') + url]);
-    return { url: url, desc: desc, ref: ref };
+    logRow(['รับไฟล์', senderId, ev.message.type + ' ' + base, (desc ? desc + ' ' : '') + url]);
   } catch (err) {
-    console.error('resolvePendingMedia: ' + err);
-    return null;
+    console.error('handleMediaMessage: ' + err);
+    if (!inGroup) lineReply(replyToken, 'ขออภัยค่ะ เก็บไฟล์ไม่สำเร็จ (' + err + ')');
   }
 }
 
