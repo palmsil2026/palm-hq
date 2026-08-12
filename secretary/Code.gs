@@ -775,11 +775,17 @@ function handleMediaMessage(ev) {
     }
 
     // แชทเดี่ยว: แนบกับงานล่าสุดที่คนนี้ฝากไว้และยังไม่ปิด + บอกว่าเห็นอะไรในรูป
-    const ref = attachMediaToLatestTask(senderId, url);
+    const ref = attachMediaToLatestTask(senderId, url, desc);
+    // มีคำถามที่เลขา/ทีมถามค้างอยู่ไหม — ถ้ามี รูปนี้น่าจะคือคำตอบ (เช่นภาพตัวอย่างที่ขอ)
+    const pendingQ = hasPendingQuestion(chatId);
     lineReply(replyToken, (ref
       ? ('📎 เก็บไฟล์ให้แล้วค่ะ แนบไว้กับงาน #' + ref + ' เรียบร้อย')
       : ('📎 เก็บไฟล์ไว้ให้แล้วค่ะ (ยังไม่มีงานค้างให้แนบ — เล่ารายละเอียดงานมาได้เลยนะคะ)'))
-      + (desc ? ('\n👁️ ที่เห็นในรูป: ' + desc) : '') + '\n' + url);
+      + (desc ? ('\n👁️ ที่เห็นในรูป: ' + desc) : '')
+      + (pendingQ ? '\n\n💡 ถ้ารูปนี้คือคำตอบของที่ถามไว้ พิมพ์ "ตอบ ตามรูปที่ส่ง" ได้เลยค่ะ งานจะเดินต่อทันที' : '')
+      + '\n' + url);
+    // จำลงความจำแชท — คุยต่อจากรูปได้ เช่น "เอาตามภาพนี้เลย"
+    memAppend(chatId, '[ส่งรูปมา 1 รูป]', '(รับรูปแล้ว' + (desc ? ' — ในรูป: ' + desc : '') + (ref ? ' แนบกับงาน #' + ref : '') + ')');
     logRow(['รับไฟล์', senderId, ev.message.type + ' ' + base, (desc ? desc + ' ' : '') + url]);
   } catch (err) {
     console.error('handleMediaMessage: ' + err);
@@ -788,7 +794,8 @@ function handleMediaMessage(ev) {
 }
 
 // หางานล่าสุดของคนส่งที่ยังไม่ปิด แล้วต่อลิงก์รูปในคอลัมน์ "ลิงก์รูป" (K)
-function attachMediaToLatestTask(senderId, url) {
+// desc (ถ้ามี) จะถูกจดลงช่อง "ติดขัด" (R) ซึ่งส่งให้ทีม AI ผ่านฟิลด์ needs อยู่แล้ว
+function attachMediaToLatestTask(senderId, url, desc) {
   if (!senderId) return '';
   try {
     const sheet = reqSheet(); if (!sheet) return '';
@@ -801,6 +808,10 @@ function attachMediaToLatestTask(senderId, url) {
       const row = start + i;
       const cur = String(sheet.getRange(row, 11).getValue() || '');
       sheet.getRange(row, 11).setValue(cur ? (cur + '\n' + url) : url);
+      if (desc) {
+        const note = String(sheet.getRange(row, 18).getValue() || '');
+        sheet.getRange(row, 18).setValue((note ? note + ' | ' : '') + '🖼️ รูปแนบ: ' + String(desc).slice(0, 300));
+      }
       return String(d[i][0]);
     }
   } catch (err) { console.error('attachMediaToLatestTask: ' + err); }
@@ -2230,6 +2241,18 @@ function resolveChatTarget(target) {
 
 // มีคำถามค้างในห้องนี้ไหม → รับเป็น "คำตอบ" เฉพาะเมื่อผู้ใช้ระบุชัดว่าตอบ
 // (ขึ้นต้นด้วย "ตอบ" / อ้างเลขงาน / อ้าง Q_ID) — กันข้อความทั่วไปโดนกินเป็นคำตอบ
+// มีคำถามที่ยัง "รอตอบ" ในห้องนี้ไหม
+function hasPendingQuestion(chatId) {
+  try {
+    const s = qSheet(); if (!s) return false;
+    const data = s.getDataRange().getValues();
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][3]) === String(chatId) && String(data[i][5]) === 'รอตอบ') return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
 function tryAnswerPendingQuestion(chatId, senderId, text, replyToken) {
   const s = qSheet(); if (!s) return false;
   const raw = String(text).replace(/^เลขา\s*/i, '').trim();
@@ -2259,7 +2282,8 @@ function tryAnswerPendingQuestion(chatId, senderId, text, replyToken) {
           if (String(rows[j][0]) === ref) {
             const isAI = String(rows[j][11]) === 'ทีมAI';
             sheet.getRange(j + 1, 3).setValue(isAI ? 'รอทีม AI' : 'ใหม่');
-            sheet.getRange(j + 1, 18).setValue('ได้ข้อมูลแล้ว: ' + answer.slice(0, 500));
+            const prevNote = String(sheet.getRange(j + 1, 18).getValue() || '').replace(/^รอคำตอบ:[^|]*/, '').trim();
+            sheet.getRange(j + 1, 18).setValue((prevNote ? prevNote + ' | ' : '') + 'ได้ข้อมูลแล้ว: ' + answer.slice(0, 500));
             if (isAI) maybeFireRoutine('ได้คำตอบแล้ว ' + ref);
             break;
           }
@@ -2425,7 +2449,8 @@ function getAIQueue() {
         out.push({ ref: r[0], biz: r[4], type: r[5], detail: r[8], urgency: r[3], due: r[9],
                    dept: r[13] || '', project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', needs: r[17] || '',
                    ownerNotes: r[18] || '',            // 💬 คอมเมนต์/คำสั่งแก้จากคุณปาล์ม — ต้องทำตามนี้ก่อน
-                   previousResult: r[12] || '' });     // ผลงานรอบก่อน (กรณีสั่งทำใหม่)
+                   previousResult: r[12] || '',        // ผลงานรอบก่อน (กรณีสั่งทำใหม่)
+                   image: r[10] || '' });              // ลิงก์รูปแนบ (คำบรรยายรูปอยู่ใน needs)
       }
     }
     return out;
