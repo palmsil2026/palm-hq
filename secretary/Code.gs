@@ -473,6 +473,9 @@ function handleEvent(ev) {
     return;
   }
 
+  // 1.45) ตั้งประกาศ/สรุปงานเข้ากลุ่มล่วงหน้า + ดู/ยกเลิกรายการ (เฉพาะเจ้าของ)
+  if (handleScheduledPost(text, chatId, senderId, replyToken, owner)) return;
+
   // 1.5) ขอลิงก์บอร์ดตรงๆ → ส่งปุ่มเปิดบอร์ดเลย ไม่ต้องให้ Claude สรุป (เร็ว+ประหยัด token)
   if (/^(เลขา\s*)?(เปิด)?(บอร์ด|board)(งาน)?$/i.test(text) || /ลิงก์บอร์ด|link บอร์ด/i.test(text)) {
     lineReply(replyToken, 'นี่เลยค่ะ 📋', [boardButtonMessage()]);
@@ -660,6 +663,8 @@ function parseThaiWhen(text) {
   else if (mBai) { hh = Number(mBai[1]); if (hh < 12) hh += 12; }
   else if (mYen) { hh = Number(mYen[1] || mYen[2]); if (hh < 12) hh += 12; }
   else if (/เที่ยง/.test(t)) hh = 12;
+  // "8 โมงครึ่ง" / "2 ทุ่มครึ่ง" / "บ่าย 2 ครึ่ง" → +30 นาที (เฉพาะตอนไม่ได้เขียนนาทีตรงๆ แบบ 8:30)
+  if (!mClock && hh >= 0 && /(?:โมง|ทุ่ม|เที่ยง|\d)\s*(?:เช้า|เย็น)?\s*ครึ่ง/.test(t)) mm = 30;
   if (hh >= 0 && hh <= 23) { d.setHours(hh, mm, 0, 0); hasTime = true; }
 
   if (!hasDay && !hasTime) return null;
@@ -708,6 +713,148 @@ function fireDueReminders() {
       sh.getRange(i + 2, 5).setValue('เตือนแล้ว');
     }
   } catch (err) { console.error('fireDueReminders: ' + err); }
+  // ยิงประกาศ/สรุปงานที่ตั้งเวลาไว้ด้วย (เกาะ trigger เดิม ไม่ต้องตั้ง trigger ใหม่)
+  try { fireDuePosts(); } catch (err) { console.error('fireDuePosts: ' + err); }
+}
+
+// ════════════════════════════════════════════════════════════
+//  📣 ตั้งประกาศ/สรุปงานเข้ากลุ่มล่วงหน้า (เฉพาะคุณปาล์มสั่ง)
+//  "เลขา ตั้งประกาศเข้ากลุ่ม ออริจิ้นแล็บ พรุ่งนี้ 8 โมงครึ่ง ว่า ..."
+//  "เลขา ตั้งสรุปงานเข้ากลุ่ม ออริจิ้นแล็บ ทุกวัน 18:00"
+//  "เลขา ดูประกาศ" / "เลขา ยกเลิกประกาศ 2"
+//  ⏱️ ความละเอียด ~15 นาที (เกาะ trigger fireDueReminders)
+// ════════════════════════════════════════════════════════════
+function schedSheet() {
+  const id = boardSheetId(); if (!id) return null;
+  const ss = ssById(id);
+  let sh = ss.getSheetByName('ScheduledPosts');
+  if (!sh) {
+    sh = ss.insertSheet('ScheduledPosts');
+    sh.appendRow(['ส่งเมื่อ', 'groupId', 'ชื่อกลุ่ม', 'ประเภท', 'ซ้ำ', 'เนื้อหา', 'สถานะ', 'ผู้สั่ง', 'สร้างเมื่อ']);
+  }
+  return sh;
+}
+
+// จับคำสั่งตั้งประกาศ/ดู/ยกเลิก — คืน true ถ้าจัดการแล้ว
+function handleScheduledPost(text, chatId, senderId, replyToken, owner) {
+  const t = String(text).replace(/^เลขา\s*/i, '').trim();
+
+  // ดูรายการที่ตั้งไว้
+  if (/^(ดู|เช็ค|รายการ)(ประกาศ|กำหนดส่ง|โพสต์)/.test(t)) {
+    const sh = schedSheet(); if (!sh) { lineReply(replyToken, 'ขออภัยค่ะ ยังตั้งค่าชีตไม่เรียบร้อย'); return true; }
+    const rows = sh.getLastRow() < 2 ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues();
+    const items = [];
+    rows.forEach(function (r, i) {
+      if (String(r[6]) !== 'รอส่ง') return;
+      items.push('#' + (i + 1) + ' 🗓️ ' + Utilities.formatDate(new Date(r[0]), 'GMT+7', 'd/M HH:mm')
+        + (String(r[4]) === 'ทุกวัน' ? ' (ทุกวัน)' : '')
+        + ' → ' + (r[2] || r[1]) + '\n   ' + (String(r[3]) === 'สรุปงาน' ? '📊 สรุปงานจากบอร์ด (สร้างสดตอนส่ง)' : String(r[5]).slice(0, 60)));
+    });
+    lineReply(replyToken, items.length
+      ? '📣 ประกาศที่ตั้งไว้ค่ะ:\n' + items.join('\n') + '\n\nยกเลิกได้ด้วย "เลขา ยกเลิกประกาศ <เลข>"'
+      : 'ยังไม่มีประกาศที่ตั้งเวลาไว้ค่ะ');
+    return true;
+  }
+
+  // ยกเลิก
+  const mCancel = t.match(/^ยกเลิก(?:ประกาศ|กำหนดส่ง|โพสต์)\s*#?(\d+)/);
+  if (mCancel) {
+    if (!owner) { lineReply(replyToken, 'ขออภัยค่ะ การจัดการประกาศทำได้เฉพาะคุณปาล์มเท่านั้น 🙏'); return true; }
+    const sh = schedSheet(); const row = Number(mCancel[1]) + 1;
+    if (!sh || row < 2 || row > sh.getLastRow() || String(sh.getRange(row, 7).getValue()) !== 'รอส่ง') {
+      lineReply(replyToken, 'ไม่พบประกาศ #' + mCancel[1] + ' ที่ยังรอส่งค่ะ — พิมพ์ "เลขา ดูประกาศ" เช็คเลขก่อนนะคะ');
+      return true;
+    }
+    sh.getRange(row, 7).setValue('ยกเลิก');
+    lineReply(replyToken, '✅ ยกเลิกประกาศ #' + mCancel[1] + ' ให้แล้วค่ะ');
+    return true;
+  }
+
+  // ตั้งใหม่: ต้องขึ้นต้นด้วย ตั้ง/ฝาก/นัด (กันชนกับ "ประกาศ...ว่า" แบบส่งทันทีที่มีอยู่แล้ว)
+  const mSet = t.match(/^(?:ตั้ง|ฝาก|นัด)\s*(?:ส่ง)?\s*(ประกาศ|ข้อความ|สรุปงาน|รายงาน(?:งาน)?)/);
+  if (!mSet) return false;
+  if (!owner) { lineReply(replyToken, 'ขออภัยค่ะ การตั้งประกาศเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น 🙏'); return true; }
+
+  const isSummary = /สรุปงาน|รายงาน/.test(mSet[1]);
+  // แยกส่วน "หัวคำสั่ง (กลุ่ม+เวลา)" กับ "เนื้อหา" ที่ตัวคั่น ว่า
+  const vIdx = isSummary ? -1 : t.search(/\s+ว่า\s+/);
+  const head = vIdx === -1 ? t : t.slice(0, vIdx);
+  const body = vIdx === -1 ? '' : t.slice(vIdx).replace(/^\s+ว่า\s+/, '').trim();
+  if (!isSummary && !body) {
+    lineReply(replyToken, 'เกือบได้แล้วค่ะ — ขอเนื้อหาที่จะประกาศด้วยนะคะ รูปแบบ:\n'
+      + '"เลขา ตั้งประกาศเข้ากลุ่ม <ชื่อกลุ่ม> <วัน เวลา> ว่า <ข้อความ>"');
+    return true;
+  }
+
+  const g = matchGroupInText(head);
+  if (!g) {
+    const known = listKnownGroups().map(function (x) { return x.name; }).filter(String);
+    lineReply(replyToken, 'ดิฉันไม่แน่ใจว่ากลุ่มไหนค่ะ 🙏\n'
+      + (known.length ? 'กลุ่มที่รู้จักตอนนี้: ' + known.join(', ') : 'ยังไม่รู้จักกลุ่มไหนเลยค่ะ — ให้ใครสักคนทักในกลุ่มนั้นก่อน 1 ข้อความนะคะ'));
+    return true;
+  }
+
+  const when = parseThaiWhen(head);
+  if (!when) {
+    lineReply(replyToken, 'ขอเวลาชัดๆ หน่อยนะคะ เช่น "พรุ่งนี้ 8 โมงครึ่ง", "วันนี้ 18:00", "อีก 2 ชั่วโมง"');
+    return true;
+  }
+
+  const daily = /ทุกวัน/.test(head);
+  const sh = schedSheet();
+  if (!sh) { lineReply(replyToken, 'ขออภัยค่ะ ยังตั้งค่าชีตไม่เรียบร้อย'); return true; }
+  sh.appendRow([when, g.id, g.name, isSummary ? 'สรุปงาน' : 'ข้อความ', daily ? 'ทุกวัน' : 'ครั้งเดียว',
+                body, 'รอส่ง', senderId, new Date()]);
+
+  lineReply(replyToken, '📣 รับทราบค่ะ ตั้งเวลาส่งให้แล้ว\n'
+    + '🗓️ ' + Utilities.formatDate(when, 'GMT+7', 'd/M/yyyy เวลา HH:mm') + ' น.' + (daily ? ' (ทุกวัน)' : '') + '\n'
+    + '👥 กลุ่ม: ' + (g.name || g.id) + '\n'
+    + (isSummary ? '📊 เนื้อหา: สรุปงานจากบอร์ด (ดิฉันจะสรุปสดๆ ตอนถึงเวลาส่ง)' : '💬 เนื้อหา: ' + body.slice(0, 120))
+    + '\n\n(เวลาส่งจริงอาจคลาดเคลื่อนได้ไม่เกิน ~15 นาทีนะคะ)\nดูรายการ: "เลขา ดูประกาศ" | ยกเลิก: "เลขา ยกเลิกประกาศ <เลข>"');
+  logRow(['ตั้งประกาศ', senderId, text, g.name + ' @ ' + when]);
+  return true;
+}
+
+// สรุปงานจากบอร์ดสำหรับโพสต์ลงกลุ่ม (เวอร์ชันพนักงาน — ไม่มีตัวเลขการเงินวงใน)
+function buildGroupWorkSummary() {
+  try {
+    const rows = readBoard('', true);
+    if (!rows.length) return '📊 สรุปงานวันนี้ค่ะ — ไม่มีงานค้างในบอร์ด เคลียร์หมดแล้ว ✨';
+    const ctx = buildBoardContext(rows, true);
+    const q = 'ข้อมูลงานจากบอร์ด ณ ตอนนี้:\n' + ctx
+      + '\n\nช่วยสรุปสถานะงานสำหรับโพสต์แจ้งในกลุ่มพนักงาน: งานเสร็จ/คืบหน้า/ค้าง เรียงตามความเร่งด่วน '
+      + 'กระชับ อ่านง่าย ห้ามใส่ตัวเลขการเงินหรือข้อมูลวงใน ขึ้นต้นว่า "📊 สรุปงานประจำวันค่ะ"';
+    return parseBlocks(askClaude(q, [])).reply;
+  } catch (err) {
+    console.error('buildGroupWorkSummary: ' + err);
+    return '📊 สรุปงานประจำวันค่ะ — ขออภัย ระบบสรุปขัดข้องชั่วคราว รบกวนเช็คที่บอร์ดโดยตรงนะคะ';
+  }
+}
+
+// ยิงประกาศที่ถึงเวลา (ถูกเรียกจาก fireDueReminders ทุก 15 นาที)
+function fireDuePosts() {
+  const sh = schedSheet(); if (!sh || sh.getLastRow() < 2) return;
+  const n = sh.getLastRow() - 1;
+  const d = sh.getRange(2, 1, n, 7).getValues();
+  const now = Date.now();
+  for (let i = 0; i < d.length; i++) {
+    if (String(d[i][6]) !== 'รอส่ง') continue;
+    const t = (d[i][0] instanceof Date) ? d[i][0].getTime() : 0;
+    if (!t || t > now) continue;
+    sh.getRange(i + 2, 7).setValue('กำลังส่ง');   // กันส่งซ้ำถ้า trigger ซ้อน
+    const msg = (String(d[i][3]) === 'สรุปงาน') ? buildGroupWorkSummary() : String(d[i][5] || '');
+    if (msg) linePush(String(d[i][1]), msg);
+    if (String(d[i][4]) === 'ทุกวัน') {
+      // เลื่อนไปวันถัดไปเวลาเดิม แล้วกลับเป็น "รอส่ง"
+      const next = new Date(t);
+      do { next.setDate(next.getDate() + 1); } while (next.getTime() <= now);
+      sh.getRange(i + 2, 1).setValue(next);
+      sh.getRange(i + 2, 7).setValue('รอส่ง');
+    } else {
+      sh.getRange(i + 2, 7).setValue('ส่งแล้ว');
+    }
+    logRow(['ส่งประกาศ', 'ระบบ', String(d[i][2] || d[i][1]), msg.slice(0, 100)]);
+  }
 }
 
 // ════════════════════════════════════════════════════════════
