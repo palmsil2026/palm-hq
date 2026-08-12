@@ -416,6 +416,16 @@ function handleEvent(ev) {
     return;
   }
 
+  // ถึงตรงนี้แปลว่ากำลังคุยกับเลขาจริงๆ (แชทเดี่ยว หรือเรียก "เลขา" ในกลุ่มแล้ว)
+  // ถ้ามีรูป/ไฟล์ที่คนนี้ส่งไว้ก่อนหน้าแล้ว "จำไว้ก่อน" ยังไม่เก็บ → ถือว่าเกี่ยวกับงาน เก็บลง Drive จริงตอนนี้เลย
+  const resolvedMedia = resolvePendingMedia(chatId, senderId, inGroup);
+  if (resolvedMedia) {
+    linePush(inGroup ? chatId : senderId,
+      '📎 เก็บรูป/ไฟล์ที่ส่งไว้ก่อนหน้าให้แล้วค่ะ'
+      + (resolvedMedia.ref ? ' แนบกับงาน #' + resolvedMedia.ref + ' เรียบร้อย' : '')
+      + (resolvedMedia.desc ? '\n👁️ ที่เห็นในรูป: ' + resolvedMedia.desc : ''));
+  }
+
   const history = memGet(chatId);
 
   // 0.1) คุณปาล์มอนุมัติ/แก้แผนงาน (เฉพาะเจ้าของ)
@@ -743,6 +753,21 @@ function describeImage(blob) {
   } catch (err) { console.error('describeImage: ' + err); return ''; }
 }
 
+// รูป/ไฟล์ที่ "รับไว้แต่ยังไม่เก็บถาวร" — รอดูก่อนว่าเกี่ยวกับงานไหม กันเปลืองพื้นที่ Drive
+// จากรูปคุยเล่น/รูปที่ไม่เกี่ยวงาน (คีย์ตามคนส่ง หมดอายุเองใน 30 นาทีถ้าไม่มีใครพูดถึง)
+function pendingMediaKey(chatId, senderId) { return 'pendingMedia:' + chatId + ':' + senderId; }
+function stashPendingMedia(chatId, senderId, item) {
+  CacheService.getScriptCache().put(pendingMediaKey(chatId, senderId), JSON.stringify(item), 1800);
+}
+function popPendingMedia(chatId, senderId) {
+  const cache = CacheService.getScriptCache();
+  const key = pendingMediaKey(chatId, senderId);
+  const raw = cache.get(key);
+  if (!raw) return null;
+  cache.remove(key);
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
 function handleMediaMessage(ev) {
   const replyToken = ev.replyToken;
   const src = ev.source || {};
@@ -750,46 +775,58 @@ function handleMediaMessage(ev) {
   const inGroup = (src.type === 'group' || src.type === 'room');
   const chatId = src.groupId || src.roomId || senderId;
   if (inGroup) registerGroup(chatId);
+
+  // แค่ "จำไว้ก่อน" ยังไม่โหลด/อัปโหลดขึ้น Drive — พอมีคนเรียกเลขา หรือคุยต่อเกี่ยวกับรูปนี้
+  // (ดู resolvePendingMedia ใน handleEvent) ค่อยดึงมาเก็บจริง ถ้าไม่มีใครพูดถึงก็ปล่อยผ่านไปเฉยๆ ไม่เปลืองที่
+  stashPendingMedia(chatId, senderId, {
+    messageId: ev.message.id,
+    type: ev.message.type,
+    fileName: ev.message.fileName || '',
+    ts: Date.now()
+  });
+
+  if (!inGroup) {
+    lineReply(replyToken, 'รับรูป/ไฟล์ไว้แล้วค่ะ 📷 ถ้าเกี่ยวกับงานหรืออยากให้เก็บไว้ คุยต่อได้เลยนะคะ เดี๋ยวดิฉันเก็บให้อัตโนมัติ');
+  }
+  // ในกลุ่ม: เงียบไว้ก่อน ไม่รบกวนวงคุย — เก็บจริงเมื่อคนที่ส่งรูปเรียก "เลขา" ตามมา
+}
+
+// ดึงรูป/ไฟล์ที่ "จำไว้ก่อน" (ถ้ามี) มาเก็บจริงลง Drive — เรียกตอนรู้แล้วว่าเกี่ยวกับงาน
+// คืนค่า {url, desc, ref} ถ้าเก็บสำเร็จ, null ถ้าไม่มีอะไรค้างอยู่ (หรือหมดอายุ/โหลดไม่ได้แล้ว)
+function resolvePendingMedia(chatId, senderId, inGroup) {
+  const pending = popPendingMedia(chatId, senderId);
+  if (!pending) return null;
   try {
-    const res = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/message/' + ev.message.id + '/content', {
+    const res = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/message/' + pending.messageId + '/content', {
       headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
     });
-    if (res.getResponseCode() !== 200) { lineReply(replyToken, 'ขออภัยค่ะ ดาวน์โหลดไฟล์ไม่สำเร็จ รบกวนส่งอีกครั้งนะคะ 🙏'); return; }
+    if (res.getResponseCode() !== 200) return null; // โหลดไม่ได้/หมดอายุ — ปล่อยผ่านเงียบๆ ไม่ฟ้อง error รบกวน
 
     const blob = res.getBlob();
     const stamp = Utilities.formatDate(new Date(), 'GMT+7', 'yyMMdd-HHmmss');
-    const base = (ev.message.type === 'image') ? ('รูป-' + stamp) : ((ev.message.fileName || ('ไฟล์-' + stamp)));
+    const base = (pending.type === 'image') ? ('รูป-' + stamp) : (pending.fileName || ('ไฟล์-' + stamp));
     const file = mediaFolder().createFile(blob.setName(base));
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     const url = file.getUrl();
 
     // อ่านภาพด้วย AI — เลขาจะรู้ว่าในรูปมีอะไร เอาไปตอบคำถามทีหลังได้
-    const desc = (ev.message.type === 'image') ? describeImage(blob) : '';
+    const desc = (pending.type === 'image') ? describeImage(blob) : '';
 
     if (inGroup) {
-      // ในกลุ่ม: เก็บเงียบๆ ลงล็อกแชทกลุ่ม (พร้อมคำบรรยายภาพ) ไม่เด้งตอบรบกวนวงคุย
-      logGroupChat(chatId, ev, '[ส่งรูป/ไฟล์] ' + (desc || base) + ' ' + url);
-      attachMediaToLatestTask(senderId, url);
+      logGroupChat(chatId, { source: { userId: senderId } }, '[ส่งรูป/ไฟล์] ' + (desc || base) + ' ' + url);
+      const ref = attachMediaToLatestTask(senderId, url);
       logRow(['รับไฟล์(กลุ่ม)', senderId, base, (desc ? desc + ' ' : '') + url]);
-      return;
+      return { url: url, desc: desc, ref: ref };
     }
 
-    // แชทเดี่ยว: แนบกับงานล่าสุดที่คนนี้ฝากไว้และยังไม่ปิด + บอกว่าเห็นอะไรในรูป
+    // แชทเดี่ยว: แนบกับงานล่าสุดที่คนนี้ฝากไว้และยังไม่ปิด
     const ref = attachMediaToLatestTask(senderId, url, desc);
-    // มีคำถามที่เลขา/ทีมถามค้างอยู่ไหม — ถ้ามี รูปนี้น่าจะคือคำตอบ (เช่นภาพตัวอย่างที่ขอ)
-    const pendingQ = hasPendingQuestion(chatId);
-    lineReply(replyToken, (ref
-      ? ('📎 เก็บไฟล์ให้แล้วค่ะ แนบไว้กับงาน #' + ref + ' เรียบร้อย')
-      : ('📎 เก็บไฟล์ไว้ให้แล้วค่ะ (ยังไม่มีงานค้างให้แนบ — เล่ารายละเอียดงานมาได้เลยนะคะ)'))
-      + (desc ? ('\n👁️ ที่เห็นในรูป: ' + desc) : '')
-      + (pendingQ ? '\n\n💡 ถ้ารูปนี้คือคำตอบของที่ถามไว้ พิมพ์ "ตอบ ตามรูปที่ส่ง" ได้เลยค่ะ งานจะเดินต่อทันที' : '')
-      + '\n' + url);
-    // จำลงความจำแชท — คุยต่อจากรูปได้ เช่น "เอาตามภาพนี้เลย"
     memAppend(chatId, '[ส่งรูปมา 1 รูป]', '(รับรูปแล้ว' + (desc ? ' — ในรูป: ' + desc : '') + (ref ? ' แนบกับงาน #' + ref : '') + ')');
-    logRow(['รับไฟล์', senderId, ev.message.type + ' ' + base, (desc ? desc + ' ' : '') + url]);
+    logRow(['รับไฟล์', senderId, pending.type + ' ' + base, (desc ? desc + ' ' : '') + url]);
+    return { url: url, desc: desc, ref: ref };
   } catch (err) {
-    console.error('handleMediaMessage: ' + err);
-    lineReply(replyToken, 'ขออภัยค่ะ เก็บไฟล์ไม่สำเร็จ (' + err + ')');
+    console.error('resolvePendingMedia: ' + err);
+    return null;
   }
 }
 
