@@ -125,6 +125,13 @@ const SYSTEM_PROMPT = [
   '   รอคุณปาล์มยืนยันค่อยส่ง | แต่ถ้าเป็นแพตเทิร์นเดิมที่เคยทำ/แนวที่คุณปาล์มเคยโอเคไปแล้ว → ทำต่อเองเลย ไม่ต้องถามซ้ำ',
   '5) อ่านแล้วงง ไม่เข้าใจความหมายของคำสั่งหรือเนื้อหา → ถามกลับสั้นๆ ตรงจุดก่อน อย่าเดามั่วแล้วส่งออก',
   '',
+  '📨 ส่งข้อความส่วนตัวถึงพนักงาน (DM — เฉพาะคุณปาล์มสั่งเท่านั้น): ถ้าคุณปาล์มให้ฝากบอก/แจ้งใครเป็นการส่วนตัว',
+  '("ฝากบอกคุณซายว่า...", "DM หาคุณมีนา...") ให้เรียบเรียงข้อความเป็นภาษาเลขาแบบเดียวกับประกาศ แล้วต่อท้าย (ผู้ใช้ไม่เห็น):',
+  '[[DM]]{"to":"ชื่อคนตามที่คุณปาล์มเรียก","message":"ข้อความที่เรียบเรียงแล้ว"}[[/DM]] (ส่งหลายคน = หลายบล็อก)',
+  'รายชื่อคนที่ DM ได้อยู่ในบริบท (วงเล็บ "พนักงานที่ติดต่อ DM ได้") — ชื่อในวงเล็บเหลี่ยม [..] คือชื่อเรียกสั้น',
+  'ให้เทียบชื่อที่คุณปาล์มเรียกกับรายชื่อนั้นเอง เช่น "ซาย" ↔ "🧚ซายะซัง😜" | ไม่แน่ใจว่าคนไหน → ถามก่อน อย่าเดาส่ง',
+  'ตอบรับสั้นๆ พอ ระบบจะต่อท้ายผลการส่งเอง — ห้ามเคลมเองว่าส่งแล้ว | พนักงานฝากเรื่องถึงคุณปาล์ม → ใช้ ALERT ตามเดิม',
+  '',
   '🧠 คลังความจำถาวร: ข้อมูลที่ควรจำไว้ใช้ซ้ำระยะยาว เช่น ลิงก์แอป/เว็บ/ฟอร์ม, ชื่อเรียกแทนกลุ่ม',
   '("ร้านกาแฟ" หมายถึงกลุ่ม Old Days), เบอร์/ช่องทางติดต่อ, กติกา/ข้อเท็จจริงของร้าน',
   'เมื่อคุณปาล์มส่งข้อมูลแบบนี้มา (แม้ไม่ได้สั่งว่า "จำ" — เช่น ส่งลิงก์แอปมาให้ใช้) หรือสั่ง "จำไว้ว่า..."',
@@ -152,6 +159,7 @@ const SYSTEM_PROMPT = [
   'รับรูป/ไฟล์เก็บลง Drive แล้วแนบกับงาน, ตั้งเตือนความจำ ("เตือนฉันพรุ่งนี้ 9 โมง ..."),',
   'รับ Feedback ปัญหา/ข้อเสนอเรื่องระบบและแอป (ถามอาการให้ชัดแล้วส่งต่อคุณปาล์ม),',
   'จำข้อมูลถาวรลงคลัง ("จำไว้ว่า..." — ลิงก์/ช่องทาง/กติกา, สั่ง "ลืมเรื่อง..." ได้),',
+  'ส่ง DM ส่วนตัวถึงพนักงาน (เฉพาะคุณปาล์มสั่ง: "ฝากบอกคุณ... ว่า...", ดูทะเบียน: "รายชื่อพนักงาน"),',
   'ประกาศเข้ากลุ่มไลน์ตามชื่อกลุ่ม, สรุปแชทในกลุ่ม, ตามงานค้างให้ทุกเย็น',
   'บอร์ดไอเดีย: "ไอเดีย <ข้อความ>" แปะทันที, "ดูไอเดีย", "ทำไอเดีย <เลข>", "พับไอเดีย <เลข>"',
   'เฉพาะคุณปาล์ม: "เช็คระบบ" (ตรวจสุขภาพระบบ), "รายชื่อกลุ่ม", "อนุมัติ <เลขงาน>", "เสร็จ <เลขงาน>"',
@@ -481,6 +489,17 @@ function handleEvent(ev) {
     return;
   }
 
+  // ดูทะเบียนพนักงานที่ DM ได้ (เฉพาะเจ้าของ)
+  if (owner && /^(เลขา\s*)?(รายชื่อ|ทะเบียน)พนักงาน$/i.test(text)) {
+    const st = listStaff();
+    lineReply(replyToken, st.length
+      ? '👥 พนักงานที่ดิฉันติดต่อ DM ได้ (' + st.length + ' คน):\n'
+        + st.map(function (x, i) { return (i + 1) + '. ' + x.name + (x.nick ? ' (เรียก: ' + x.nick + ')' : ''); }).join('\n')
+        + '\n\nสั่งได้เลย เช่น "ฝากบอกคุณ' + (st[0].nick || st[0].name) + ' ว่า ..."\n(ตั้งชื่อเรียกสั้นๆ ได้ในชีตแท็บ Staff คอลัมน์ "ชื่อเรียก")'
+      : 'ยังไม่มีใครในทะเบียนเลยค่ะ — ใครทักดิฉัน (เดี่ยวหรือในกลุ่ม) ระบบจะจดให้อัตโนมัติค่ะ');
+    return;
+  }
+
   // คำสั่งช่วยหา chat/group id (ไว้ตั้งค่าส่งรายงานเข้ากลุ่ม)
   if (/^(เลขา\s*)?(group\s*id|groupid|chat\s*id|ไอดีกลุ่ม)$/i.test(text)) {
     lineReply(replyToken, 'chat id ของที่นี่:\n' + chatId + '\n(type: ' + (src.type || 'user') + ')');
@@ -489,6 +508,9 @@ function handleEvent(ev) {
 
   // บันทึกทุกข้อความในกลุ่ม (ไว้ให้เลขาสรุปแชทย้อนหลัง + เด็กปั้นเรียนรู้) + จำกลุ่มเข้าทะเบียน
   if (inGroup) { logGroupChat(chatId, ev, text); registerGroup(chatId); }
+
+  // 👥 จดทะเบียนพนักงานอัตโนมัติ — ใครทักมา (เดี่ยว/กลุ่ม) เก็บชื่อ+ไอดีไว้ให้คุณปาล์มสั่ง DM ได้
+  if (senderId && !owner) registerStaff(senderId);
 
   // ในกลุ่ม: ถ้าไม่ได้เรียกหาเลขา → เงียบ ปล่อยให้คนคุยกันเอง (ทำตัวเป็นธรรมชาติ)
   // ยกเว้นเลขาเพิ่งถามคำถามคนนี้ค้างไว้ → ถือว่าข้อความนี้คือคำตอบ คุยต่อได้เลย
@@ -592,8 +614,18 @@ function handleEvent(ev) {
     }
   }
 
+  // 2.6) เจ้าของ → ป้อนรายชื่อพนักงานที่ DM ได้ ให้สมอง AI จับคู่ชื่อเรียกเองได้ (เช่น "ซาย" = "🧚ซายะซัง😜")
+  let staffCtx = '';
+  if (owner) {
+    const st = listStaff();
+    if (st.length) {
+      staffCtx = '(พนักงานที่ติดต่อ DM ได้ตอนนี้: '
+               + st.map(function (x) { return x.name + (x.nick ? '[' + x.nick + ']' : ''); }).join(', ') + ')\n\n';
+    }
+  }
+
   // 3) เรื่องทั่วไป → ให้คุณเลขา (Claude) ตอบ พร้อมความจำ + คลังข้อมูลธุรกิจ (+ล็อกกลุ่ม/คิวประกาศถ้าเกี่ยว)
-  const preCtx = groupCtx + schedCtx;
+  const preCtx = groupCtx + schedCtx + staffCtx;
   const p = parseBlocks(askClaude(preCtx ? (preCtx + 'คำถาม/คำสั่ง: ' + text) : text, history));
   let reply = p.reply;
 
@@ -714,6 +746,26 @@ function handleEvent(ev) {
     } else {
       reply += '\n\n(ขออภัยค่ะ การตั้งประกาศเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น)';
     }
+  }
+  // 3.2c 📨 DM ส่วนตัวถึงพนักงาน (อนุญาตเฉพาะเจ้าของสั่ง)
+  if (owner && p.all.DM && p.all.DM.length) {
+    p.all.DM.forEach(function (dm) {
+      const f = findStaff(dm.to);
+      if (f.hit) {
+        const ok = linePushChecked(f.hit.id,
+          '📨 ข้อความฝากจากคุณปาล์มค่ะ\n\n' + String(dm.message || '')
+          + '\n\n— คุณเลขา (ตอบกลับดิฉันตรงนี้ได้เลยนะคะ เดี๋ยวเรียนคุณปาล์มให้ค่ะ)');
+        reply += ok
+          ? '\n\n📨 ส่ง DM ถึง ' + (f.hit.nick || f.hit.name) + ' ให้แล้วค่ะ'
+          : '\n\n⚠️ ส่งหา ' + (f.hit.nick || f.hit.name) + ' ไม่เข้าค่ะ — เขาน่าจะยังไม่ได้แอดไลน์ดิฉันเป็นเพื่อน รบกวนให้เขาแอด OA แล้วทักมา 1 ข้อความนะคะ';
+      } else if (f.list.length > 1) {
+        reply += '\n\n❓ ชื่อ "' + String(dm.to || '') + '" ตรงหลายคนค่ะ: '
+               + f.list.map(function (x) { return x.name; }).join(', ') + ' — ระบุชื่อเต็มอีกทีนะคะ';
+      } else {
+        reply += '\n\n⚠️ ไม่พบ "' + String(dm.to || '') + '" ในทะเบียนค่ะ (พิมพ์ "รายชื่อพนักงาน" เช็คได้)'
+               + ' — คนที่รับ DM ได้ต้องเคยแอด/ทักไลน์ดิฉันอย่างน้อย 1 ครั้งนะคะ';
+      }
+    });
   }
   // 3.3 คุณปาล์มสั่งให้ส่งข้อความเข้ากลุ่ม (อนุญาตเฉพาะเจ้าของ) — หลายกลุ่มพร้อมกันได้
   if (p.all.SENDGROUP && p.all.SENDGROUP.length) {
@@ -1979,7 +2031,7 @@ function parseBlocks(raw) {
   let reply = String(raw);
   const blocks = {};
   const all = {};
-  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN', 'IDEA', 'ADDNOTE', 'REMEMBER', 'FORGET'].forEach(function (name) {
+  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN', 'IDEA', 'ADDNOTE', 'REMEMBER', 'FORGET', 'DM'].forEach(function (name) {
     const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
     let m;
     while ((m = reply.match(re))) {
@@ -2176,6 +2228,74 @@ function forgetKBFact(topic) {
     }
     return false;
   } catch (e) { console.error('forgetKBFact: ' + e); return false; }
+}
+
+// ════════════════════════════════════════════════════════════
+//  👥 ทะเบียนพนักงาน — ใครทักหาเลขา (เดี่ยว/ในกลุ่ม) ระบบจดชื่อ+ไอดีอัตโนมัติ
+//  → คุณปาล์มสั่ง "ฝากบอกคุณซาย..." ได้เลย (LINE อนุญาต DM เฉพาะคนที่เคยแอด/ทัก OA)
+// ════════════════════════════════════════════════════════════
+function staffSheet() {
+  const id = boardSheetId(); if (!id) return null;
+  const ss = ssById(id);
+  let s = ss.getSheetByName('Staff');
+  if (!s) { s = ss.insertSheet('Staff'); s.appendRow(['userId', 'ชื่อไลน์', 'ชื่อเรียก', 'คุยล่าสุด']); }
+  return s;
+}
+
+function registerStaff(userId) {
+  if (!userId) return;
+  try {
+    const cache = CacheService.getScriptCache();
+    if (cache.get('stf_' + userId)) return;   // อัปเดตอย่างมากชั่วโมงละครั้ง กันเขียนชีตถี่เกิน
+    cache.put('stf_' + userId, '1', 3600);
+    const sh = staffSheet(); if (!sh) return;
+    const name = lineUserName(userId);
+    const n = sh.getLastRow();
+    if (n >= 2) {
+      const ids = sh.getRange(2, 1, n - 1, 1).getValues();
+      for (let i = 0; i < ids.length; i++) {
+        if (ids[i][0] === userId) { sh.getRange(i + 2, 2).setValue(name); sh.getRange(i + 2, 4).setValue(new Date()); return; }
+      }
+    }
+    sh.appendRow([userId, name, '', new Date()]);
+  } catch (e) { console.error('registerStaff: ' + e); }
+}
+
+function listStaff() {
+  try {
+    const sh = staffSheet(); if (!sh || sh.getLastRow() < 2) return [];
+    return sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues()
+      .map(function (r) { return { id: String(r[0]), name: String(r[1] || ''), nick: String(r[2] || '') }; })
+      .filter(function (x) { return x.id; });
+  } catch (e) { return []; }
+}
+
+// หาคนจากชื่อที่คุณปาล์มเรียก — ชื่อเรียกตรง > ชื่อไลน์ตรง > มีคำนั้นอยู่ในชื่อ
+function findStaff(nameLike) {
+  const q = String(nameLike || '').replace(/^คุณ\s*/, '').trim().toLowerCase();
+  const all = listStaff();
+  if (!q) return { hit: null, list: [] };
+  let hits = all.filter(function (x) { return x.nick.toLowerCase() === q || x.name.toLowerCase() === q; });
+  if (!hits.length && q.length >= 2) {
+    hits = all.filter(function (x) {
+      return x.name.toLowerCase().indexOf(q) !== -1 || (x.nick && x.nick.toLowerCase().indexOf(q) !== -1);
+    });
+  }
+  return { hit: hits.length === 1 ? hits[0] : null, list: hits };
+}
+
+// push แบบเช็คผล — จะได้บอกคุณปาล์มได้ว่าส่งถึงจริงไหม (คนที่ไม่เคยแอด OA จะส่งไม่เข้า)
+function linePushChecked(to, text) {
+  try {
+    const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
+      payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: text }] }),
+      muteHttpExceptions: true
+    });
+    return res.getResponseCode() === 200;
+  } catch (e) { return false; }
 }
 
 // เขียนงานลงแท็บ Requests แล้วคืนเลขงาน
