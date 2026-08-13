@@ -449,6 +449,51 @@ function isAwaitingReply(chatId, senderId) {
   try { return !!CacheService.getScriptCache().get('FU_' + chatId + '_' + senderId); } catch (e) { return false; }
 }
 
+// 💬 คนในกลุ่มพิมพ์ต่อท้ายประกาศ/กด Reply ใส่ข้อความบอท โดยไม่เรียก "เลขา" — ทำตัวเหมือนคน:
+// เกี่ยวกับประกาศ + รู้คำตอบ → ตอบเลย | เกี่ยวแต่ไม่รู้ → เงียบในกลุ่ม แล้วไปเรียนถามคุณปาล์มส่วนตัว
+// ไม่เกี่ยว / มีคนตอบเขาไปแล้ว (เช่นคุณปาล์มตอบเอง) → เงียบ
+function handleAnnouncementFollowUp(ev, chatId, senderId, text, replyToken) {
+  try {
+    const c = CacheService.getScriptCache();
+    const ann = c.get('ANN_' + chatId);
+    const quotedBot = !!(ev.message && ev.message.quotedMessageId && c.get('BM_' + ev.message.quotedMessageId));
+    if (!ann && !quotedBot) return;
+    // ไม่ได้ Reply ใส่บอทตรงๆ → สนใจเฉพาะข้อความหน้าตาเป็นคำถาม (ไม่เรียก AI กับทุกแชทในกลุ่ม)
+    if (!quotedBot && !/\?|ไหม|มั้ย|หรอ|เหรอ|รึเปล่า|ป่ะ|ปะ|ยังไง|อย่างไร|กี่|เมื่อไหร่|ตอนไหน|ใคร|อะไร|ตรงไหน|ที่ไหน|ทำไม/.test(text)) return;
+
+    const log = readGroupChat(chatId, 15);
+    const q = 'บริบท: ดิฉัน (คุณเลขา) เพิ่งส่งข้อความ/ประกาศนี้ในกลุ่ม:\n"' + (ann || '(ข้อความของดิฉันที่เขากด Reply)') + '"\n\n'
+            + 'บทสนทนาล่าสุดในกลุ่ม (เก่า→ใหม่):\n' + (log || '(ไม่มี)') + '\n\n'
+            + 'ตอนนี้สมาชิกกลุ่มพิมพ์ว่า: "' + text + '"' + (quotedBot ? ' (เขากด Reply ใส่ข้อความของดิฉันโดยตรง)' : ' (เขาไม่ได้เรียกชื่อดิฉัน แต่อาจถามต่อจากประกาศ)') + '\n\n'
+            + 'กติกาตัดสินใจ (ตอบตามนี้เท่านั้น):\n'
+            + '1) ไม่เกี่ยวกับประกาศ/เรื่องของดิฉัน หรือมีคนตอบเขาไปแล้วในบทสนทนา (โดยเฉพาะคุณปาล์ม) → ตอบคำเดียวว่า SKIP\n'
+            + '2) เกี่ยว และตอบได้จากข้อมูลที่มี (เนื้อประกาศ/ข้อมูลธุรกิจ/บทสนทนา) → ตอบสั้นๆ สุภาพ ตรงคำถาม\n'
+            + '3) เกี่ยว แต่ไม่รู้/ไม่แน่ใจคำตอบ → ตอบ SKIP พร้อมบล็อก [[ALERT]]{"reason":"คำถามในกลุ่ม","summary":"ใครถามอะไร สรุปสั้นๆ"}[[/ALERT]] ห้ามเดาตอบในกลุ่มเด็ดขาด';
+    const p = parseBlocks(askClaude(q, []));
+    const r = p.reply.trim();
+
+    if (p.blocks.ALERT) {
+      const ownerId = cfg('OWNER_LINE_USER_ID');
+      if (ownerId) {
+        let gname = '';
+        try { const g = listKnownGroups().filter(function (x) { return x.id === chatId; })[0]; gname = (g && g.name) ? g.name : ''; } catch (e) {}
+        linePush(ownerId, '❓ มีคำถามในกลุ่ม' + (gname ? ' "' + gname + '"' : '') + ' ที่ดิฉันตอบเองไม่ได้ค่ะ\n'
+          + '👤 ' + lineUserName(senderId) + ': "' + text.slice(0, 300) + '"\n'
+          + (p.blocks.ALERT.summary ? ('📌 ' + p.blocks.ALERT.summary + '\n') : '')
+          + 'รบกวนคุณปาล์มตอบในกลุ่มเอง หรือบอกคำตอบมาให้ดิฉันไปแจ้งก็ได้ค่ะ');
+      }
+    }
+    if (r && r.toUpperCase() !== 'SKIP') {
+      lineReply(replyToken, r);
+      markAwaitingReply(chatId, senderId, r);
+      memAppend(chatId, text, r);
+      logRow(['ตอบต่อประกาศ', senderId, text, r]);
+    } else {
+      logRow(['เงียบ(ถามต่อประกาศ)', senderId, text, p.blocks.ALERT ? '→ เรียนถามคุณปาล์ม' : 'SKIP']);
+    }
+  } catch (e) { console.error('handleAnnouncementFollowUp: ' + e); }
+}
+
 function handleEvent(ev) {
   // ถูกเชิญเข้ากลุ่มใหม่ → จำกลุ่มทันที + ทักทาย
   if (ev.type === 'join' && ev.source && (ev.source.groupId || ev.source.roomId)) {
@@ -513,8 +558,10 @@ function handleEvent(ev) {
   if (senderId && !owner) registerStaff(senderId);
 
   // ในกลุ่ม: ถ้าไม่ได้เรียกหาเลขา → เงียบ ปล่อยให้คนคุยกันเอง (ทำตัวเป็นธรรมชาติ)
-  // ยกเว้นเลขาเพิ่งถามคำถามคนนี้ค้างไว้ → ถือว่าข้อความนี้คือคำตอบ คุยต่อได้เลย
+  // ยกเว้น (ก) เลขาเพิ่งถามคำถามคนนี้ค้างไว้ = ข้อความนี้คือคำตอบ
+  //        (ข) เลขาเพิ่งประกาศ/ถูกกด Reply = อาจเป็นคำถามต่อจากประกาศ → อ่านบริบทแล้วตัดสินใจเอง
   if (inGroup && !isAddressedToSecretary(ev, text) && !isAwaitingReply(chatId, senderId)) {
+    handleAnnouncementFollowUp(ev, chatId, senderId, text, replyToken);
     return;
   }
 
@@ -1952,24 +1999,37 @@ function askClaude(userText, history) {
 function lineReply(replyToken, text, extraMessages) {
   if (!replyToken) return;
   const messages = [{ type: 'text', text: text }].concat(extraMessages || []).slice(0, 5);
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'post',
     contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
     payload: JSON.stringify({ replyToken: replyToken, messages: messages }),
     muteHttpExceptions: true
   });
+  rememberBotMsgIds(res);
 }
 
 function linePush(to, text) {
   if (!to) return;
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
     method: 'post',
     contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
     payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: text }] }),
     muteHttpExceptions: true
   });
+  // ส่งเข้ากลุ่ม/ห้อง → เปิด "หน้าต่างถามต่อ" 30 นาที (คนในกลุ่มถามเรื่องประกาศได้โดยไม่ต้องเรียกเลขา)
+  try { if (/^[CR]/.test(String(to))) CacheService.getScriptCache().put('ANN_' + to, String(text || '').slice(0, 600), 1800); } catch (e) {}
+  rememberBotMsgIds(res);
+}
+
+// จำ id ข้อความที่บอทส่งไว้ 6 ชม. — เวลามีคนกด Reply ใส่ข้อความของบอท จะรู้ว่ากำลังคุยกับเลขา
+function rememberBotMsgIds(res) {
+  try {
+    const sm = (JSON.parse(res.getContentText()) || {}).sentMessages || [];
+    const c = CacheService.getScriptCache();
+    sm.forEach(function (m) { if (m.id) c.put('BM_' + m.id, '1', 21600); });
+  } catch (e) {}
 }
 
 // เด้งเตือนคุณปาล์มเมื่อมีคนถามเรื่องการเงิน
