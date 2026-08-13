@@ -94,6 +94,7 @@ const SYSTEM_PROMPT = [
   '⚠️ SENDGROUP = ส่งออกทันทีเท่านั้น! ถ้าคุณปาล์มระบุเวลาส่ง ให้ใช้บล็อก SCHEDULE แทน (ผู้ใช้ไม่เห็น):',
   '[[SCHEDULE]]{"target":"<ชื่อกลุ่ม>","when":"<เวลา เช่น พรุ่งนี้ 8 โมงครึ่ง | วันนี้ 18:00 | อีก 2 ชั่วโมง>","message":"ข้อความเต็มที่จะส่ง","replace":false}[[/SCHEDULE]]',
   'SCHEDULE ใช้ได้ทั้งตั้งประกาศใหม่ และแก้ประกาศที่ตั้งค้างไว้ — ถ้าคุณปาล์มขอแก้เนื้อหา/เวลาของประกาศเดิม ใส่ "replace":true (= แทนที่ประกาศค้างล่าสุดของกลุ่มนั้น)',
+  'สั่งหลายกลุ่มพร้อมกัน: ใส่หลายบล็อกได้เลย (SENDGROUP/SCHEDULE บล็อกละกลุ่ม) ห้ามทำแค่กลุ่มเดียวแล้วปล่อยกลุ่มที่เหลือหาย',
   'ถ้าคุณปาล์มขอให้ช่วยแต่ง/ปรับข้อความประกาศ ให้แต่งจนเสร็จแล้วใส่ใน message เลย ห้ามให้เขาไปพิมพ์คำสั่งเองซ้ำ',
   'ตอบรับสั้นๆ พอ ระบบจะต่อท้ายผลการตั้งเวลา (วัน-เวลา-กลุ่ม) ให้เอง — ห้ามเคลมเองว่าตั้งเสร็จแล้ว',
   '',
@@ -573,18 +574,18 @@ function handleEvent(ev) {
     }
   }
   // 3.25 ตั้ง/แก้ประกาศตามเวลา ผ่านบทสนทนา — AI แต่งข้อความ+ระบุเวลาให้ ระบบบันทึกและยืนยันเอง
-  if (p.blocks.SCHEDULE) {
+  // รองรับหลายบล็อกในคำตอบเดียว (สั่งประกาศหลายกลุ่มพร้อมกัน → ทำครบทุกกลุ่ม ไม่ตกหล่น)
+  if (p.all.SCHEDULE && p.all.SCHEDULE.length) {
     if (owner) {
-      const sc = p.blocks.SCHEDULE;
-      const gid = resolveGroupTarget(sc.target);
-      const when = parseThaiWhen(String(sc.when || ''));
-      const msg2 = String(sc.message || '').trim();
-      const sh = schedSheet();
-      if (!sh) reply += '\n\n⚠️ ยังตั้งค่าชีตไม่เรียบร้อยค่ะ ตั้งเวลาไม่สำเร็จ';
-      else if (!gid) reply += '\n\n⚠️ ดิฉันยังไม่รู้จักกลุ่ม "' + String(sc.target || '') + '" ค่ะ — พิมพ์ "เลขา รายชื่อกลุ่ม" เช็คชื่อได้นะคะ';
-      else if (!when) reply += '\n\n⚠️ ดิฉันอ่านเวลา "' + String(sc.when || '') + '" ไม่ออกค่ะ ขอแบบ "พรุ่งนี้ 8 โมงครึ่ง" หรือ "วันนี้ 18:00" นะคะ';
-      else if (!msg2) reply += '\n\n⚠️ ยังไม่มีเนื้อหาที่จะส่งค่ะ';
-      else {
+      p.all.SCHEDULE.forEach(function (sc) {
+        const gid = resolveGroupTarget(sc.target);
+        const when = parseThaiWhen(String(sc.when || ''));
+        const msg2 = String(sc.message || '').trim();
+        const sh = schedSheet();
+        if (!sh) { reply += '\n\n⚠️ ยังตั้งค่าชีตไม่เรียบร้อยค่ะ ตั้งเวลาไม่สำเร็จ'; return; }
+        if (!gid) { reply += '\n\n⚠️ ดิฉันยังไม่รู้จักกลุ่ม "' + String(sc.target || '') + '" ค่ะ — พิมพ์ "เลขา รายชื่อกลุ่ม" เช็คชื่อได้นะคะ'; return; }
+        if (!when) { reply += '\n\n⚠️ ดิฉันอ่านเวลา "' + String(sc.when || '') + '" ไม่ออกค่ะ ขอแบบ "พรุ่งนี้ 8 โมงครึ่ง" หรือ "วันนี้ 18:00" นะคะ'; return; }
+        if (!msg2) { reply += '\n\n⚠️ ยังไม่มีเนื้อหาที่จะส่งค่ะ'; return; }
         // replace: ยกเลิกประกาศค้างล่าสุดของกลุ่มเดียวกันก่อน (= แก้ไขรายการเดิม)
         let replaced = 0;
         const n2 = sh.getLastRow() - 1;
@@ -603,24 +604,29 @@ function handleEvent(ev) {
                       msg2, 'รอส่ง', senderId, new Date()]);
         reply += '\n\n📣 ' + (replaced ? 'แก้ประกาศเดิมเรียบร้อย — ' : '') + 'ตั้งเวลาส่งแล้วค่ะ'
           + '\n🗓️ ' + Utilities.formatDate(when, 'GMT+7', 'd/M/yyyy เวลา HH:mm') + ' น. → ' + gname
-          + '\n💬 ' + msg2.slice(0, 200) + (msg2.length > 200 ? '…' : '')
-          + '\n(คลาดเคลื่อนได้ ~15 นาที · เช็คด้วย "เลขา ดูประกาศ")';
+          + '\n💬 ' + msg2.slice(0, 200) + (msg2.length > 200 ? '…' : '');
         logRow(['ตั้งประกาศ(AI)', senderId, String(text).slice(0, 80), gname + ' @ ' + when]);
-      }
+      });
+      reply += '\n(คลาดเคลื่อนได้ ~15 นาที · เช็คด้วย "เลขา ดูประกาศ" หรือดูบนบอร์ด)';
     } else {
       reply += '\n\n(ขออภัยค่ะ การตั้งประกาศเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น)';
     }
   }
-  // 3.3 คุณปาล์มสั่งให้ส่งข้อความเข้ากลุ่ม (อนุญาตเฉพาะเจ้าของ)
-  if (p.blocks.SENDGROUP) {
+  // 3.3 คุณปาล์มสั่งให้ส่งข้อความเข้ากลุ่ม (อนุญาตเฉพาะเจ้าของ) — หลายกลุ่มพร้อมกันได้
+  if (p.all.SENDGROUP && p.all.SENDGROUP.length) {
     if (owner) {
-      const sent = sendToGroupByTarget(p.blocks.SENDGROUP);
-      const known = listKnownGroups().map(function (g) { return g.name; }).filter(String);
-      reply += sent
-        ? '\n\n📤 ส่งข้อความเข้ากลุ่มให้แล้วค่ะ'
-        : '\n\n⚠️ ดิฉันยังไม่รู้จักกลุ่ม "' + String(p.blocks.SENDGROUP.target || '') + '" ค่ะ\n'
+      const okN = [], badN = [];
+      p.all.SENDGROUP.forEach(function (sg) {
+        if (sendToGroupByTarget(sg)) okN.push(String(sg.target || ''));
+        else badN.push(String(sg.target || ''));
+      });
+      if (okN.length) reply += '\n\n📤 ส่งข้อความเข้ากลุ่มให้แล้วค่ะ' + (okN.length > 1 ? ' (' + okN.join(', ') + ')' : '');
+      if (badN.length) {
+        const known = listKnownGroups().map(function (g) { return g.name; }).filter(String);
+        reply += '\n\n⚠️ ดิฉันยังไม่รู้จักกลุ่ม "' + badN.join('", "') + '" ค่ะ\n'
           + (known.length ? ('กลุ่มที่รู้จักตอนนี้: ' + known.join(', ') + '\n') : 'ตอนนี้ยังไม่รู้จักกลุ่มไหนเลยค่ะ\n')
           + 'วิธีให้ดิฉันรู้จักกลุ่ม: ให้ใครก็ได้พิมพ์อะไรก็ได้ในกลุ่มนั้น 1 ข้อความ แล้วสั่งใหม่อีกครั้งนะคะ';
+      }
     } else {
       reply += '\n\n(ขออภัยค่ะ การส่งข้อความเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น)';
     }
@@ -855,16 +861,19 @@ function handleScheduledPost(text, chatId, senderId, replyToken, owner) {
   const explicit = /^(?:ขอ|รบกวน)?\s*(?:ตั้ง|ฝาก|นัด)/.test(t);   // ขึ้นต้นแบบสั่งตั้งชัดๆ
   if ((!sendVerb && !isSummary) || !/กลุ่ม/.test(head)) return false;
 
-  const g = matchGroupInText(head);
+  // หา "ทุกกลุ่ม" ที่พูดถึง — สั่งทีเดียวหลายกลุ่มได้ (เช่น "กลุ่ม A กับกลุ่ม B")
+  let targets = matchGroupsInText(head);
+  if (!targets.length) { const g1 = matchGroupInText(head); if (g1) targets = [g1]; }
   // หาเวลาโดยตัดชื่อกลุ่มออกก่อน กันตัวเลขในชื่อกลุ่มปนกับเวลา
-  const headNoGroup = (g && g.name) ? head.split(g.name).join(' ') : head;
+  let headNoGroup = head;
+  targets.forEach(function (g) { if (g.name) headNoGroup = headNoGroup.split(g.name).join(' '); });
   const when = parseThaiWhen(headNoGroup);
 
   // ไม่ระบุเวลา + ไม่ได้ขึ้นต้น ตั้ง/ฝาก/นัด → ถือว่าอยากส่งทันที ปล่อยไปทาง AI ตามเดิม
   if (!when && !explicit) return false;
   if (!owner) { lineReply(replyToken, 'ขออภัยค่ะ การตั้งประกาศเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น 🙏'); return true; }
 
-  if (!g) {
+  if (!targets.length) {
     const known = listKnownGroups().map(function (x) { return x.name; }).filter(String);
     lineReply(replyToken, 'ดิฉันไม่แน่ใจว่ากลุ่มไหนค่ะ 🙏\n'
       + (known.length ? 'กลุ่มที่รู้จักตอนนี้: ' + known.join(', ') : 'ยังไม่รู้จักกลุ่มไหนเลยค่ะ — ให้ใครสักคนทักในกลุ่มนั้นก่อน 1 ข้อความนะคะ'));
@@ -883,16 +892,18 @@ function handleScheduledPost(text, chatId, senderId, replyToken, owner) {
   const daily = /ทุกวัน/.test(head);
   const sh = schedSheet();
   if (!sh) { lineReply(replyToken, 'ขออภัยค่ะ ยังตั้งค่าชีตไม่เรียบร้อย'); return true; }
-  sh.appendRow([when, g.id, g.name, isSummary ? 'สรุปงาน' : 'ข้อความ', daily ? 'ทุกวัน' : 'ครั้งเดียว',
-                body, 'รอส่ง', senderId, new Date()]);
+  targets.forEach(function (g) {
+    sh.appendRow([when, g.id, g.name, isSummary ? 'สรุปงาน' : 'ข้อความ', daily ? 'ทุกวัน' : 'ครั้งเดียว',
+                  body, 'รอส่ง', senderId, new Date()]);
+    logRow(['ตั้งประกาศ', senderId, text, g.name + ' @ ' + when]);
+  });
 
   lineReply(replyToken, '📣 รับทราบค่ะ ตั้งเวลาส่งให้แล้ว\n'
     + '🗓️ ' + Utilities.formatDate(when, 'GMT+7', 'd/M/yyyy เวลา HH:mm') + ' น.' + (daily ? ' (ทุกวัน)' : '') + '\n'
-    + '👥 กลุ่ม: ' + (g.name || g.id) + '\n'
+    + '👥 กลุ่ม: ' + targets.map(function (g) { return g.name || g.id; }).join(', ') + (targets.length > 1 ? ' (' + targets.length + ' กลุ่ม)' : '') + '\n'
     + (isSummary ? '📊 เนื้อหา: สรุปงานจากบอร์ด (ดิฉันจะสรุปสดๆ ตอนถึงเวลาส่ง)'
         : '💬 เนื้อหา: ' + body.slice(0, 200) + (body.length > 200 ? '… (เก็บเนื้อหาเต็มไว้ครบแล้วค่ะ)' : ''))
     + '\n\n(เวลาส่งจริงอาจคลาดเคลื่อนได้ไม่เกิน ~15 นาทีนะคะ)\nดูรายการ: "เลขา ดูประกาศ" | ยกเลิก: "เลขา ยกเลิกประกาศ <เลข>"');
-  logRow(['ตั้งประกาศ', senderId, text, g.name + ' @ ' + when]);
   return true;
 }
 
@@ -1348,6 +1359,20 @@ function matchGroupInText(text) {
   return null;
 }
 
+// หา "ทุกกลุ่ม" ที่ถูกพูดถึงในข้อความ (เช่น "ประกาศเข้ากลุ่ม A กับกลุ่ม B") — คืน array
+function matchGroupsInText(text) {
+  const t = normGroupName(text);
+  if (!t) return [];
+  const hits = [];
+  listKnownGroups().forEach(function (g) {
+    if (!g.name) return;
+    const n = normGroupName(g.name);
+    if (n && t.indexOf(n) !== -1) { hits.push({ id: g.id, name: g.name }); return; }   // ชื่อเต็มอยู่ในข้อความ
+    if (groupMatchScore(text, g.name) >= 0.6) hits.push({ id: g.id, name: g.name });   // เทียบรายคำ
+  });
+  return hits;
+}
+
 function findGroupByName(name) {
   const q = normGroupName(name);
   if (!q) return '';
@@ -1673,19 +1698,25 @@ function boardSheetId() {
   return cfg('REQUEST_SHEET_ID') || cfg('LOG_SHEET_ID'); // ไม่ตั้งแยกก็ใช้ชีตเดียวกับ log
 }
 
-// แยกบล็อกซ่อน [[TASK]]{...}[[/TASK]] และ [[ALERT]]{...}[[/ALERT]] ออกจากคำตอบ
+// แยกบล็อกซ่อน [[TASK]]{...}[[/TASK]] ฯลฯ ออกจากคำตอบ
+// บล็อกชนิดเดียวกันมีได้หลายอัน (เช่น SENDGROUP/SCHEDULE บล็อกละกลุ่ม) — blocks = อันแรก, all = ทุกอัน
 function parseBlocks(raw) {
   let reply = String(raw);
   const blocks = {};
+  const all = {};
   ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN'].forEach(function (name) {
     const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
-    const m = reply.match(re);
-    if (m) {
-      reply = reply.replace(m[0], '');
-      try { blocks[name] = JSON.parse(m[1].trim()); } catch (e) { console.error(name + ' parse: ' + e); }
+    let m;
+    while ((m = reply.match(re))) {
+      reply = reply.replace(m[0], '');   // ตัดออกก่อนเสมอ กันวนลูปถ้า JSON เพี้ยน
+      try {
+        const obj = JSON.parse(m[1].trim());
+        if (!blocks[name]) blocks[name] = obj;
+        (all[name] = all[name] || []).push(obj);
+      } catch (e) { console.error(name + ' parse: ' + e); }
     }
   });
-  return { reply: reply.trim(), blocks: blocks };
+  return { reply: reply.trim(), blocks: blocks, all: all };
 }
 
 // เด้งสรุปข้อเสนอ/ตามงานถึงคุณปาล์ม
