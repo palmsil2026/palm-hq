@@ -231,9 +231,9 @@ function doGet(e) {
     const parts = r.split('|');
     return jsonOut({ ok: parts[0] === '✅', msg: parts.slice(1).join('|') });
   }
-  // เพิ่มงานจากบอร์ด (สำรองของ google.script.run)
+  // เพิ่มงานจากบอร์ด (สำรองของ google.script.run) — รับทั้ง key เจ้าของและ key ทีม
   if (p.action === 'addTask') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    if (p.key !== cfg('QUEUE_KEY') && p.key !== teamKey()) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
     return jsonOut(rpcAddTask(p.key, {
       biz: p.biz, type: p.type, detail: p.detail, urgency: p.urgency,
       due: p.due, assignee: p.assignee, dept: p.dept
@@ -250,11 +250,14 @@ function doGet(e) {
     return jsonOut(rpcSchedAction(p.key, p['do'], p.row, p.when || '', p.content || ''));
   }
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
+  // ลิงก์บอร์ดมี 2 แบบ: key เจ้าของ = เห็นทุกงาน+ปุ่มครบ | key ทีม = เห็นเฉพาะงานที่เปิดแชร์ (👥 ทีม)
   if (p.page === 'board') {
-    if (p.key !== cfg('QUEUE_KEY')) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ</h3>');
-    const notice = (p['do'] && p.ref) ? boardAction(p['do'], p.ref) : '';
-    return HtmlService.createHtmlOutput(boardHtml(p.key, notice, p.prj || ''))
-      .setTitle('บอร์ดงาน — ละกอน & คาเฟ่')
+    const ownerView = (p.key === cfg('QUEUE_KEY'));
+    const teamView = !ownerView && (p.key === teamKey());
+    if (!ownerView && !teamView) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ</h3>');
+    const notice = (ownerView && p['do'] && p.ref) ? boardAction(p['do'], p.ref) : '';
+    return HtmlService.createHtmlOutput(boardHtml(p.key, notice, p.prj || '', teamView))
+      .setTitle(teamView ? 'บอร์ดฝากงาน — ละกอน & คาเฟ่' : 'บอร์ดงาน — ละกอน & คาเฟ่')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
@@ -312,6 +315,16 @@ function boardAction(action, ref) {
       logRow(['ยกเลิกงาน(บอร์ด)', '', ref, 'สถานะเดิม: ' + status]);
       if (pid) advanceProject(pid);   // ปลดล็อกงานย่อยขั้นถัดไป ไม่ให้โปรเจกต์ค้าง
       return '✅|ยกเลิกงาน #' + ref + ' แล้ว';
+    }
+
+    if (action === 'vis') {
+      const ownerId = String(cfg('OWNER_LINE_USER_ID') || '');
+      const contact = String(sheet.getRange(row, 8).getValue() || '');
+      const cur = String(sheet.getRange(row, 25).getValue() || '')
+                || ((ownerId && contact === ownerId) ? 'ส่วนตัว' : 'ทีม');
+      const next = (cur === 'ทีม') ? 'ส่วนตัว' : 'ทีม';
+      sheet.getRange(row, 25).setValue(next);
+      return '✅|งาน #' + ref + ' ตั้งเป็น ' + (next === 'ทีม' ? '👥 ทีมเห็นได้' : '🔒 ส่วนตัว') + ' แล้ว';
     }
 
     if (action === 'runnow') {
@@ -407,6 +420,19 @@ function fireRoutine(note) {
 // ลิงก์บอร์ดของ deployment ปัจจุบันเสมอ (ไม่ต้องจำ URL เอง ต่อให้ deploy ใหม่ก็ยังถูก)
 function boardUrl() {
   return ScriptApp.getService().getUrl() + '?page=board&key=' + encodeURIComponent(cfg('QUEUE_KEY'));
+}
+
+// กุญแจบอร์ดทีม — สร้างอัตโนมัติครั้งแรก (คนละอันกับ QUEUE_KEY ของเจ้าของ ทีมเลยเข้าโหมดเจ้าของไม่ได้)
+function teamKey() {
+  let k = cfg('TEAM_KEY');
+  if (!k) {
+    k = 'T' + Utilities.getUuid().replace(/-/g, '').slice(0, 11);
+    PropertiesService.getScriptProperties().setProperty('TEAM_KEY', k);
+  }
+  return k;
+}
+function teamBoardUrl() {
+  return ScriptApp.getService().getUrl() + '?page=board&key=' + encodeURIComponent(teamKey());
 }
 
 // ปุ่ม "เปิดบอร์ดงาน" แบบ LINE template message — แนบต่อท้ายข้อความได้เลย
@@ -634,6 +660,15 @@ function handleEvent(ev) {
   const ideaR = handleIdeaBoard(text, senderId, replyToken, owner);
   if (ideaR === true) return;
   if (typeof ideaR === 'string') text = ideaR;   // "ทำไอเดีย N" → แปลงเป็นคำสั่งงานเต็ม ปล่อยเข้าท่อ TASK/PLAN ปกติ
+
+  // 1.48) ขอลิงก์บอร์ดทีม (สำหรับแชร์ให้พนักงาน — เห็นเฉพาะงานที่เปิด 👥 ทีม)
+  if (/(บอร์ด|board)[^\n]{0,10}(ทีม|พนักงาน)|(ทีม|พนักงาน)[^\n]{0,10}(บอร์ด|board)/i.test(text)) {
+    if (!owner) { lineReply(replyToken, 'ลิงก์บอร์ดทีมขอได้จากคุณปาล์มโดยตรงนะคะ 🙏'); return; }
+    lineReply(replyToken, '📋 ลิงก์บอร์ดทีมค่ะ (แชร์ให้พนักงานได้เลย — เห็นเฉพาะงานที่เปิด 👥 ทีมเห็น):\n' + teamBoardUrl()
+      + '\n\nงานที่ทีมฝากเข้ามา = ทีมเห็นโดยอัตโนมัติ | งานที่คุณปาล์มสั่งเอง = 🔒 ส่วนตัว\nสลับได้จากปุ่มบนการ์ดในบอร์ดของคุณปาล์มค่ะ');
+    logRow(['เปิดบอร์ดทีม', senderId, text, teamBoardUrl()]);
+    return;
+  }
 
   // 1.5) ขอลิงก์บอร์ด/ขอดูบอร์ด → ส่งปุ่มเปิดบอร์ดเลย ไม่ต้องให้ Claude สรุป (เร็ว+ประหยัด token)
   // รับทุกการสะกด ลิงก์/ลิ้งค์/ลิงค์/link และประโยคสุภาพ "ขอดูบอร์ดงานหน่อยครับ"
@@ -2175,7 +2210,8 @@ function readBoardAll() {
     const last = sheet.getLastRow();
     if (last < 2) return [];
     const start = Math.max(2, last - 299);
-    const data = sheet.getRange(start, 1, last - start + 1, 24).getValues();
+    const data = sheet.getRange(start, 1, last - start + 1, 25).getValues();
+    const ownerId = String(cfg('OWNER_LINE_USER_ID') || '');
     const out = [];
     for (let i = data.length - 1; i >= 0 && out.length < 200; i--) {
       const r = data[i];
@@ -2185,7 +2221,9 @@ function readBoardAll() {
         type: r[5], from: r[6], detail: r[8], due: r[9], assignee: r[11] || '', result: r[12] || '', dept: r[13] || '',
         project: r[14] || '', step: r[15] || '', projectTitle: r[16] || '', blocked: r[17] || '',
         notes: r[18] || '', startedAt: fmtTime(r[19]), doneAt: fmtTime(r[20]),
-        deps: r[21] || '', inputsTxt: r[22] || '', output: r[23] || ''
+        deps: r[21] || '', inputsTxt: r[22] || '', output: r[23] || '',
+        // การมองเห็น (คอลัมน์ Y): ไม่ได้ตั้ง = งานที่คุณปาล์มฝากเอง → ส่วนตัว, งานที่ทีมฝาก → ทีมเห็นได้
+        vis: String(r[24] || '') || ((ownerId && String(r[7] || '') === ownerId) ? 'ส่วนตัว' : 'ทีม')
       });
     }
     return out;
@@ -2457,10 +2495,13 @@ function createTaskDirect(t, preApproved) {
   const status = (assignee !== 'ทีมAI') ? 'ใหม่'
                : ((needsApproval(dept) && !preApproved) ? 'รออนุมัติ' : 'รอทีม AI');
 
+  // คอลัมน์ 15-24 เว้นไว้ (โปรเจกต์/เวลา/ผลงาน) คอลัมน์ 25 = การมองเห็น (ทีม|ส่วนตัว)
+  const vis = String(t.vis || (preApproved ? 'ส่วนตัว' : 'ทีม'));
   sheet.appendRow([
     ref, now, status, String(t.urgency || 'ปกติ'), String(t.biz || ''),
     String(t.type || 'ฝากงาน'), String(t.from || 'บอร์ด'), String(t.contact || ''),
-    detail, String(t.due || ''), String(t.image || ''), assignee, '', dept
+    detail, String(t.due || ''), String(t.image || ''), assignee, '', dept,
+    '', '', '', '', '', '', '', '', '', '', vis
   ]);
 
   // งานที่ต้องอนุมัติ หรือ งานด่วนมากจากคนอื่น → เด้งบอกคุณปาล์ม
@@ -2487,14 +2528,17 @@ function handleSubmitRequest(body) {
 
 // ── RPC ให้หน้าบอร์ดเรียกผ่าน google.script.run (ไม่ติด CORS) ──
 function rpcAddTask(key, t) {
-  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
-  const r = createTaskDirect(t, true);   // คุณปาล์มกรอกเอง = อนุมัติแล้ว
+  const isOwnerKey = (key === cfg('QUEUE_KEY'));
+  if (!isOwnerKey && key !== teamKey()) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  if (!isOwnerKey) t.from = 'บอร์ดทีม';           // ฝากจากบอร์ดทีม → เข้าด่านอนุมัติปกติ + ทีมเห็นได้
+  t.vis = isOwnerKey ? 'ส่วนตัว' : 'ทีม';
+  const r = createTaskDirect(t, isOwnerKey);       // เจ้าของกรอกเอง = อนุมัติแล้ว
   if (r.ok) {
     r.task = { ref: r.ref, time: fmtTime(new Date()), status: r.status, urgency: String(t.urgency || 'ปกติ'),
                biz: String(t.biz || ''), type: String(t.type || ''), detail: String(t.detail || ''),
                due: String(t.due || ''), assignee: (String(t.assignee) === 'ทีมAI' ? 'ทีมAI' : 'คน'),
                result: '', dept: (String(t.assignee) === 'ทีมAI' ? String(t.dept || '') : ''),
-               project: '', step: '', projectTitle: '', blocked: '', startedAt: '', doneAt: '' };
+               project: '', step: '', projectTitle: '', blocked: '', startedAt: '', doneAt: '', vis: t.vis };
   }
   return r;
 }
@@ -2606,8 +2650,9 @@ function nextRoundText() {
   } catch (e) { return 'รอบถัดไปตามตาราง'; }
 }
 
-function boardHtml(key, notice, prj) {
-  const tasks = readBoardAll();
+function boardHtml(key, notice, prj, teamView) {
+  // โหมดทีม: เห็นเฉพาะงานที่เปิดแชร์ (👥 ทีม) — งานส่วนตัวของคุณปาล์มไม่ถูกส่งลงหน้านี้เลย (กรองฝั่งเซิร์ฟเวอร์)
+  const tasks = teamView ? readBoardAll().filter(function (t) { return t.vis === 'ทีม'; }) : readBoardAll();
   const json = JSON.stringify(tasks).replace(/</g, '\\u003c');
   return '<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">'
 + '<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">'
@@ -2709,8 +2754,9 @@ function boardHtml(key, notice, prj) {
 + '<label class="chk"><input type="checkbox" id="c_redo"> <span>ส่งกลับให้ทีมทำใหม่ตามคอมเมนต์นี้เลย</span></label>'
 + '<div class="acts"><button class="bt cancel" id="cClose">ปิด</button><button class="bt run" id="cSave">บันทึกคอมเมนต์</button></div>'
 + '</div></div>'
++ (teamView ? '<style>.act{display:none!important}</style>' : '')
 + '<div id="ib"></div><div id="sd"></div><div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
-+ '<script>' + boardScript(json, key, notice, prj) + '</scr' + 'ipt></body></html>';
++ '<script>' + boardScript(json, key, notice, prj, teamView) + '</scr' + 'ipt></body></html>';
 }
 
 // ── สคริปต์ฝั่งหน้าเว็บของบอร์ด (แยกออกมาให้อ่าน/แก้ง่ายกว่าเดิม) ──────────
@@ -2718,11 +2764,12 @@ function boardHtml(key, notice, prj) {
 //   FD = ฝ่าย  ("" = ทุกฝ่าย, "_sec" = คุณเลขา, นอกนั้นคือรหัสแผนก)
 //   F  = สถานะ (open/urgent/wait/ai/doing/blocked/human/done/all)
 // เช่น เลือกฝ่ายดีไซน์ แล้วกดไทล์ "เสร็จแล้ว" = เห็นเฉพาะงานดีไซน์ที่เสร็จแล้ว
-function boardScript(json, key, notice, prj) {
+function boardScript(json, key, notice, prj, teamView) {
   return [
     'var ALL=' + json + ';',
-    'var SCHED=' + JSON.stringify(readScheduledAll()).replace(/</g, '\\u003c') + ';',
-    'var IDEAS=' + JSON.stringify(readIdeasAll()).replace(/</g, '\\u003c') + ';',
+    'var TV=' + (teamView ? '1' : '0') + ';',   // 1 = บอร์ดทีม (ซ่อนปุ่มจัดการ/กล่องส่วนตัวของคุณปาล์ม)
+    'var SCHED=' + (teamView ? '[]' : JSON.stringify(readScheduledAll()).replace(/</g, '\\u003c')) + ';',
+    'var IDEAS=' + (teamView ? '[]' : JSON.stringify(readIdeasAll()).replace(/</g, '\\u003c')) + ';',
     'var KEY=' + JSON.stringify(String(key || '')) + ';',
     'var BASE=' + JSON.stringify(ScriptApp.getService().getUrl()) + ';',
     'var NOTICE=' + JSON.stringify(String(notice || '')) + ';',
@@ -2813,6 +2860,7 @@ function boardScript(json, key, notice, prj) {
     + '+(t.notes?\'<div class="notes">💬 \'+E(t.notes)+\'</div>\':"")'
     + '+\'<div class="act">\'+(done(t)?"":\'<button class="bt run" data-run="\'+E(t.ref)+\'">⚡ เริ่มทันที</button>\')'
     + '+\'<button class="bt cmt" data-cmt="\'+E(t.ref)+\'">💬 คอมเมนต์</button>\''
+    + '+(TV?"":\'<button class="bt cmt" data-vis="\'+E(t.ref)+\'" title="สลับการมองเห็นของทีม">\'+(t.vis=="ทีม"?"👥 ทีมเห็น":"🔒 ส่วนตัว")+\'</button>\')'
     + '+(done(t)?"":\'<button class="bt cancel" data-cancel="\'+E(t.ref)+\'">✕ ยกเลิก</button>\')+\'</div>\''
     + '+\'</div>\'}).join("");'
     + 'bindActions()}',
@@ -2831,7 +2879,7 @@ function boardScript(json, key, notice, prj) {
     'function go(a,r){rpc("rpcBoardAction",[KEY,a,r],'
     + '"action=boardDo&key="+encodeURIComponent(KEY)+"&do="+a+"&ref="+encodeURIComponent(r),'
     + 'function(j){toast(j.msg,j.ok);'
-    + 'if(j.ok){ALL.forEach(function(t){if(t.ref==r){if(a=="cancel")t.status="ยกเลิก";if(a=="runnow")t.status="รอทีม AI"}});render()}})}',
+    + 'if(j.ok){ALL.forEach(function(t){if(t.ref==r){if(a=="cancel")t.status="ยกเลิก";if(a=="runnow")t.status="รอทีม AI";if(a=="vis")t.vis=(t.vis=="ทีม"?"ส่วนตัว":"ทีม")}});render()}})}',
 
     // ── ฟอร์มฝากงาน (เขียนลงชีตตรง ๆ ไม่เรียก Claude) ──
     'var DEPTS=[["","— ให้เลือกให้ —"],["content","🎨 ดีไซน์/คอนเทนต์"],["writer","✍️ นักเขียน"],["analyst","📈 นักวิเคราะห์"],'
@@ -2864,6 +2912,7 @@ function boardScript(json, key, notice, prj) {
     + 'bind("#cx [data-run],#pj [data-run]",function(el){var r=el.getAttribute("data-run");'
     + 'if(confirm("ให้ทีม AI เริ่มทำงาน #"+r+" ทันทีเลยไหม ?\\n\\nไม่ต้องรอรอบ "+NEXT))go("runnow",r)});'
     + 'bind("#cx [data-cmt],#pj [data-cmt]",function(el){openCmt(el.getAttribute("data-cmt"))});'
+    + 'bind("#cx [data-vis]",function(el){go("vis",el.getAttribute("data-vis"))});'
     + 'bind("#pj [data-wf]",function(el){PRJ=el.getAttribute("data-wf");render();window.scrollTo(0,0)});'
     // ปุ่มบนกล่องประกาศตั้งเวลา
     + 'bind("#sd [data-snow]",function(el){var i=+el.getAttribute("data-snow"),s=SCHED[i];'
