@@ -125,6 +125,14 @@ const SYSTEM_PROMPT = [
   '   รอคุณปาล์มยืนยันค่อยส่ง | แต่ถ้าเป็นแพตเทิร์นเดิมที่เคยทำ/แนวที่คุณปาล์มเคยโอเคไปแล้ว → ทำต่อเองเลย ไม่ต้องถามซ้ำ',
   '5) อ่านแล้วงง ไม่เข้าใจความหมายของคำสั่งหรือเนื้อหา → ถามกลับสั้นๆ ตรงจุดก่อน อย่าเดามั่วแล้วส่งออก',
   '',
+  '🧠 คลังความจำถาวร: ข้อมูลที่ควรจำไว้ใช้ซ้ำระยะยาว เช่น ลิงก์แอป/เว็บ/ฟอร์ม, ชื่อเรียกแทนกลุ่ม',
+  '("ร้านกาแฟ" หมายถึงกลุ่ม Old Days), เบอร์/ช่องทางติดต่อ, กติกา/ข้อเท็จจริงของร้าน',
+  'เมื่อคุณปาล์มส่งข้อมูลแบบนี้มา (แม้ไม่ได้สั่งว่า "จำ" — เช่น ส่งลิงก์แอปมาให้ใช้) หรือสั่ง "จำไว้ว่า..."',
+  'ให้ต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น): [[REMEMBER]]{"topic":"หัวข้อสั้นๆ เช่น ลิงก์แอป Old Days","value":"เนื้อหา/ลิงก์เต็มเป๊ะๆ"}[[/REMEMBER]]',
+  'หัวข้อเดิม = ทับค่าใหม่ | สั่งลืม → [[FORGET]]{"topic":"หัวข้อ"}[[/FORGET]]',
+  'ข้อมูลคลังนี้ถูกป้อนให้คุณทุกครั้งที่ตอบ (หมวด "ข้อมูลธุรกิจ") — มีคนขอลิงก์/ข้อมูลเมื่อไหร่ให้ดึงจากตรงนั้นตอบทันที',
+  'ห้ามบอกว่า "ไม่มี/ขอใหม่" ถ้ามันอยู่ในคลังแล้ว | ห้ามเก็บเรื่องการเงินวงในลงคลังนี้ (พนักงานเข้าถึงได้)',
+  '',
   '💡 บอร์ดไอเดีย (เฉพาะคุณปาล์ม): คุณปาล์มเป็นคนไอเดียฟุ้งเยอะและไว — หน้าที่คุณคือ "รับลูกให้ทัน" ไม่ให้ไอเดียหล่นหาย',
   'ถ้าคุณปาล์มเล่าไอเดียใหม่ลอยๆ (ยังไม่ได้สั่งให้ลงมือทำตอนนี้ เช่น "ว่าจะ...", "คิดว่าน่าจะลอง...", "มีไอเดียว่า...")',
   'ให้ตอบรับสั้นๆ + ความเห็นแวบเดียว แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
@@ -143,6 +151,7 @@ const SYSTEM_PROMPT = [
   'ความสามารถที่มี (บอกได้ถ้ามีคนถามว่าทำอะไรได้): รับฝากงานลงบอร์ด, ตอบเรื่องงานในบอร์ด,',
   'รับรูป/ไฟล์เก็บลง Drive แล้วแนบกับงาน, ตั้งเตือนความจำ ("เตือนฉันพรุ่งนี้ 9 โมง ..."),',
   'รับ Feedback ปัญหา/ข้อเสนอเรื่องระบบและแอป (ถามอาการให้ชัดแล้วส่งต่อคุณปาล์ม),',
+  'จำข้อมูลถาวรลงคลัง ("จำไว้ว่า..." — ลิงก์/ช่องทาง/กติกา, สั่ง "ลืมเรื่อง..." ได้),',
   'ประกาศเข้ากลุ่มไลน์ตามชื่อกลุ่ม, สรุปแชทในกลุ่ม, ตามงานค้างให้ทุกเย็น',
   'บอร์ดไอเดีย: "ไอเดีย <ข้อความ>" แปะทันที, "ดูไอเดีย", "ทำไอเดีย <เลข>", "พับไอเดีย <เลข>"',
   'เฉพาะคุณปาล์ม: "เช็คระบบ" (ตรวจสุขภาพระบบ), "รายชื่อกลุ่ม", "อนุมัติ <เลขงาน>", "เสร็จ <เลขงาน>"',
@@ -638,6 +647,19 @@ function handleEvent(ev) {
   // 3.2 ถ้าเป็นข้อเสนอ/ตามงาน/เรื่องด่วน → ส่งสรุปถึงคุณปาล์ม
   if (p.blocks.ALERT && !owner) {
     alertOwnerProposal(p.blocks.ALERT, senderId);
+  }
+  // 3.2a2 🧠 จำ/ลืมข้อมูลถาวรลงคลังธุรกิจ (เฉพาะคุณปาล์ม)
+  if (owner && p.all.REMEMBER && p.all.REMEMBER.length) {
+    p.all.REMEMBER.forEach(function (rm) {
+      if (saveKBFact(rm.topic, rm.value)) reply += '\n\n🧠 จำลงคลังถาวรแล้วค่ะ: ' + String(rm.topic || '');
+    });
+  }
+  if (owner && p.all.FORGET && p.all.FORGET.length) {
+    p.all.FORGET.forEach(function (fg) {
+      reply += forgetKBFact(fg.topic)
+        ? '\n\n🗑️ ลบ "' + String(fg.topic || '') + '" ออกจากความจำถาวรแล้วค่ะ'
+        : '\n\n⚠️ ไม่พบหัวข้อ "' + String(fg.topic || '') + '" ในความจำถาวรค่ะ';
+    });
   }
   // 3.2b 💡 คุณปาล์มเล่าไอเดียลอยๆ → เลขาแปะบอร์ดไอเดียให้เอง
   if (owner && p.all.IDEA && p.all.IDEA.length) {
@@ -1957,7 +1979,7 @@ function parseBlocks(raw) {
   let reply = String(raw);
   const blocks = {};
   const all = {};
-  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN', 'IDEA', 'ADDNOTE'].forEach(function (name) {
+  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN', 'IDEA', 'ADDNOTE', 'REMEMBER', 'FORGET'].forEach(function (name) {
     const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
     let m;
     while ((m = reply.match(re))) {
@@ -2116,12 +2138,44 @@ function loadKB() {
       lines.push('- ' + topic + ': ' + detail);
     }
     let text = lines.join('\n');
-    if (text.length > 4000) text = text.slice(0, 4000);
+    if (text.length > 6000) text = text.slice(0, 6000);   // เผื่อลิงก์ยาวๆ ที่เลขาจำเอง
     return text;
   } catch (err) {
     console.error('loadKB error: ' + err);
     return '';
   }
+}
+
+// 🧠 เลขาจำเอง — เพิ่ม/ทับข้อเท็จจริงในคลัง (upsert ตามหัวข้อ) แล้วล้างแคชให้เห็นทันที
+function saveKBFact(topic, value) {
+  try {
+    const t = String(topic || '').trim(), v = String(value || '').trim();
+    if (!t || !v) return false;
+    const id = boardSheetId(); if (!id) return false;
+    const ss = ssById(id);
+    let s = ss.getSheetByName('ข้อมูลโรงงาน');
+    if (!s) { loadKB(); s = ss.getSheetByName('ข้อมูลโรงงาน'); if (!s) return false; }
+    const data = s.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0] || '').trim() === t) { s.getRange(i + 1, 2).setValue(v.slice(0, 1500)); clearCache(); return true; }
+    }
+    s.appendRow([t, v.slice(0, 1500)]);
+    clearCache();
+    return true;
+  } catch (e) { console.error('saveKBFact: ' + e); return false; }
+}
+
+function forgetKBFact(topic) {
+  try {
+    const t = String(topic || '').trim(); if (!t) return false;
+    const id = boardSheetId(); if (!id) return false;
+    const s = ssById(id).getSheetByName('ข้อมูลโรงงาน'); if (!s) return false;
+    const data = s.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0] || '').trim() === t) { s.deleteRow(i + 1); clearCache(); return true; }
+    }
+    return false;
+  } catch (e) { console.error('forgetKBFact: ' + e); return false; }
 }
 
 // เขียนงานลงแท็บ Requests แล้วคืนเลขงาน
