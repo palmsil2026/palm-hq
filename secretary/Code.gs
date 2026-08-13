@@ -857,6 +857,15 @@ function handleScheduledPost(text, chatId, senderId, replyToken, owner) {
     return true;
   }
 
+  // ส่งเดี๋ยวนี้ ไม่รอเวลา: "ส่งประกาศ 3 เลย" / "ส่งประกาศ #3" / "ส่งประกาศ 3 ตอนนี้"
+  const mNow = t.match(/^ส่ง(?:ประกาศ|โพสต์)\s*#?(\d+)(?:\s*(?:เลย|ตอนนี้|ทันที))?\s*$/);
+  if (mNow) {
+    if (!owner) { lineReply(replyToken, 'ขออภัยค่ะ การจัดการประกาศทำได้เฉพาะคุณปาล์มเท่านั้น 🙏'); return true; }
+    const res = sendScheduledNow(Number(mNow[1]));
+    lineReply(replyToken, res.msg + (res.ok ? '' : ' — พิมพ์ "เลขา ดูประกาศ" เช็คเลขก่อนนะคะ'));
+    return true;
+  }
+
   // ตั้งใหม่ — จับจาก "เจตนา" ไม่ยึดรูปประโยค: มีคำส่ง/ประกาศ + พูดถึงกลุ่ม + ระบุเวลา = ตั้งเวลา
   // รองรับภาษาพูด: "ฝากคุณส่งข้อความลงกลุ่ม ทดสอบเลขา ตอน 4:21 ได้มั้ย ว่า ..." ก็เข้าใจ
   // แยกหัวคำสั่ง (กลุ่ม+เวลา) กับเนื้อหา ที่ตัวคั่น "ว่า" (รับทั้ง " ว่า " และ "มั้ยว่า/หน่อยว่า" ติดกัน)
@@ -958,6 +967,7 @@ function rpcSchedAction(key, action, row, when, content) {
       logRow(['ยกเลิกประกาศ(บอร์ด)', '', String(sh.getRange(r, 3).getValue() || ''), '']);
       return { ok: true, msg: 'ยกเลิกประกาศแล้วค่ะ' };
     }
+    if (action === 'sendnow') return sendScheduledNow(Number(row));
     if (action === 'edit') {
       let newWhen = null;
       if (when) {
@@ -974,6 +984,31 @@ function rpcSchedAction(key, action, row, when, content) {
     }
     return { ok: false, msg: 'ไม่รู้จักคำสั่งนี้' };
   } catch (err) { return { ok: false, msg: 'ทำรายการไม่สำเร็จ: ' + err }; }
+}
+
+// ส่งประกาศรายการนี้ "เดี๋ยวนี้" ไม่ต้องรอเวลา — ใช้ทั้งปุ่ม 📤 บนบอร์ดและคำสั่ง "เลขา ส่งประกาศ <เลข> เลย"
+// (ยิงจากช่องทางแชท/บอร์ดโดยตรง ทำงานได้แม้ trigger ตามเวลาจะพัง)
+function sendScheduledNow(row) {
+  const sh = schedSheet();
+  const r = Number(row) + 1;   // แถวจริงในชีต
+  if (!sh || r < 2 || r > sh.getLastRow() || String(sh.getRange(r, 7).getValue()) !== 'รอส่ง') {
+    return { ok: false, msg: 'ไม่พบประกาศรายการนี้ (อาจส่ง/ยกเลิกไปแล้ว)' };
+  }
+  const d = sh.getRange(r, 1, 1, 7).getValues()[0];
+  const msg = (String(d[3]) === 'สรุปงาน') ? buildGroupWorkSummary() : String(d[5] || '');
+  if (!msg) return { ok: false, msg: 'ประกาศนี้ไม่มีเนื้อหาค่ะ' };
+  linePush(String(d[1]), msg);
+  if (String(d[4]) === 'ทุกวัน') {
+    // ส่งรอบนี้แล้ว เลื่อนคิวไปวันถัดไปเวลาเดิม (รอบทุกวันยังเดินต่อ)
+    const next = new Date((d[0] instanceof Date ? d[0] : new Date()).getTime());
+    do { next.setDate(next.getDate() + 1); } while (next.getTime() <= Date.now());
+    sh.getRange(r, 1).setValue(next);
+  } else {
+    sh.getRange(r, 7).setValue('ส่งแล้ว');
+  }
+  logRow(['ส่งประกาศ(สั่งส่งเลย)', '', String(d[2] || d[1]), msg.slice(0, 100)]);
+  return { ok: true, msg: '📤 ส่งเข้ากลุ่ม ' + (d[2] || d[1]) + ' เรียบร้อยแล้วค่ะ'
+           + (String(d[4]) === 'ทุกวัน' ? ' (รอบทุกวันถัดไปยังตั้งอยู่)' : '') };
 }
 
 // สรุปงานจากบอร์ดสำหรับโพสต์ลงกลุ่ม (เวอร์ชันพนักงาน — ไม่มีตัวเลขการเงินวงใน)
@@ -2293,7 +2328,7 @@ function boardScript(json, key, notice, prj) {
     + 'el.innerHTML=\'<div class="prj" style="border-left-color:var(--gold)"><h3>📣 ประกาศตั้งเวลา (\'+SCHED.length+\')</h3>\'+SCHED.map(function(s,i){'
     + 'return \'<div class="sub"><span>🕐</span><span><b>\'+E(s.time)+\'</b>\'+(s.repeat=="ทุกวัน"?" · ส่งซ้ำทุกวัน":"")+\' → 👥 \'+E(s.group)+\'<br>\''
     + '+(s.type=="สรุปงาน"?\'<span style="color:#5B9BA0">📊 สรุปงานจากบอร์ด (สร้างสดตอนส่ง)</span>\':\'<span style="color:#7A8A9B">\'+E(String(s.content).slice(0,160))+(s.content.length>160?"…":"")+"</span>")'
-    + '+\'<div class="act" style="max-width:280px;margin-top:6px"><button class="bt cmt" data-sedit="\'+i+\'">✏️ แก้ไข</button><button class="bt cancel" data-scancel="\'+i+\'">✕ ยกเลิก</button></div></span></div>\'}).join("")+"</div>"}',
+    + '+\'<div class="act" style="max-width:380px;margin-top:6px"><button class="bt run" data-snow="\'+i+\'">📤 ส่งเลย</button><button class="bt cmt" data-sedit="\'+i+\'">✏️ แก้ไข</button><button class="bt cancel" data-scancel="\'+i+\'">✕ ยกเลิก</button></div></span></div>\'}).join("")+"</div>"}',
 
     // วาดบอร์ด — ไทล์สถิตินับเฉพาะขอบเขตฝ่ายที่เลือกอยู่ และกดเพื่อกรองสถานะได้
     'function render(){team();schedBox();'
@@ -2387,6 +2422,11 @@ function boardScript(json, key, notice, prj) {
     + 'bind("#cx [data-cmt],#pj [data-cmt]",function(el){openCmt(el.getAttribute("data-cmt"))});'
     + 'bind("#pj [data-wf]",function(el){PRJ=el.getAttribute("data-wf");render();window.scrollTo(0,0)});'
     // ปุ่มบนกล่องประกาศตั้งเวลา
+    + 'bind("#sd [data-snow]",function(el){var i=+el.getAttribute("data-snow"),s=SCHED[i];'
+    + 'if(!confirm("ส่งประกาศนี้เข้ากลุ่ม "+s.group+" เดี๋ยวนี้เลยไหม?\\n\\n"+(s.type=="สรุปงาน"?"(สรุปงานจะถูกสร้างสดตอนกดส่ง)":String(s.content).slice(0,120))))return;'
+    + 'rpc("rpcSchedAction",[KEY,"sendnow",s.row,"",""],'
+    + '"action=schedDo&key="+encodeURIComponent(KEY)+"&do=sendnow&row="+s.row,'
+    + 'function(j){toast(j.msg,j.ok);if(j.ok){if(s.repeat!="ทุกวัน")SCHED.splice(i,1);render()}})});'
     + 'bind("#sd [data-scancel]",function(el){var i=+el.getAttribute("data-scancel"),s=SCHED[i];'
     + 'if(!confirm("ยกเลิกประกาศ "+s.time+" → "+s.group+" ?"))return;'
     + 'rpc("rpcSchedAction",[KEY,"cancel",s.row,"",""],'
