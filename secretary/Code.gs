@@ -774,6 +774,8 @@ function handleReminder(text, chatId, senderId, replyToken) {
 
 // trigger ทุก 15 นาที — ยิงเตือนที่ถึงเวลาแล้ว
 function fireDueReminders() {
+  // heartbeat: จดเวลาที่รันล่าสุดไว้ ให้ "เช็คระบบ" ฟ้องได้ถ้า trigger ตั้งไว้แต่ไม่รันจริง (เช่น สิทธิ์ค้าง)
+  try { PropertiesService.getScriptProperties().setProperty('LAST_TICK', String(Date.now())); } catch (e) {}
   try {
     const sh = remSheet(); if (!sh || sh.getLastRow() < 2) return;
     const n = sh.getLastRow() - 1;
@@ -1272,10 +1274,40 @@ function healthCheck() {
     }
   } catch (e) {}
 
-  // 7. trigger
+  // 7. trigger — เช็คทั้ง "ตั้งไว้" และ "รันจริง" (heartbeat จาก fireDueReminders)
   try {
     const fns = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
-    fns.length ? ok('งานอัตโนมัติทำงานอยู่: ' + fns.join(', ')) : warn('ยังไม่ได้ตั้ง trigger', 'รันฟังก์ชัน setupTriggers ใน Apps Script');
+    fns.length ? ok('งานอัตโนมัติตั้งไว้: ' + fns.join(', ')) : bad('ยังไม่ได้ตั้ง trigger เลย', 'รันฟังก์ชัน setupTriggers ใน Apps Script 1 ครั้ง');
+    if (fns.indexOf('fireDueReminders') !== -1) {
+      const tick = Number(PropertiesService.getScriptProperties().getProperty('LAST_TICK') || 0);
+      if (!tick) {
+        warn('ยังไม่มีหลักฐานว่า trigger รันจริง (เพิ่งติดตั้งตัวตรวจ)',
+             'รอ 15 นาทีแล้วเช็คระบบอีกครั้ง — ถ้ายังขึ้นแบบนี้ = trigger ค้าง ให้เปิด Apps Script → Run ฟังก์ชัน fireDueReminders แล้วกด Allow สิทธิ์ทั้งหมด');
+      } else {
+        const age = Math.round((Date.now() - tick) / 60000);
+        if (age <= 20) ok('trigger รันจริง ล่าสุด ' + age + ' นาทีก่อน');
+        else bad('trigger ไม่ได้รันมา ' + age + ' นาทีแล้ว (ปกติต้องทุก 15 นาที) — เตือน/ประกาศตามเวลาจะไม่ออก',
+                 'เปิด Apps Script → Executions ดู error สีแดง — ส่วนใหญ่คือสิทธิ์ค้าง: Run ฟังก์ชัน fireDueReminders เอง 1 ครั้งแล้วกด Allow ทั้งหมด');
+      }
+    }
+  } catch (e) {}
+
+  // 8. ประกาศตั้งเวลา — มีอันเลยกำหนดแต่ยังไม่ถูกส่งไหม (สัญญาณชัดสุดว่าตัวยิงพัง)
+  try {
+    const shp = schedSheet();
+    if (shp && shp.getLastRow() >= 2) {
+      const rows = shp.getRange(2, 1, shp.getLastRow() - 1, 7).getValues();
+      let pend = 0, overdue = 0;
+      const nowT = Date.now();
+      rows.forEach(function (r) {
+        if (String(r[6]) !== 'รอส่ง') return;
+        pend++;
+        const t = (r[0] instanceof Date) ? r[0].getTime() : 0;
+        if (t && nowT - t > 20 * 60000) overdue++;
+      });
+      if (overdue) bad('มีประกาศเลยกำหนดแต่ยังไม่ถูกส่ง ' + overdue + ' อัน', 'ตัวยิงตามเวลาไม่ทำงาน — ดูวิธีแก้ที่ข้อ trigger ด้านบน');
+      else if (pend) ok('ประกาศตั้งเวลารอส่ง ' + pend + ' อัน (ยังไม่ถึงกำหนด)');
+    }
   } catch (e) {}
 
   return '🩺 รายงานสุขภาพระบบค่ะ\n\n' + L.join('\n');
