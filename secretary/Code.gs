@@ -81,6 +81,11 @@ const SYSTEM_PROMPT = [
   '- "คน" = งานที่คนต้องลงมือ เช่น ส่งของ ซ่อมเครื่อง ซื้อของ ประสานงานนอกสถานที่',
   'ถ้าเป็นแค่คำถาม/คุยเล่น/ยังฝากไม่ครบ ไม่ต้องใส่บล็อกนี้',
   '',
+  '➕ ห้ามเปิดงานซ้ำ (สำคัญมาก): ก่อนใส่ TASK ให้เช็คก่อนว่าเรื่องนี้เป็น "ข้อมูลเพิ่ม/เงื่อนไข/ไฟล์ประกอบ',
+  'ของงานที่เปิดไว้แล้ว" หรือเปล่า — ถ้าใช่และรู้เลขงานจากบริบท (#REQ...) ให้ใช้บล็อกนี้แทน TASK:',
+  '[[ADDNOTE]]{"ref":"REQ260813-4785","note":"ข้อมูลที่จะแนบเข้างานเดิม"}[[/ADDNOTE]]',
+  'ระบบจะต่อข้อมูลเข้าใบงานเดิมให้ ทีมที่รับงานนั้นเห็นเองอัตโนมัติ — เปิด TASK ใหม่เฉพาะงานคนละชิ้นจริงๆ เท่านั้น',
+  '',
   'ส่งเรื่องถึงคุณปาล์ม: เมื่อข้อความเป็น (ก) ข้อเสนอที่ต้องให้คุณปาล์มตัดสินใจ เช่น ขอลดราคา/ส่วนลด/ดีล/ข้อเสนอพิเศษ',
   '(ข) การทวงงาน/ตามงานที่ค้าง หรือ (ค) เรื่องด่วนที่เจ้าของควรรู้ทันที',
   'ให้ตอบผู้ส่งอย่างสุภาพว่ารับเรื่องและจะเรียนคุณปาล์มให้ (อย่าตัดสินใจแทน) แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
@@ -621,6 +626,14 @@ function handleEvent(ev) {
         }
       }
     }
+  }
+  // 3.1c ➕ ข้อมูลเพิ่มของงานเดิม → ต่อเข้าใบงานเดิม ไม่เปิดใบใหม่
+  if (p.all.ADDNOTE && p.all.ADDNOTE.length) {
+    p.all.ADDNOTE.forEach(function (an) {
+      const rr = String(an.ref || '').replace(/^#/, '').trim();
+      if (appendNoteToTask(rr, an.note)) reply += '\n\n➕ แนบข้อมูลเข้างาน #' + rr + ' ให้เรียบร้อยค่ะ (ทีมที่รับงานเห็นเองเลย)';
+      else reply += '\n\n⚠️ หางาน #' + rr + ' ไม่เจอค่ะ เลยยังไม่ได้แนบ — เช็คเลขงานอีกทีนะคะ';
+    });
   }
   // 3.2 ถ้าเป็นข้อเสนอ/ตามงาน/เรื่องด่วน → ส่งสรุปถึงคุณปาล์ม
   if (p.blocks.ALERT && !owner) {
@@ -1944,7 +1957,7 @@ function parseBlocks(raw) {
   let reply = String(raw);
   const blocks = {};
   const all = {};
-  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN', 'IDEA'].forEach(function (name) {
+  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN', 'IDEA', 'ADDNOTE'].forEach(function (name) {
     const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
     let m;
     while ((m = reply.match(re))) {
@@ -2129,6 +2142,27 @@ function lineUserName(uid) {
     }
   } catch (e) {}
   return 'LINE';   // ดึงชื่อไม่ได้ (เช่น ยังไม่ได้แอดเลขาเป็นเพื่อน) → ใช้ค่าเดิม
+}
+
+// ➕ เติมข้อมูลเข้างานเดิมตามเลขอ้างอิง (กันเปิดงานซ้ำ) — ต่อท้ายช่อง "รายละเอียด" (คอลัมน์ I)
+// ทีม AI ดึงงานผ่านช่องนี้อยู่แล้ว ข้อมูลที่เติมจึงไปถึงคนทำเองอัตโนมัติ
+function appendNoteToTask(ref, note) {
+  try {
+    const r = String(ref || '').replace(/^#/, '').trim();
+    const sheet = reqSheet(); if (!sheet || !r || !String(note || '').trim()) return false;
+    const n = sheet.getLastRow(); if (n < 2) return false;
+    const ids = sheet.getRange(2, 1, n - 1, 1).getValues();
+    for (let i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0]).trim() === r) {
+        const row = i + 2;
+        const cur = String(sheet.getRange(row, 9).getValue() || '');
+        const stamp = Utilities.formatDate(new Date(), 'GMT+7', 'd/M HH:mm');
+        sheet.getRange(row, 9).setValue(cur + '\n➕ เพิ่มเติม (' + stamp + '): ' + String(note).slice(0, 1500));
+        return true;
+      }
+    }
+    return false;
+  } catch (e) { console.error('appendNoteToTask: ' + e); return false; }
 }
 
 function logTaskToBoard(task, senderId) {
