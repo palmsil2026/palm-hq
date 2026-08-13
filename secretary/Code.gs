@@ -249,6 +249,19 @@ function doGet(e) {
     if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
     return jsonOut(rpcSchedAction(p.key, p['do'], p.row, p.when || '', p.content || ''));
   }
+  // 📚 คลังข้อมูลกลาง — ทีม AI อ่านดัชนี (ประหยัด token: ได้ ชื่อ+หมวด+คำอธิบาย+ลิงก์ ไม่ต้องเปิดไฟล์)
+  // ?action=library&key=...[&cat=หมวด]  |  ลงทะเบียนงานไฟนอล: ?action=libAdd&key=...&cat=&title=&desc=&url=
+  if (p.action === 'library') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    return jsonOut({ ok: true, cats: LIB_CATS, items: libIndex(p.cat, p.limit) });
+  }
+  if (p.action === 'libAdd') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    if (!p.title || !p.url) return jsonOut({ ok: false, error: 'ต้องมี title และ url' });
+    libRegister(p.cat || 'การตลาด-งานดีไซน์', p.title, p.desc || '', p.url, 'ทีมAI', p.source || 'งานไฟนอล');
+    return jsonOut({ ok: true, msg: 'ลงทะเบียนเข้าคลังแล้ว' });
+  }
+
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
   // ลิงก์บอร์ดมี 2 แบบ: key เจ้าของ = เห็นทุกงาน+ปุ่มครบ | key ทีม = เห็นเฉพาะงานที่เปิดแชร์ (👥 ทีม)
   if (p.page === 'board') {
@@ -1400,6 +1413,110 @@ function mediaFolder() {
   return it.hasNext() ? it.next() : DriveApp.createFolder(name);
 }
 
+// ════════════════════════════════════════════════════════════
+//  📚 คลังข้อมูลธุรกิจกลาง — AI จัดหมวด/ตั้งชื่อ/แยกโฟลเดอร์ Drive ให้เอง
+//  + สมุดดัชนี (แท็บ Library) ให้ทีม AI ค้นหาแบบประหยัด token (อ่านดัชนี ไม่ต้องไล่เปิดไฟล์)
+// ════════════════════════════════════════════════════════════
+const LIB_CATS = ['โรงน้ำ-ละกอน', 'โรงน้ำ-เพียวซ่า', 'โรงน้ำ-อื่นๆ', 'คาเฟ่-OldDays',
+                  'การเงิน-เอกสาร', 'การตลาด-งานดีไซน์', 'อื่นๆ'];
+
+function libRoot() {
+  const fid = cfg('LIB_FOLDER_ID');
+  if (fid) { try { return DriveApp.getFolderById(sheetIdFrom(fid)); } catch (e) {} }
+  const name = '📚 คลังข้อมูลธุรกิจ';
+  const it = DriveApp.getFoldersByName(name);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(name);
+}
+
+function libFolder(cat) {
+  const c = (LIB_CATS.indexOf(String(cat || '')) !== -1) ? String(cat) : 'อื่นๆ';
+  const root = libRoot();
+  const it = root.getFoldersByName(c);
+  return it.hasNext() ? it.next() : root.createFolder(c);
+}
+
+function libSheet() {
+  const id = boardSheetId(); if (!id) return null;
+  const ss = ssById(id);
+  let s = ss.getSheetByName('Library');
+  if (!s) { s = ss.insertSheet('Library'); s.appendRow(['เมื่อ', 'หมวด', 'ชื่อ', 'คำอธิบาย', 'ลิงก์', 'ผู้เพิ่ม', 'ที่มา']); }
+  return s;
+}
+
+function libRegister(cat, title, desc, url, by, source) {
+  try {
+    const s = libSheet(); if (!s) return;
+    s.appendRow([new Date(), String(cat || 'อื่นๆ'), String(title || '').slice(0, 150),
+                 String(desc || '').slice(0, 400), String(url || ''), String(by || ''), String(source || '')]);
+  } catch (e) { console.error('libRegister: ' + e); }
+}
+
+function libIndex(cat, max) {
+  try {
+    const s = libSheet(); if (!s || s.getLastRow() < 2) return [];
+    const rows = s.getRange(2, 1, s.getLastRow() - 1, 5).getValues();
+    const out = [];
+    for (let i = rows.length - 1; i >= 0 && out.length < (max || 200); i--) {
+      const r = rows[i];
+      if (cat && String(r[1]) !== String(cat)) continue;
+      out.push({ time: Utilities.formatDate(new Date(r[0]), 'GMT+7', 'd/M/yy'), cat: String(r[1]),
+                 title: String(r[2]), desc: String(r[3]), url: String(r[4]) });
+    }
+    return out;
+  } catch (e) { return []; }
+}
+
+// จัดหมวดไฟล์เข้าคลัง — รูปใช้ตาดู (vision), ไฟล์อื่นดูจากชื่อ+ใบ้ (text)
+function classifyForLibrary(blob, fileName, hint) {
+  const fallback = { cat: 'อื่นๆ', title: String(fileName || 'ไฟล์'), desc: '' };
+  try {
+    const apiKey = cfg('ANTHROPIC_API_KEY'); if (!apiKey) return fallback;
+    const isImg = /^image\//.test(String(blob.getContentType() || ''));
+    const rules = 'คุณเป็นนักจัดการข้อมูลของธุรกิจ: โรงน้ำดื่ม (แบรนด์ "ละกอน" และ "เพียวซ่า" + รับ OEM) และร้านคาเฟ่ "Old Days"\n'
+      + 'ช่วยจัดไฟล์นี้เข้าคลังข้อมูลกลาง\n\n'
+      + (hint ? ('คำใบ้จากคนอัปโหลด: "' + hint + '"\n') : '')
+      + 'ชื่อไฟล์เดิม: ' + String(fileName || '(ไม่มี)') + '\n\n'
+      + 'ตอบตามรูปแบบนี้เป๊ะๆ 3 บรรทัด ห้ามมีอย่างอื่น:\n'
+      + 'หมวด: (เลือกอันเดียวจาก: ' + LIB_CATS.join(' | ') + ')\n'
+      + 'ชื่อ: (ตั้งชื่อสื่อความหมายสั้นๆ ภาษาไทย เช่น "ฉลากละกอน 600มล อาร์ตเวิร์กไฟนอล")\n'
+      + 'อธิบาย: (1-2 ประโยค มีอะไรในไฟล์ ใช้ทำอะไรต่อได้)';
+    const content = isImg
+      ? [{ type: 'image', source: { type: 'base64', media_type: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) } },
+         { type: 'text', text: rules }]
+      : [{ type: 'text', text: rules }];
+    if (isImg && blob.getBytes().length > 3500000) return fallback;
+    const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post', contentType: 'application/json',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({ model: MODEL, max_tokens: 2048, messages: [{ role: 'user', content: content }] }),
+      muteHttpExceptions: true
+    });
+    const t = claudeText(JSON.parse(res.getContentText())).trim();
+    const mc = t.match(/หมวด\s*:\s*([^\n]+)/), mt = t.match(/ชื่อ\s*:\s*([^\n]+)/), md = t.match(/อธิบาย\s*:\s*([\s\S]+)/);
+    return {
+      cat: mc ? mc[1].trim() : fallback.cat,
+      title: mt ? mt[1].trim() : fallback.title,
+      desc: md ? md[1].trim() : ''
+    };
+  } catch (e) { console.error('classifyForLibrary: ' + e); return fallback; }
+}
+
+// อัปโหลดจากบอร์ด (การ์ดฝ่ายข้อมูล) — รับทีละไฟล์เป็น base64 ผ่าน google.script.run
+function rpcLibUpload(key, f) {
+  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  try {
+    if (!f || !f.b64) return { ok: false, msg: 'ไม่มีข้อมูลไฟล์' };
+    const blob = Utilities.newBlob(Utilities.base64Decode(f.b64), f.mime || 'application/octet-stream', f.name || 'file');
+    const c = classifyForLibrary(blob, f.name, f.hint);
+    const ext = (f.name && f.name.lastIndexOf('.') > 0) ? f.name.slice(f.name.lastIndexOf('.')) : '';
+    const file = libFolder(c.cat).createFile(blob.setName(c.title + ' ' + Utilities.formatDate(new Date(), 'GMT+7', 'yyMMdd-HHmm') + ext));
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    libRegister(c.cat, c.title, c.desc, file.getUrl(), 'คุณปาล์ม (บอร์ด)', 'อัปโหลดบอร์ด');
+    logRow(['เข้าคลังข้อมูล', '', c.cat, c.title]);
+    return { ok: true, msg: c.cat + ' → "' + c.title + '"' };
+  } catch (e) { console.error('rpcLibUpload: ' + e); return { ok: false, msg: 'บันทึกไม่สำเร็จ: ' + e }; }
+}
+
 // ── ข้อความที่มาพร้อมรูปใน webhook ก้อนเดียวกัน (LINE แยกรูปกับข้อความเป็นคนละ event) ──
 // เก็บไว้ชั่วคราว 5 นาที เพื่อให้ตอนวิเคราะห์รูปรู้ว่า "คนส่งพิมพ์อะไรมาด้วย"
 function captionKey(chatId, senderId) { return 'cap:' + chatId + ':' + senderId; }
@@ -1457,9 +1574,10 @@ function analyzeImage(blob, context) {
           { type: 'text', text: 'คุณเป็นเลขาของธุรกิจโรงน้ำดื่ม "ละกอน" และร้านคาเฟ่ '
               + 'มีคนส่งรูปนี้เข้ามาในแชท ช่วยตัดสินว่าควรเก็บรูปนี้ไว้ใช้ทำงานต่อไหม\n\n'
               + (context ? ('บริบทตอนที่ส่งรูปมา:\n' + context + '\n\n') : '(คนส่งไม่ได้พิมพ์ข้อความอะไรมาพร้อมรูป)\n\n')
-              + 'ตอบตามรูปแบบนี้เป๊ะๆ 2 บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
+              + 'ตอบตามรูปแบบนี้เป๊ะๆ 3 บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
               + 'เกี่ยวข้อง: ใช่ หรือ ไม่\n'
-              + 'บรรยาย: (1-2 ประโยคภาษาไทย บอกว่าในรูปมีอะไรและคนส่งน่าจะส่งมาทำไม ถ้ามีตัวเลข/ยอด/ราคา/ชื่อสำคัญ ให้ระบุครบ)\n\n'
+              + 'บรรยาย: (1-2 ประโยคภาษาไทย บอกว่าในรูปมีอะไรและคนส่งน่าจะส่งมาทำไม ถ้ามีตัวเลข/ยอด/ราคา/ชื่อสำคัญ ให้ระบุครบ)\n'
+              + 'หมวด: (ถ้าเกี่ยวข้อง เลือกอันเดียวจาก: โรงน้ำ-ละกอน | โรงน้ำ-เพียวซ่า | โรงน้ำ-อื่นๆ | คาเฟ่-OldDays | การเงิน-เอกสาร | การตลาด-งานดีไซน์ | อื่นๆ)\n\n'
               + 'ให้น้ำหนัก "บริบทข้อความ" มากกว่าหน้าตาของรูป — รูปแบบเดียวกันอาจเกี่ยวหรือไม่เกี่ยวก็ได้ ขึ้นกับว่าคนส่งพูดว่าอะไร\n'
               + 'ตอบ "ใช่" เมื่อ: คนส่งพูดถึงงาน/สั่งงาน/ขอให้ดู-ตรวจ-ทำอะไรต่อกับรูปนี้ เป็นคำตอบของคำถามที่ค้างอยู่ '
               + 'หรือเนื้อรูปเป็นเรื่องธุรกิจชัดเจน (ใบเสร็จ บิล สลิปโอนเงิน สินค้า-วัตถุดิบ เมนู ราคา สต๊อก เอกสาร สกรีนช็อตแชท/ระบบ ตัวอย่างงาน)\n'
@@ -1471,8 +1589,9 @@ function analyzeImage(blob, context) {
     const d = JSON.parse(res.getContentText());
     const t = claudeText(d).trim();
     const relevant = /เกี่ยวข้อง\s*:\s*ใช่/i.test(t);
-    const m = t.match(/บรรยาย\s*:\s*([\s\S]*)/i);
-    return { relevant: relevant, desc: (m ? m[1].trim() : t) };
+    const m = t.match(/บรรยาย\s*:\s*([^\n]*)/i);
+    const mcat = t.match(/หมวด\s*:\s*([^\n]+)/i);
+    return { relevant: relevant, desc: (m ? m[1].trim() : t), cat: (mcat ? mcat[1].trim() : '') };
   } catch (err) { console.error('analyzeImage: ' + err); return { relevant: true, desc: '' }; } // วิเคราะห์พลาด → เก็บไว้ก่อนกันเสียของ
 }
 
@@ -1493,11 +1612,12 @@ function handleMediaMessage(ev) {
 
     // 📷 รูปภาพ: ให้ AI ดูก่อนว่าเกี่ยวกับงานไหม ไม่เกี่ยว (เช่นรูปอาหาร/เซลฟี่คุยเล่น) → ปล่อยผ่าน ไม่เซฟกันเปลืองที่
     // 📄 ไฟล์อื่น (เอกสาร/สเปรดชีตฯลฯ): ถือว่าตั้งใจส่งมาทำงานอยู่แล้ว → เก็บเลยไม่ต้องวิเคราะห์
-    let relevant = true, desc = '';
+    let relevant = true, desc = '', libCat = '';
     if (ev.message.type === 'image') {
       const a = analyzeImage(blob, mediaContext(chatId, senderId));
       relevant = a.relevant;
       desc = a.desc;
+      libCat = a.cat || '';
     }
     if (!relevant) {
       if (!inGroup) {
@@ -1512,9 +1632,12 @@ function handleMediaMessage(ev) {
 
     const stamp = Utilities.formatDate(new Date(), 'GMT+7', 'yyMMdd-HHmmss');
     const base = (ev.message.type === 'image') ? ('รูป-' + stamp) : ((ev.message.fileName || ('ไฟล์-' + stamp)));
-    const file = mediaFolder().createFile(blob.setName(base));
+    // รูปที่เกี่ยวกับงานและรู้หมวด → เข้าคลังข้อมูลกลางตามหมวดเลย ไม่กองรวมในโฟลเดอร์ไลน์
+    const destFolder = (ev.message.type === 'image' && libCat) ? libFolder(libCat) : mediaFolder();
+    const file = destFolder.createFile(blob.setName(base));
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     const url = file.getUrl();
+    libRegister(libCat || 'อื่นๆ', desc ? desc.slice(0, 80) : base, desc, url, lineUserName(senderId), 'ไลน์');
 
     if (inGroup) {
       // ในกลุ่ม: เก็บเงียบๆ ลงล็อกแชทกลุ่ม (พร้อมคำบรรยายภาพ) ไม่เด้งตอบรบกวนวงคุย
@@ -2755,7 +2878,7 @@ function boardHtml(key, notice, prj, teamView) {
 + '<div class="acts"><button class="bt cancel" id="cClose">ปิด</button><button class="bt run" id="cSave">บันทึกคอมเมนต์</button></div>'
 + '</div></div>'
 + (teamView ? '<style>.act{display:none!important}</style>' : '')
-+ '<div id="ib"></div><div id="sd"></div><div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
++ '<div id="up"></div><div id="ib"></div><div id="sd"></div><div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
 + '<script>' + boardScript(json, key, notice, prj, teamView) + '</scr' + 'ipt></body></html>';
 }
 
@@ -2821,8 +2944,32 @@ function boardScript(json, key, notice, prj, teamView) {
     + '+\'<br><span style="color:#7A8A9B;font-size:12px">\'+E(s.time)+(s.by?" · "+E(s.by):"")+(s.status!="ใหม่"?" · "+E(s.status):"")+"</span></span></div>"}).join("")'
     + '+\'<div style="color:#7A8A9B;font-size:12px;margin-top:8px">สั่งในไลน์: "ทำไอเดีย เลข" เริ่มลงมือ · "พับไอเดีย เลข" เก็บไว้ก่อน · "ไอเดีย ..." แปะเพิ่ม</div></div>\'}',
 
+    // 📚 กล่องอัปโหลดเข้าคลังข้อมูล — โผล่เมื่อกดการ์ด "ฝ่ายข้อมูล" (โหมดเจ้าของเท่านั้น)
+    // เลือกได้หลายไฟล์ AI จัดหมวด/ตั้งชื่อ/แยกโฟลเดอร์ Drive ให้เองทีละไฟล์
+    'function upBox(){var el=document.getElementById("up");if(TV||FD!="data"){el.innerHTML="";return}'
+    + 'if(document.getElementById("upGo"))return;'
+    + 'el.innerHTML=\'<div class="prj" style="border-left-color:var(--navy)"><h3>📚 อัปโหลดเข้าคลังข้อมูล</h3>\''
+    + '+\'<div class="mt">เลือกได้หลายไฟล์เลยค่ะ — ดิฉันจะดูให้ว่าแต่ละไฟล์คืออะไร แล้วจัดหมวด (ละกอน/เพียวซ่า/คาเฟ่/การเงิน/ดีไซน์) ตั้งชื่อ และแยกเก็บใน Drive ให้เอง</div>\''
+    + '+\'<input type="file" id="upF" multiple style="margin:9px 0;max-width:100%">\''
+    + '+\'<input type="text" id="upH" placeholder="ใบ้สั้นๆ ช่วยจัดหมวด (ไม่บังคับ) เช่น ฉลากเพียวซ่าชุดไฟนอล" style="width:100%;padding:9px;border:1px solid var(--bd);border-radius:9px;font-family:inherit">\''
+    + '+\'<div class="act" style="margin-top:9px"><button class="bt run" id="upGo">📤 อัปโหลดเข้าคลัง</button></div><div id="upS" class="mt" style="margin-top:7px"></div></div>\';'
+    + 'document.getElementById("upGo").onclick=upGo}',
+    'function upGo(){var fs=document.getElementById("upF").files;if(!fs.length){toast("เลือกไฟล์ก่อนนะคะ",false);return}'
+    + 'if(!(window.google&&google.script&&google.script.run)){toast("หน้านี้อัปโหลดไม่ได้ ให้เปิดบอร์ดจากลิงก์ตรงค่ะ",false);return}'
+    + 'var hint=document.getElementById("upH").value||"",st=document.getElementById("upS"),b=document.getElementById("upGo"),i=0,okc=0;'
+    + 'b.disabled=true;'
+    + 'function fin(){b.disabled=false;st.innerHTML+="<br><b>เสร็จแล้ว "+okc+"/"+fs.length+" ไฟล์ค่ะ</b>";toast("เข้าคลังแล้ว "+okc+" ไฟล์",okc>0)}'
+    + 'function nx(){if(i>=fs.length){fin();return}var f=fs[i++];'
+    + 'if(f.size>3800000){st.innerHTML+="<br>⚠️ "+E(f.name)+" ใหญ่เกิน 3.8MB ข้ามค่ะ";nx();return}'
+    + 'st.innerHTML+="<br>⏳ ("+i+"/"+fs.length+") "+E(f.name)+" กำลังวิเคราะห์...";'
+    + 'var rd=new FileReader();rd.onload=function(){var b64=String(rd.result).split(",")[1];'
+    + 'google.script.run.withSuccessHandler(function(j){if(j&&j.ok)okc++;st.innerHTML+="<br>"+(j&&j.ok?"✅ ":"⚠️ ")+E(f.name)+" → "+E(j?j.msg:"ไม่ตอบ");nx()})'
+    + '.withFailureHandler(function(e){st.innerHTML+="<br>⚠️ "+E(f.name)+": "+E(String(e&&e.message||e));nx()})'
+    + '.rpcLibUpload(KEY,{name:f.name,mime:f.type,b64:b64,hint:hint})};'
+    + 'rd.readAsDataURL(f)}nx()}',
+
     // วาดบอร์ด — ไทล์สถิตินับเฉพาะขอบเขตฝ่ายที่เลือกอยู่ และกดเพื่อกรองสถานะได้
-    'function render(){team();ideaBox();schedBox();'
+    'function render(){team();upBox();ideaBox();schedBox();'
     + 'var scope=ALL.filter(inDept),op=scope.filter(function(t){return !done(t)});'
     + 'var S=[["open",op.length,"งานค้าง",""],["urgent",op.filter(function(t){return t.urgency=="ด่วนมาก"}).length,"ด่วนมาก","red"],'
     + '["ai",scope.filter(function(t){return t.status=="รอทีม AI"}).length,"รอทีม AI","ai"],["done",scope.filter(function(t){return done(t)&&!canc(t)}).length,"เสร็จแล้ว","dn"]];'
