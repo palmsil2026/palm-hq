@@ -120,6 +120,13 @@ const SYSTEM_PROMPT = [
   '   รอคุณปาล์มยืนยันค่อยส่ง | แต่ถ้าเป็นแพตเทิร์นเดิมที่เคยทำ/แนวที่คุณปาล์มเคยโอเคไปแล้ว → ทำต่อเองเลย ไม่ต้องถามซ้ำ',
   '5) อ่านแล้วงง ไม่เข้าใจความหมายของคำสั่งหรือเนื้อหา → ถามกลับสั้นๆ ตรงจุดก่อน อย่าเดามั่วแล้วส่งออก',
   '',
+  '💡 บอร์ดไอเดีย (เฉพาะคุณปาล์ม): คุณปาล์มเป็นคนไอเดียฟุ้งเยอะและไว — หน้าที่คุณคือ "รับลูกให้ทัน" ไม่ให้ไอเดียหล่นหาย',
+  'ถ้าคุณปาล์มเล่าไอเดียใหม่ลอยๆ (ยังไม่ได้สั่งให้ลงมือทำตอนนี้ เช่น "ว่าจะ...", "คิดว่าน่าจะลอง...", "มีไอเดียว่า...")',
+  'ให้ตอบรับสั้นๆ + ความเห็นแวบเดียว แล้วต่อท้ายบล็อกนี้ (ผู้ใช้ไม่เห็น):',
+  '[[IDEA]]{"idea":"สรุปไอเดียกระชับแต่ครบใจความ","biz":"โรงน้ำ|คาเฟ่|กลาง","take":"ความเห็นสั้นๆ: น่าทำแค่ไหน ใช้แผนกไหน ก้าวแรกคืออะไร"}[[/IDEA]]',
+  'ระบบจะแปะขึ้นบอร์ดไอเดียให้เอง — ห้ามเปิดเป็นงาน/แผนทันที รอคุณปาล์มสั่ง "ทำไอเดีย <เลข>" ก่อน',
+  'ถ้าเป็นคำสั่งให้ทำเลย (ไม่ใช่ไอเดียลอยๆ) → ใช้ TASK ตามปกติ ไม่ต้องใช้ IDEA | ถ้าก้ำกึ่งให้ถามสั้นๆ ว่า "แปะบอร์ดไอเดียไว้ก่อน หรือให้เริ่มเลยคะ?"',
+  '',
   '🚫 กฎเหล็กเรื่องความจริง:',
   '- ห้ามแต่งลิงก์/URL ขึ้นเองเด็ดขาด ใช้ได้เฉพาะลิงก์ที่ระบบให้ไว้ในบริบทเท่านั้น ถ้าไม่มีให้บอกตรงๆ ว่ายังไม่มีลิงก์',
   '- ห้ามเคลมว่าระบบ/แอป/งานใด "เสร็จแล้ว" หรือ "พร้อมใช้" ถ้าไม่มีข้อมูลยืนยันในบริบท — ยิ่งในข้อความที่จะส่งถึงพนักงาน ยิ่งห้ามเด็ดขาด',
@@ -132,6 +139,7 @@ const SYSTEM_PROMPT = [
   'รับรูป/ไฟล์เก็บลง Drive แล้วแนบกับงาน, ตั้งเตือนความจำ ("เตือนฉันพรุ่งนี้ 9 โมง ..."),',
   'รับ Feedback ปัญหา/ข้อเสนอเรื่องระบบและแอป (ถามอาการให้ชัดแล้วส่งต่อคุณปาล์ม),',
   'ประกาศเข้ากลุ่มไลน์ตามชื่อกลุ่ม, สรุปแชทในกลุ่ม, ตามงานค้างให้ทุกเย็น',
+  'บอร์ดไอเดีย: "ไอเดีย <ข้อความ>" แปะทันที, "ดูไอเดีย", "ทำไอเดีย <เลข>", "พับไอเดีย <เลข>"',
   'เฉพาะคุณปาล์ม: "เช็คระบบ" (ตรวจสุขภาพระบบ), "รายชื่อกลุ่ม", "อนุมัติ <เลขงาน>", "เสร็จ <เลขงาน>"',
   '',
   'บริบทธุรกิจ: โรงน้ำดื่ม "ละกอน" ผลิต/ส่งน้ำดื่ม สั่งผ่าน LINE app | ร้านคาเฟ่ กาแฟ/เครื่องดื่ม'
@@ -435,7 +443,7 @@ function handleEvent(ev) {
   }
   if (ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
 
-  const text = String(ev.message.text || '').trim();
+  let text = String(ev.message.text || '').trim();   // let: "ทำไอเดีย N" จะถูกแปลงเป็นคำสั่งเต็มก่อนเข้าสมอง AI
   const replyToken = ev.replyToken;
   const src = ev.source || {};
   const senderId = src.userId || '';
@@ -531,6 +539,11 @@ function handleEvent(ev) {
   // 1.45) ตั้งประกาศ/สรุปงานเข้ากลุ่มล่วงหน้า + ดู/ยกเลิกรายการ (เฉพาะเจ้าของ)
   if (handleScheduledPost(text, chatId, senderId, replyToken, owner)) return;
 
+  // 1.46) 💡 บอร์ดไอเดีย — แปะไว ดู พับ สั่งทำ
+  const ideaR = handleIdeaBoard(text, senderId, replyToken, owner);
+  if (ideaR === true) return;
+  if (typeof ideaR === 'string') text = ideaR;   // "ทำไอเดีย N" → แปลงเป็นคำสั่งงานเต็ม ปล่อยเข้าท่อ TASK/PLAN ปกติ
+
   // 1.5) ขอลิงก์บอร์ด/ขอดูบอร์ด → ส่งปุ่มเปิดบอร์ดเลย ไม่ต้องให้ Claude สรุป (เร็ว+ประหยัด token)
   // รับทุกการสะกด ลิงก์/ลิ้งค์/ลิงค์/link และประโยคสุภาพ "ขอดูบอร์ดงานหน่อยครับ"
   if (/^(เลขา\s*)?(ขอ)?\s*(ดู|เปิด)?\s*(บอร์ด|board)(งาน)?[\sก-๎a-z]{0,12}$/i.test(text)
@@ -612,6 +625,13 @@ function handleEvent(ev) {
   // 3.2 ถ้าเป็นข้อเสนอ/ตามงาน/เรื่องด่วน → ส่งสรุปถึงคุณปาล์ม
   if (p.blocks.ALERT && !owner) {
     alertOwnerProposal(p.blocks.ALERT, senderId);
+  }
+  // 3.2b 💡 คุณปาล์มเล่าไอเดียลอยๆ → เลขาแปะบอร์ดไอเดียให้เอง
+  if (owner && p.all.IDEA && p.all.IDEA.length) {
+    p.all.IDEA.forEach(function (idg) {
+      const n = addIdea(idg.idea || '', senderId, idg.biz || '', idg.take || '');
+      if (n) reply += '\n\n💡 แปะบอร์ดไอเดีย #' + n + ' ให้แล้วค่ะ — พร้อมลุยเมื่อไหร่สั่ง "ทำไอเดีย ' + n + '" นะคะ';
+    });
   }
   // 3.1b เป็นงานใหญ่ → เลขาแตกเป็นแผนงาน แล้วเสนอคุณปาล์มอนุมัติทางไลน์
   if (p.blocks.PLAN) {
@@ -973,6 +993,101 @@ function handleScheduledPost(text, chatId, senderId, replyToken, owner) {
         : '💬 เนื้อหา: ' + body.slice(0, 200) + (body.length > 200 ? '… (เก็บเนื้อหาเต็มไว้ครบแล้วค่ะ)' : ''))
     + '\n\n(เวลาส่งจริงอาจคลาดเคลื่อนได้ไม่เกิน ~15 นาทีนะคะ)\nดูรายการ: "เลขา ดูประกาศ" | ยกเลิก: "เลขา ยกเลิกประกาศ <เลข>"');
   return true;
+}
+
+// ════════════════════════════════════════════════════════════
+//  💡 บอร์ดไอเดีย — ที่รองรับไอเดียคุณปาล์มที่มาไวกว่ามือทำ
+//  แปะไว → บ่มไว้บนบอร์ด → พร้อมเมื่อไหร่ "ทำไอเดีย <เลข>" ค่อยวิ่งเข้าท่อทีม AI
+// ════════════════════════════════════════════════════════════
+function ideaSheet() {
+  const id = boardSheetId(); if (!id) return null;
+  const ss = ssById(id);
+  let s = ss.getSheetByName('Ideas');
+  if (!s) { s = ss.insertSheet('Ideas'); s.appendRow(['เมื่อ', 'ผู้แปะ', 'ไอเดีย', 'ธุรกิจ', 'สถานะ', 'ความเห็นเลขา']); }
+  return s;
+}
+
+function addIdea(idea, senderId, biz, take) {
+  try {
+    const sh = ideaSheet(); if (!sh || !String(idea || '').trim()) return 0;
+    sh.appendRow([new Date(), lineUserName(senderId) || senderId, String(idea).slice(0, 1000), biz || '', 'ใหม่', String(take || '').slice(0, 500)]);
+    return sh.getLastRow() - 1;
+  } catch (e) { console.error('addIdea: ' + e); return 0; }
+}
+
+function readIdeasAll() {
+  try {
+    const sh = ideaSheet(); if (!sh || sh.getLastRow() < 2) return [];
+    const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues();
+    const out = [];
+    rows.forEach(function (r, i) {
+      const st = String(r[4] || 'ใหม่');
+      if (st === 'ตัดทิ้ง') return;
+      out.push({ row: i + 1, time: Utilities.formatDate(new Date(r[0]), 'GMT+7', 'd/M HH:mm'),
+                 by: String(r[1] || ''), idea: String(r[2] || ''), biz: String(r[3] || ''),
+                 status: st, take: String(r[5] || '') });
+    });
+    return out;
+  } catch (e) { return []; }
+}
+
+// คืน true = จบแล้ว | คืน string = ข้อความใหม่ให้ส่งเข้าสมอง AI ต่อ | false = ไม่ใช่เรื่องไอเดีย
+function handleIdeaBoard(text, senderId, replyToken, owner) {
+  const t = String(text).replace(/^เลขา\s*/i, '').trim();
+
+  // ดูรายการ (เช็คก่อนแปะ กันชนกับ "ดูไอเดีย")
+  if (/^(?:ดู|รายการ|เช็ค)ไอเดีย/.test(t)) {
+    const items = readIdeasAll();
+    if (!items.length) { lineReply(replyToken, 'บอร์ดไอเดียยังว่างค่ะ — แปะได้เลย: "เลขา ไอเดีย <เรื่องที่คิดออก>" 💡'); return true; }
+    const icon = { 'ใหม่': '🌱', 'ส่งเข้าทีมแล้ว': '🚀', 'พับไว้': '📦' };
+    lineReply(replyToken, '💡 บอร์ดไอเดีย (' + items.length + '):\n'
+      + items.slice(-25).map(function (x) {
+          return '#' + x.row + ' ' + (icon[x.status] || '🌱') + ' ' + x.idea.slice(0, 70) + (x.idea.length > 70 ? '…' : '')
+               + (x.status !== 'ใหม่' ? ' — ' + x.status : '');
+        }).join('\n')
+      + '\n\nพร้อมลุยอันไหน: "ทำไอเดีย <เลข>" | เก็บไว้ก่อน: "พับไอเดีย <เลข>"');
+    return true;
+  }
+
+  // พับเก็บ / ตัดทิ้ง (เฉพาะเจ้าของ)
+  const mFold = t.match(/^(พับ|ตัด|ลบ)ไอเดีย\s*#?(\d+)/);
+  if (mFold) {
+    if (!owner) { lineReply(replyToken, 'ขออภัยค่ะ จัดการบอร์ดไอเดียได้เฉพาะคุณปาล์มค่ะ 🙏'); return true; }
+    const sh = ideaSheet(); const row = Number(mFold[2]) + 1;
+    if (!sh || row < 2 || row > sh.getLastRow()) { lineReply(replyToken, 'ไม่พบไอเดีย #' + mFold[2] + ' ค่ะ — พิมพ์ "ดูไอเดีย" เช็คเลขก่อนนะคะ'); return true; }
+    const st = (mFold[1] === 'พับ') ? 'พับไว้' : 'ตัดทิ้ง';
+    sh.getRange(row, 5).setValue(st);
+    lineReply(replyToken, st === 'พับไว้'
+      ? '📦 พับไอเดีย #' + mFold[2] + ' เก็บไว้ก่อนแล้วค่ะ (ยังอยู่บนบอร์ด พร้อมเมื่อไหร่สั่ง "ทำไอเดีย ' + mFold[2] + '" ได้เลย)'
+      : '🗑️ ตัดไอเดีย #' + mFold[2] + ' ออกจากบอร์ดแล้วค่ะ');
+    return true;
+  }
+
+  // สั่งลงมือทำ (เฉพาะเจ้าของ) → แปลงเป็นคำสั่งงานเต็ม แล้วปล่อยเข้าท่อ TASK/PLAN/อนุมัติ ตามปกติ
+  const mRun = t.match(/^(?:ทำ|เริ่ม|ลุย)ไอเดีย\s*#?(\d+)\s*(.*)$/);
+  if (mRun) {
+    if (!owner) { lineReply(replyToken, 'ขออภัยค่ะ สั่งทำไอเดียได้เฉพาะคุณปาล์มค่ะ 🙏'); return true; }
+    const sh = ideaSheet(); const row = Number(mRun[1]) + 1;
+    if (!sh || row < 2 || row > sh.getLastRow()) { lineReply(replyToken, 'ไม่พบไอเดีย #' + mRun[1] + ' ค่ะ — พิมพ์ "ดูไอเดีย" เช็คเลขก่อนนะคะ'); return true; }
+    const idea = String(sh.getRange(row, 3).getValue());
+    sh.getRange(row, 5).setValue('ส่งเข้าทีมแล้ว');
+    logRow(['ทำไอเดีย', senderId, '#' + mRun[1], idea.slice(0, 120)]);
+    return 'คุณปาล์มสั่งเริ่มลงมือทำไอเดีย #' + mRun[1] + ' จากบอร์ดไอเดีย: "' + idea + '"'
+         + (mRun[2] ? ('\nรายละเอียดเพิ่มเติมจากคุณปาล์ม: ' + mRun[2]) : '')
+         + '\nช่วยประเมินแล้วเปิดเป็นงานเข้าบอร์ด (บล็อก TASK — ถ้าเป็นงานหลายขั้นใส่ multiStep:true) ให้เหมาะสมเลยค่ะ';
+  }
+
+  // แปะไอเดียแบบไว: "ไอเดีย ..." / "จดไอเดีย ..." / "แปะไอเดีย ..." — บันทึกทันที ไม่เสียเวลาเรียก AI
+  const mAdd = t.match(/^(?:จด|แปะ)?\s*ไอเดีย\s*[:：]?\s+([\s\S]+)/);
+  if (mAdd) {
+    const n = addIdea(mAdd[1].trim(), senderId, '', '');
+    lineReply(replyToken, n
+      ? '💡 แปะไอเดีย #' + n + ' ขึ้นบอร์ดแล้วค่ะ\nฟุ้งต่อได้เลยนะคะ — พร้อมลุยเมื่อไหร่สั่ง "ทำไอเดีย ' + n + '" ดิฉันจัดทีมให้ทันที'
+      : 'ขออภัยค่ะ ชีตไอเดียยังไม่พร้อม (แจ้งคุณปาล์มเช็คการตั้งค่าชีตนะคะ)');
+    return true;
+  }
+
+  return false;
 }
 
 // รายการประกาศตั้งเวลา (รอส่ง) สำหรับโชว์บนบอร์ดงาน — row ใช้เลขเดียวกับ "เลขา ยกเลิกประกาศ <เลข>"
@@ -1829,7 +1944,7 @@ function parseBlocks(raw) {
   let reply = String(raw);
   const blocks = {};
   const all = {};
-  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN'].forEach(function (name) {
+  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN', 'IDEA'].forEach(function (name) {
     const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
     let m;
     while ((m = reply.match(re))) {
@@ -2318,7 +2433,7 @@ function boardHtml(key, notice, prj) {
 + '<label class="chk"><input type="checkbox" id="c_redo"> <span>ส่งกลับให้ทีมทำใหม่ตามคอมเมนต์นี้เลย</span></label>'
 + '<div class="acts"><button class="bt cancel" id="cClose">ปิด</button><button class="bt run" id="cSave">บันทึกคอมเมนต์</button></div>'
 + '</div></div>'
-+ '<div id="sd"></div><div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
++ '<div id="ib"></div><div id="sd"></div><div id="pj"></div><div class="cards" id="cx"></div><div class="em" id="ex" style="display:none">ไม่มีงานในหมวดนี้ ✨</div></div>'
 + '<script>' + boardScript(json, key, notice, prj) + '</scr' + 'ipt></body></html>';
 }
 
@@ -2331,6 +2446,7 @@ function boardScript(json, key, notice, prj) {
   return [
     'var ALL=' + json + ';',
     'var SCHED=' + JSON.stringify(readScheduledAll()).replace(/</g, '\\u003c') + ';',
+    'var IDEAS=' + JSON.stringify(readIdeasAll()).replace(/</g, '\\u003c') + ';',
     'var KEY=' + JSON.stringify(String(key || '')) + ';',
     'var BASE=' + JSON.stringify(ScriptApp.getService().getUrl()) + ';',
     'var NOTICE=' + JSON.stringify(String(notice || '')) + ';',
@@ -2373,8 +2489,17 @@ function boardScript(json, key, notice, prj) {
     + '+(s.type=="สรุปงาน"?\'<span style="color:#5B9BA0">📊 สรุปงานจากบอร์ด (สร้างสดตอนส่ง)</span>\':\'<span style="color:#7A8A9B">\'+E(String(s.content).slice(0,160))+(s.content.length>160?"…":"")+"</span>")'
     + '+\'<div class="act" style="max-width:380px;margin-top:6px"><button class="bt run" data-snow="\'+i+\'">📤 ส่งเลย</button><button class="bt cmt" data-sedit="\'+i+\'">✏️ แก้ไข</button><button class="bt cancel" data-scancel="\'+i+\'">✕ ยกเลิก</button></div></span></div>\'}).join("")+"</div>"}',
 
+    // 💡 กล่องบอร์ดไอเดีย — ไอเดียที่คุณปาล์มแปะไว้ รอวันหยิบมาลุย (จัดการผ่านไลน์: ทำไอเดีย/พับไอเดีย <เลข>)
+    'function ideaBox(){var el=document.getElementById("ib");if(!IDEAS.length){el.innerHTML="";return}'
+    + 'var ic={"ใหม่":"🌱","ส่งเข้าทีมแล้ว":"🚀","พับไว้":"📦"};'
+    + 'el.innerHTML=\'<div class="prj" style="border-left-color:var(--teal)"><h3>💡 บอร์ดไอเดีย (\'+IDEAS.length+\')</h3>\'+IDEAS.map(function(s){'
+    + 'return \'<div class="sub"><span>\'+(ic[s.status]||"🌱")+\'</span><span><b>#\'+s.row+\'</b> \'+E(s.idea)'
+    + '+(s.take?\'<br><span style="color:#5B9BA0">💬 เลขา: \'+E(s.take)+"</span>":"")'
+    + '+\'<br><span style="color:#7A8A9B;font-size:12px">\'+E(s.time)+(s.by?" · "+E(s.by):"")+(s.status!="ใหม่"?" · "+E(s.status):"")+"</span></span></div>"}).join("")'
+    + '+\'<div style="color:#7A8A9B;font-size:12px;margin-top:8px">สั่งในไลน์: "ทำไอเดีย เลข" เริ่มลงมือ · "พับไอเดีย เลข" เก็บไว้ก่อน · "ไอเดีย ..." แปะเพิ่ม</div></div>\'}',
+
     // วาดบอร์ด — ไทล์สถิตินับเฉพาะขอบเขตฝ่ายที่เลือกอยู่ และกดเพื่อกรองสถานะได้
-    'function render(){team();schedBox();'
+    'function render(){team();ideaBox();schedBox();'
     + 'var scope=ALL.filter(inDept),op=scope.filter(function(t){return !done(t)});'
     + 'var S=[["open",op.length,"งานค้าง",""],["urgent",op.filter(function(t){return t.urgency=="ด่วนมาก"}).length,"ด่วนมาก","red"],'
     + '["ai",scope.filter(function(t){return t.status=="รอทีม AI"}).length,"รอทีม AI","ai"],["done",scope.filter(function(t){return done(t)&&!canc(t)}).length,"เสร็จแล้ว","dn"]];'
