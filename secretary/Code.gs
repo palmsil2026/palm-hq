@@ -219,10 +219,13 @@ function doGet(e) {
     if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut(readDataSheet(p.tab, p.limit));
   }
-  // หน้าบอร์ดงาน (board.html) เรียกดูงานทั้งหมด
+  // หน้าบอร์ดงาน (board.html / แอปบอร์ดบน GitHub Pages) เรียกดูงานทั้งหมด
+  // key เจ้าของ = เห็นครบ + สั่งงานได้ | key ทีม = เห็นเฉพาะงานที่เปิดแชร์ อ่านอย่างเดียว
   if (p.action === 'board') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
-    return jsonOut({ ok: true, tasks: readBoardAll() });
+    const ownerKey = (p.key === cfg('QUEUE_KEY'));
+    if (!ownerKey && p.key !== teamKey()) return jsonOut({ ok: false, error: 'unauthorized' });
+    const tasks = ownerKey ? readBoardAll() : readBoardAll().filter(function (t) { return t.vis === 'ทีม'; });
+    return jsonOut({ ok: true, mode: ownerKey ? 'owner' : 'team', next: nextRoundText(), tasks: tasks });
   }
   // ปุ่มบนบอร์ดยิงมาทางนี้ (fetch) → ตอบ JSON กลับ ไม่ต้องโหลดหน้าใหม่
   if (p.action === 'boardDo') {
@@ -328,6 +331,18 @@ function boardAction(action, ref) {
       logRow(['ยกเลิกงาน(บอร์ด)', '', ref, 'สถานะเดิม: ' + status]);
       if (pid) advanceProject(pid);   // ปลดล็อกงานย่อยขั้นถัดไป ไม่ให้โปรเจกต์ค้าง
       return '✅|ยกเลิกงาน #' + ref + ' แล้ว';
+    }
+
+    // ถอนงานออกจากคิวทีม AI — คู่กับปุ่ม "เริ่มทันที" (กดสั่งแล้วเปลี่ยนใจ/กดผิด ถอนกลับได้ก่อนทีมหยิบไปทำ)
+    if (action === 'unqueue') {
+      if (status !== 'รอทีม AI') {
+        return '⚠️|งาน #' + ref + ' ไม่ได้อยู่ในคิวแล้ว (ตอนนี้: ' + status + ')'
+          + (status === 'กำลังทำ (AI)' ? ' — ทีมหยิบไปทำแล้วค่ะ ถ้าต้องการหยุดจริงๆ ให้กด ✕ ยกเลิกงาน' : '');
+      }
+      const dq = String(sheet.getRange(row, 14).getValue() || '');
+      sheet.getRange(row, 3).setValue(needsApproval(dq) ? 'รออนุมัติ' : 'ใหม่');
+      logRow(['ถอนคิว(บอร์ด)', '', ref, '']);
+      return '✅|ถอนงาน #' + ref + ' ออกจากคิวแล้ว (ยังอยู่บนบอร์ด สั่งใหม่ได้ตลอด)';
     }
 
     if (action === 'vis') {
