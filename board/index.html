@@ -134,6 +134,9 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 .cmt-box{width:100%;margin-top:8px;background:var(--bg);border:1.5px solid var(--line);border-radius:12px;
   color:var(--ink);padding:10px;font-family:inherit;font-size:.85rem;min-height:64px;display:none}
 .cmt-box.show{display:block}
+.redo-lb{display:none;align-items:center;gap:7px;margin-top:7px;font-size:.76rem;color:var(--sub);cursor:pointer}
+.redo-lb.show{display:flex}
+.redo-lb input{width:16px;height:16px;accent-color:var(--teal)}
 
 /* ── 👥 ทีม AI — การ์ดสมาชิก กระจายเต็มความกว้างจอ ไอคอนใหญ่ขยับเบาๆ ── */
 .office{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin-bottom:12px}
@@ -546,11 +549,14 @@ function actionBar(t) {
   } else if (isAI && !done(t) && t.status !== 'รอข้อมูล') {
     main = `<button class="bt bt-run" data-act="runnow" data-ref="${esc(t.ref)}" ${b(t.ref)}>⚡ ปลุกทีม AI ทันที</button>`;
   }
+  const blocked = t.status === 'รอข้อมูล';
   return `<div class="acts">${main}
-    <button class="bt bt-gray" data-cmt="${esc(t.ref)}">💬</button>
+    <button class="bt ${blocked ? 'bt-run' : 'bt-gray'}" data-cmt="${esc(t.ref)}">💬${blocked ? ' ตอบคำถาม' : ''}</button>
     <button class="bt bt-gray" data-act="vis" data-ref="${esc(t.ref)}" ${b(t.ref)}>${t.vis==='ทีม'?'👥':'🔒'}</button>
     ${done(t)?'':`<button class="bt bt-red" data-cancel="${esc(t.ref)}">✕</button>`}
-  </div><textarea class="cmt-box" id="cmt-${esc(t.ref)}" placeholder="คอมเมนต์/สั่งแก้ตรงนี้ แล้วกด 💬 อีกครั้งเพื่อส่ง"></textarea>`;
+  </div><textarea class="cmt-box" id="cmt-${esc(t.ref)}" placeholder="${blocked ? 'พิมพ์คำตอบตรงนี้ แล้วกด 💬 ตอบคำถาม อีกครั้งเพื่อส่งกลับให้ทีมทำต่อ' : 'คอมเมนต์/สั่งแก้ตรงนี้ แล้วกด 💬 อีกครั้งเพื่อส่ง'}"></textarea>
+  ${isAI ? `<label class="redo-lb" id="rw-${esc(t.ref)}"><input type="checkbox" id="rd-${esc(t.ref)}" ${blocked ? 'checked' : ''}>
+    <span>${blocked ? 'ส่งคำตอบนี้กลับให้ทีมทำต่อทันที' : 'ส่งกลับให้ทีมทำใหม่ตามคอมเมนต์นี้เลย'}</span></label>` : ''}`;
 }
 
 function bindCards() {
@@ -579,14 +585,21 @@ function bindCards() {
   document.querySelectorAll('[data-cmt]').forEach(el => {
     el.onclick = ev => {
       ev.stopPropagation();
-      const r = el.dataset.cmt, box = $('cmt-' + r);
-      if (!box.classList.contains('show')) { box.classList.add('show'); box.focus(); return; }
+      const r = el.dataset.cmt, box = $('cmt-' + r), lb = $('rw-' + r), redoBox = $('rd-' + r);
+      if (!box.classList.contains('show')) {
+        box.classList.add('show'); if (lb) lb.classList.add('show'); box.focus(); return;
+      }
       const txt = box.value.trim();
-      if (!txt) { box.classList.remove('show'); return; }
+      if (!txt) { box.classList.remove('show'); if (lb) lb.classList.remove('show'); return; }
       el.disabled = true;
-      api({ action: 'comment', ref: r, text: txt }, 1).then(j => {
+      const redo = redoBox && redoBox.checked ? '1' : '';
+      api({ action: 'comment', ref: r, text: txt, redo: redo }, 1).then(j => {
         el.disabled = false; toast(j.msg || (j.ok ? 'ส่งคอมเมนต์แล้ว' : 'ไม่สำเร็จ'), j.ok);
-        if (j.ok) { box.value = ''; box.classList.remove('show'); load(true); }
+        if (j.ok) {
+          box.value = ''; box.classList.remove('show'); if (lb) lb.classList.remove('show');
+          if (redo === '1') { const t = TASKS.find(x => x.ref === r); if (t) t.status = 'รอทีม AI'; }
+          load(true);
+        }
       }).catch(e => { el.disabled = false; toast(e.message, false); });
     };
   });
