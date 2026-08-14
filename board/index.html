@@ -9,11 +9,20 @@
 <style>
 /* ══════════ Mission Board — ธีมเกม อ่านง่าย กดมันส์ ══════════ */
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+/* ── ธีมสว่าง (ค่าเริ่มต้น — โทนครีม-กรมท่า-ทองของแบรนด์ละกอน) ── */
 :root{
+  --bg:#F4F1EA; --card:#FFFFFF; --raise:#EEF1F6; --line:#E0D9CC;
+  --ink:#1B2B3B; --sub:#66788F; --faint:#9AA6B6;
+  --gold:#C8912E; --teal:#1F9484; --red:#D64B3F; --green:#2E9C5E; --blue:#3B77D8; --purple:#7A5BE0;
+  --shadow:rgba(27,43,59,.10); --rs-ink:#245641; --rs-bg:#EFF6F1;
+  --r:16px;
+}
+/* ── โหมดมืด (สลับได้ที่ปุ่ม 🌙 — ค่าชุดเดิมที่คุณปาล์มบอกว่าเหมาะกลางคืน) ── */
+body[data-theme="dark"]{
   --bg:#0E1726; --card:#172335; --raise:#1F2F4A; --line:#26364F;
   --ink:#EAF1FB; --sub:#8FA3BC; --faint:#5C7089;
   --gold:#F0B84C; --teal:#45C4AE; --red:#FF6B5E; --green:#57C97B; --blue:#5EA2FF; --purple:#9B7BFF;
-  --r:16px;
+  --shadow:rgba(0,0,0,.4); --rs-ink:#CFE3D8; --rs-bg:#0E1726;
 }
 html{scroll-behavior:smooth}
 body{font-family:Prompt,system-ui,sans-serif;background:var(--bg);color:var(--ink);
@@ -81,7 +90,7 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 .cd{background:var(--card);border:1.5px solid var(--line);border-radius:var(--r);margin-bottom:10px;
   overflow:hidden;transition:border-color .2s,box-shadow .2s}
 .cd.u{border-left:4px solid var(--red)}
-.cd.open{border-color:#3A5070;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+.cd.open{border-color:var(--faint);box-shadow:0 6px 24px var(--shadow)}
 .cd-top{display:flex;align-items:center;gap:10px;padding:12px 13px;transition:background .15s}
 .cd-top:active{background:var(--raise)}
 .cd-em{width:40px;height:40px;flex:0 0 40px;border-radius:13px;background:var(--raise);
@@ -103,8 +112,8 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 .cd.open .cd-body{display:block}
 .cd-detail{font-size:.86rem;color:var(--ink);line-height:1.55;padding:11px 0 4px;white-space:pre-wrap;word-break:break-word}
 .meta{display:flex;flex-wrap:wrap;gap:5px 14px;font-size:11.5px;color:var(--sub);margin:8px 0}
-.rs{background:var(--bg);border-radius:12px;padding:10px 12px;font-size:.82rem;line-height:1.5;
-  color:#CFE3D8;margin:8px 0;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow-y:auto}
+.rs{background:var(--rs-bg);border-radius:12px;padding:10px 12px;font-size:.82rem;line-height:1.5;
+  color:var(--rs-ink);margin:8px 0;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow-y:auto}
 .nt{background:rgba(240,184,76,.08);border-radius:12px;padding:9px 12px;font-size:.8rem;color:var(--gold);margin:8px 0;white-space:pre-wrap}
 
 /* ── ปุ่มแอ็กชัน — สถานะชัด กดแล้วรู้เรื่อง ── */
@@ -125,9 +134,50 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
   color:var(--ink);padding:10px;font-family:inherit;font-size:.85rem;min-height:64px;display:none}
 .cmt-box.show{display:block}
 
+/* ── แถบทีม AI — ให้เห็นตัวตนว่าใครทำอะไรอยู่ ── */
+.team{display:flex;gap:9px;overflow-x:auto;padding:2px 2px 10px;margin-bottom:8px;scrollbar-width:none}
+.team::-webkit-scrollbar{display:none}
+.mb{flex:0 0 auto;min-width:118px;background:var(--card);border:1.5px solid var(--line);border-radius:15px;
+  padding:10px 9px;text-align:center;transition:transform .12s,border-color .15s}
+.mb:active{transform:scale(.93)}
+.mb.sel{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
+.mb.busy{border-color:var(--teal)}
+.mb .av{font-size:1.55rem}
+.mb .mn{font-size:.74rem;font-weight:700;margin-top:3px}
+.mb .ms{font-size:.62rem;color:var(--sub);margin-top:2px;min-height:2.1em;line-height:1.4}
+.mb .ms b{color:var(--gold)}
+.dot2{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:3px;vertical-align:1px}
+.dot2.g{background:var(--green)}.dot2.o{background:var(--gold);animation:pulse 1.2s infinite}.dot2.q{background:var(--teal)}
+
+/* ── ห้องแชทคุณเลขา ── */
+.chat-fab{position:fixed;left:18px;bottom:24px;width:58px;height:58px;border-radius:19px;
+  background:var(--card);border:2px solid var(--gold);font-size:26px;display:grid;place-items:center;
+  box-shadow:0 8px 24px var(--shadow);z-index:50;transition:transform .15s}
+.chat-fab:active{transform:scale(.88)}
+.chat-mask{position:fixed;inset:0;background:rgba(10,16,28,.55);z-index:90;display:none;align-items:flex-end;justify-content:center}
+.chat-mask.on{display:flex}
+.chat-sh{background:var(--bg);border-radius:22px 22px 0 0;width:100%;max-width:640px;height:78vh;
+  display:flex;flex-direction:column;border-top:2px solid var(--line)}
+.chat-hd{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.chat-hd .av{width:42px;height:42px;border-radius:14px;background:var(--raise);display:grid;place-items:center;font-size:21px}
+.chat-hd .t{flex:1}.chat-hd .t b{font-size:.95rem}.chat-hd .t div{font-size:.68rem;color:var(--sub)}
+.chat-x{width:36px;height:36px;border-radius:10px;background:var(--raise);font-size:15px}
+.chat-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:82%;padding:10px 13px;border-radius:16px;font-size:.87rem;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.msg.me{align-self:flex-end;background:var(--gold);color:#2A1F08;border-bottom-right-radius:5px;font-weight:500}
+.msg.ai{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:5px}
+.msg.ai.typing{color:var(--sub)}
+.chat-in{display:flex;gap:8px;padding:10px 12px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+.chat-in textarea{flex:1;background:var(--card);border:1.5px solid var(--line);border-radius:14px;color:var(--ink);
+  padding:11px;font-family:inherit;font-size:.9rem;resize:none;max-height:110px}
+.chat-send{width:48px;height:48px;border-radius:15px;background:linear-gradient(135deg,var(--teal),#2C9C87);
+  color:#fff;font-size:19px;flex:0 0 48px;transition:transform .12s}
+.chat-send:active{transform:scale(.88)}
+.chat-send:disabled{opacity:.5}
+
 /* ── toast / ว่าง / FAB ── */
-.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:#223550;color:var(--ink);
-  padding:11px 18px;border-radius:14px;font-size:.85rem;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.5);
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:var(--card);color:var(--ink);
+  padding:11px 18px;border-radius:14px;font-size:.85rem;font-weight:600;box-shadow:0 8px 30px var(--shadow);
   z-index:99;transition:opacity .4s;max-width:88vw;text-align:center;border:1px solid var(--line)}
 .toast.warn{border-color:var(--red)}
 .empty{text-align:center;color:var(--faint);padding:38px 0;font-size:.9rem}
@@ -154,9 +204,11 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 <div class="hd">
   <h1>🎯 Mission <span>Board</span></h1>
   <div class="sync"><span class="dot load" id="dot"></span><span id="syncTxt">โหลด...</span></div>
+  <button class="rf" id="btnTheme" title="สลับธีม">🌙</button>
   <button class="rf" id="btnRf" title="รีเฟรช">🔄</button>
 </div>
 
+<div class="team" id="team"></div>
 <div class="stats" id="stats"></div>
 <div class="chips" id="chips"></div>
 <div class="upd" id="upd"></div>
@@ -165,6 +217,22 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 <div class="empty" id="empty" style="display:none">ไม่มีงานในหมวดนี้ ✨</div>
 
 <button class="fab" id="fab" style="display:none">＋</button>
+<button class="chat-fab" id="chatFab" style="display:none">🗓️</button>
+
+<div class="chat-mask" id="chatMask">
+  <div class="chat-sh">
+    <div class="chat-hd">
+      <div class="av">🗓️</div>
+      <div class="t"><b>คุณเลขา</b><div>คนเดียวกับในไลน์ · ความจำต่อเนื่อง · สั่งงาน/ถามบอร์ด/แปะไอเดียได้เลย</div></div>
+      <button class="chat-x" id="chatX">✕</button>
+    </div>
+    <div class="chat-log" id="chatLog"></div>
+    <div class="chat-in">
+      <textarea id="chatT" rows="1" placeholder="พิมพ์คุยกับคุณเลขา..."></textarea>
+      <button class="chat-send" id="chatSend">➤</button>
+    </div>
+  </div>
+</div>
 
 <div class="mask" id="addMask">
   <div class="sheet">
@@ -214,6 +282,7 @@ let MODE = 'owner';          // owner | team (เซิร์ฟเวอร์�
 let TASKS = [];
 let NEXT = '';
 let F = 'open';              // ตัวกรองปัจจุบัน
+let FD = '';                 // กรองรายแผนก (แตะการ์ดทีม)
 let OPEN = {};               // การ์ดที่ถูกขยาย {ref:1}
 let busy = {};               // กันกดซ้ำ {ref+action:1}
 let armCancel = null;        // ปุ่มยกเลิกที่รอแตะยืนยันครั้งที่ 2
@@ -287,7 +356,12 @@ async function load(silent) {
 }
 
 // ══════════ วาดหน้า ══════════
+function inDept(t) {
+  if (!FD) return true;
+  return FD === '_sec' ? !t.dept : t.dept === FD;
+}
 function stMatch(t) {
+  if (!inDept(t)) return false;
   if (F === 'all') return !canc(t);
   if (F === 'open') return !done(t);
   if (F === 'urgent') return t.urgency === 'ด่วนมาก' && !done(t);
@@ -298,8 +372,42 @@ function stMatch(t) {
   return true;
 }
 
+// ── แถบทีม AI: ใครว่าง ใครกำลังทำอะไร คิวกี่งาน — แตะเพื่อดูงานของแผนกนั้น ──
+const TEAM = [
+  { k:'_sec', e:'🗓️', n:'คุณเลขา' }, { k:'content', e:'🎨', n:'ดีไซน์' }, { k:'writer', e:'✍️', n:'นักเขียน' },
+  { k:'analyst', e:'📈', n:'วิเคราะห์' }, { k:'researcher', e:'🔍', n:'นักวิจัย' }, { k:'procurement', e:'🛒', n:'จัดซื้อ' },
+  { k:'finance', e:'💰', n:'การเงิน' }, { k:'data', e:'🗄️', n:'ฝ่ายข้อมูล' }, { k:'coder', e:'💻', n:'ทีม DEV' },
+];
+function teamStrip() {
+  let h = '';
+  TEAM.forEach(m => {
+    let s;
+    if (m.k === '_sec') {
+      const nw = TASKS.filter(t => t.status === 'ใหม่' || t.status === 'รออนุมัติ').length;
+      s = nw ? `<span class="dot2 o"></span>จัดคิว/รออนุมัติ <b>${nw}</b>` : '<span class="dot2 g"></span>เฝ้าบอร์ดอยู่ค่ะ';
+    } else {
+      let doing = null, q = 0, d = 0;
+      TASKS.forEach(t => { if (t.dept !== m.k) return;
+        if (t.status === 'กำลังทำ (AI)') doing = t;
+        if (t.status === 'รอทีม AI') q++;
+        if (done(t) && !canc(t)) d++; });
+      s = doing ? `<span class="dot2 o"></span>ทำ <b>#${esc(doing.ref)}</b>`
+        : q ? `<span class="dot2 q"></span>คิว ${q} งาน`
+        : `<span class="dot2 g"></span>ว่าง${d ? ' · เสร็จ ' + d : ''}`;
+    }
+    h += `<div class="mb${FD===m.k?' sel':''}" data-k="${m.k}"><div class="av">${m.e}</div><div class="mn">${m.n}</div><div class="ms">${s}</div></div>`;
+  });
+  $('team').innerHTML = h;
+  document.querySelectorAll('.mb').forEach(el => el.onclick = () => {
+    const k = el.dataset.k;
+    if (FD === k) { FD = ''; F = 'open'; } else { FD = k; F = 'all'; }
+    render(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
+
 function render() {
-  const open = TASKS.filter(t => !done(t));
+  teamStrip();
+  const open = TASKS.filter(t => !done(t) && inDept(t));
   const S = [
     ['open',   open.length, 'งานค้าง', 'c-gold'],
     ['urgent', open.filter(t => t.urgency === 'ด่วนมาก').length, 'ด่วนมาก', 'c-red'],
@@ -349,6 +457,7 @@ function render() {
   $('empty').style.display = (list.length ? 'none' : 'block');
   bindCards();
   $('fab').style.display = (MODE === 'owner') ? 'grid' : 'none';
+  $('chatFab').style.display = (MODE === 'owner') ? 'grid' : 'none';
 }
 
 function nodeDetail(s) {
@@ -509,6 +618,52 @@ $('keySave').onclick = () => {
   $('keyMask').classList.remove('on'); load();
 };
 if (KEY) localStorage.setItem('BD_KEY', KEY);
+
+// ── สลับธีม สว่าง (ค่าเริ่มต้น) ↔ มืด ──
+function applyTheme(t) {
+  if (t === 'dark') document.body.setAttribute('data-theme', 'dark');
+  else document.body.removeAttribute('data-theme');
+  $('btnTheme').textContent = t === 'dark' ? '☀️' : '🌙';
+  localStorage.setItem('BD_THEME', t);
+}
+$('btnTheme').onclick = () => applyTheme(document.body.hasAttribute('data-theme') ? 'light' : 'dark');
+applyTheme(localStorage.getItem('BD_THEME') || 'light');
+
+// ── 💬 ห้องแชทคุณเลขา — สมอง/ความจำเดียวกับไลน์ ──
+let CHAT = [];
+try { CHAT = JSON.parse(localStorage.getItem('BD_CHATLOG') || '[]'); } catch (e) {}
+function chatRender() {
+  $('chatLog').innerHTML = CHAT.map(m => `<div class="msg ${m.r === 'me' ? 'me' : 'ai'}">${esc(m.t)}</div>`).join('');
+  $('chatLog').scrollTop = 1e9;
+}
+$('chatFab').onclick = () => {
+  if (!CHAT.length) CHAT.push({ r: 'ai', t: 'สวัสดีค่ะคุณปาล์ม 🙋‍♀️ ดิฉันคุณเลขา คนเดียวกับในไลน์เลยค่ะ\nถามเรื่องงานบนบอร์ด สั่งงานใหม่ แปะไอเดีย ให้จำข้อมูล หรือส่งประกาศเข้ากลุ่ม — พิมพ์มาได้เลยนะคะ' });
+  $('chatMask').classList.add('on');
+  chatRender();
+  setTimeout(() => $('chatT').focus(), 150);
+};
+$('chatX').onclick = () => $('chatMask').classList.remove('on');
+$('chatMask').onclick = e => { if (e.target === $('chatMask')) $('chatMask').classList.remove('on'); };
+async function chatSend() {
+  const q = $('chatT').value.trim();
+  if (!q || $('chatSend').disabled) return;
+  $('chatT').value = '';
+  CHAT.push({ r: 'me', t: q }); chatRender();
+  const ty = document.createElement('div'); ty.className = 'msg ai typing'; ty.textContent = 'กำลังพิมพ์...';
+  $('chatLog').appendChild(ty); $('chatLog').scrollTop = 1e9;
+  $('chatSend').disabled = true;
+  try {
+    const j = await api({ action: 'chat', q: q }, 0);
+    CHAT.push({ r: 'ai', t: j.ok ? j.reply : ('⚠️ ' + (j.error || 'ไม่สำเร็จ ลองใหม่นะคะ')) });
+  } catch (e) { CHAT.push({ r: 'ai', t: '⚠️ ' + e.message }); }
+  CHAT = CHAT.slice(-40);
+  localStorage.setItem('BD_CHATLOG', JSON.stringify(CHAT));
+  $('chatSend').disabled = false;
+  chatRender();
+  load(true);   // เผื่อเลขาเพิ่งบันทึกงาน/ไอเดียให้ → บอร์ดอัปเดตตาม
+}
+$('chatSend').onclick = chatSend;
+$('chatT').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); } });
 
 $('btnRf').onclick = () => load();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true); });
