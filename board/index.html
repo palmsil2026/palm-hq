@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mission Board — ละกอน & Old Days</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ══════════ Mission Board — ธีมเกม อ่านง่าย กดมันส์ ══════════ */
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0E1726; --card:#172335; --raise:#1F2F4A; --line:#26364F;
+  --ink:#EAF1FB; --sub:#8FA3BC; --faint:#5C7089;
+  --gold:#F0B84C; --teal:#45C4AE; --red:#FF6B5E; --green:#57C97B; --blue:#5EA2FF; --purple:#9B7BFF;
+  --r:16px;
+}
+html{scroll-behavior:smooth}
+body{font-family:Prompt,system-ui,sans-serif;background:var(--bg);color:var(--ink);
+  padding:14px 14px 90px;max-width:640px;margin:0 auto;font-size:15px}
+button{font-family:inherit;border:none;cursor:pointer;background:none;color:inherit}
+
+/* ── หัวบอร์ด ── */
+.hd{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.hd h1{font-size:1.15rem;font-weight:800;letter-spacing:.3px;flex:1}
+.hd h1 span{color:var(--gold)}
+.sync{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--sub)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.dot.off{background:var(--red);box-shadow:0 0 8px var(--red)}
+.dot.load{background:var(--gold);box-shadow:0 0 8px var(--gold);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.35}}
+.rf{width:38px;height:38px;border-radius:12px;background:var(--card);border:1px solid var(--line);
+  font-size:17px;display:grid;place-items:center;transition:transform .15s}
+.rf:active{transform:scale(.88) rotate(180deg)}
+
+/* ── สถิติ (แตะเพื่อกรอง) ── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.st{background:var(--card);border:1.5px solid var(--line);border-radius:var(--r);padding:10px 6px;
+  text-align:center;transition:transform .12s,border-color .15s,box-shadow .15s}
+.st:active{transform:scale(.94)}
+.st .n{font-size:1.5rem;font-weight:800;line-height:1.1}
+.st .l{font-size:10.5px;color:var(--sub);margin-top:2px}
+.st.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold),0 4px 18px rgba(240,184,76,.18)}
+.st.c-red .n{color:var(--red)}.st.c-gold .n{color:var(--gold)}.st.c-teal .n{color:var(--teal)}.st.c-green .n{color:var(--green)}
+
+/* ── ชิปกรอง ── */
+.chips{display:flex;gap:7px;overflow-x:auto;padding-bottom:8px;margin-bottom:6px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.ch{flex:0 0 auto;padding:7px 13px;border-radius:99px;background:var(--card);border:1.5px solid var(--line);
+  font-size:12.5px;color:var(--sub);font-weight:500;transition:transform .12s}
+.ch:active{transform:scale(.93)}
+.ch.on{background:var(--raise);border-color:var(--gold);color:var(--ink);font-weight:600}
+
+/* ── โปรเจกต์ = แมพภารกิจ ── */
+.prj{background:var(--card);border:1.5px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.prj-h{display:flex;align-items:center;gap:8px}
+.prj-h .t{flex:1;font-weight:700;font-size:.95rem}
+.prj-h .pc{font-size:11.5px;color:var(--gold);font-weight:700;background:rgba(240,184,76,.12);
+  padding:3px 9px;border-radius:99px}
+.bar{height:7px;background:var(--bg);border-radius:99px;margin:10px 0 4px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--teal),var(--gold));border-radius:99px;transition:width .5s}
+/* แมพขั้นงาน: จุด + เส้นโยง */
+.map{margin-top:10px}
+.node{display:flex;gap:12px;position:relative}
+.node .rail{display:flex;flex-direction:column;align-items:center;width:34px;flex:0 0 34px}
+.node .pin{width:34px;height:34px;border-radius:50%;background:var(--raise);border:2px solid var(--line);
+  display:grid;place-items:center;font-size:15px;z-index:1;transition:transform .15s}
+.node:active .pin{transform:scale(.9)}
+.node .wire{width:2.5px;flex:1;min-height:14px;background:var(--line);position:relative}
+.node .wire::after{content:"▾";position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);
+  color:var(--line);font-size:11px}
+.node:last-child .wire,.node:last-child .wire::after{display:none}
+.node.done .pin{border-color:var(--green);background:rgba(87,201,123,.14)}
+.node.done .wire{background:var(--green)}.node.done .wire::after{color:var(--green)}
+.node.doing .pin{border-color:var(--gold);background:rgba(240,184,76,.15);box-shadow:0 0 12px rgba(240,184,76,.35);animation:pulse 1.6s infinite}
+.node .body{flex:1;padding-bottom:14px;min-width:0}
+.node .nm{font-size:.88rem;font-weight:600;line-height:1.35;padding-top:6px}
+.node .ms{font-size:11.5px;color:var(--sub);margin-top:2px}
+
+/* ── การ์ดงาน (ย่อ → แตะเพื่อขยาย) ── */
+.cd{background:var(--card);border:1.5px solid var(--line);border-radius:var(--r);margin-bottom:10px;
+  overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.cd.u{border-left:4px solid var(--red)}
+.cd.open{border-color:#3A5070;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+.cd-top{display:flex;align-items:center;gap:10px;padding:12px 13px;transition:background .15s}
+.cd-top:active{background:var(--raise)}
+.cd-em{width:40px;height:40px;flex:0 0 40px;border-radius:13px;background:var(--raise);
+  display:grid;place-items:center;font-size:19px}
+.cd-mid{flex:1;min-width:0}
+.cd-t{font-size:.9rem;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cd.open .cd-t{-webkit-line-clamp:unset}
+.cd-s{display:flex;gap:6px;margin-top:5px;flex-wrap:wrap}
+.pill{font-size:10.5px;font-weight:600;padding:2.5px 8px;border-radius:99px;display:inline-flex;align-items:center;gap:3px}
+.p-red{background:rgba(255,107,94,.15);color:var(--red)}
+.p-gold{background:rgba(240,184,76,.15);color:var(--gold)}
+.p-teal{background:rgba(69,196,174,.15);color:var(--teal)}
+.p-green{background:rgba(87,201,123,.15);color:var(--green)}
+.p-blue{background:rgba(94,162,255,.15);color:var(--blue)}
+.p-gray{background:rgba(143,163,188,.14);color:var(--sub)}
+.cd-x{color:var(--faint);font-size:13px;transition:transform .25s}
+.cd.open .cd-x{transform:rotate(180deg)}
+.cd-body{display:none;padding:0 14px 14px;border-top:1px dashed var(--line)}
+.cd.open .cd-body{display:block}
+.cd-detail{font-size:.86rem;color:var(--ink);line-height:1.55;padding:11px 0 4px;white-space:pre-wrap;word-break:break-word}
+.meta{display:flex;flex-wrap:wrap;gap:5px 14px;font-size:11.5px;color:var(--sub);margin:8px 0}
+.rs{background:var(--bg);border-radius:12px;padding:10px 12px;font-size:.82rem;line-height:1.5;
+  color:#CFE3D8;margin:8px 0;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow-y:auto}
+.nt{background:rgba(240,184,76,.08);border-radius:12px;padding:9px 12px;font-size:.8rem;color:var(--gold);margin:8px 0;white-space:pre-wrap}
+
+/* ── ปุ่มแอ็กชัน — สถานะชัด กดแล้วรู้เรื่อง ── */
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.bt{padding:11px 15px;border-radius:13px;font-size:.83rem;font-weight:700;min-height:44px;
+  display:inline-flex;align-items:center;gap:6px;transition:transform .12s,opacity .15s;border:1.5px solid transparent}
+.bt:active{transform:scale(.93)}
+.bt:disabled{opacity:.55;transform:none;cursor:default}
+.bt-run{background:linear-gradient(135deg,#2C9C87,#45C4AE);color:#06231D;box-shadow:0 4px 14px rgba(69,196,174,.3)}
+.bt-stop{background:rgba(240,184,76,.16);color:var(--gold);border-color:var(--gold)}
+.bt-gray{background:var(--raise);color:var(--sub);border-color:var(--line)}
+.bt-red{background:rgba(255,107,94,.13);color:var(--red);border-color:rgba(255,107,94,.4)}
+.bt-red.arm{background:var(--red);color:#fff;animation:pulse 1s infinite}
+.spin{display:inline-block;width:14px;height:14px;border:2.5px solid rgba(255,255,255,.35);
+  border-top-color:currentColor;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.cmt-box{width:100%;margin-top:8px;background:var(--bg);border:1.5px solid var(--line);border-radius:12px;
+  color:var(--ink);padding:10px;font-family:inherit;font-size:.85rem;min-height:64px;display:none}
+.cmt-box.show{display:block}
+
+/* ── toast / ว่าง / FAB ── */
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:#223550;color:var(--ink);
+  padding:11px 18px;border-radius:14px;font-size:.85rem;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.5);
+  z-index:99;transition:opacity .4s;max-width:88vw;text-align:center;border:1px solid var(--line)}
+.toast.warn{border-color:var(--red)}
+.empty{text-align:center;color:var(--faint);padding:38px 0;font-size:.9rem}
+.fab{position:fixed;right:18px;bottom:24px;width:58px;height:58px;border-radius:19px;
+  background:linear-gradient(135deg,var(--gold),#E09A2D);color:#3A2A05;font-size:26px;font-weight:800;
+  box-shadow:0 8px 24px rgba(240,184,76,.4);z-index:50;transition:transform .15s}
+.fab:active{transform:scale(.88)}
+.upd{text-align:center;font-size:10.5px;color:var(--faint);margin:4px 0 10px}
+
+/* ── ฟอร์มเพิ่มงาน / ตั้งค่า key ── */
+.mask{position:fixed;inset:0;background:rgba(5,10,20,.75);z-index:80;display:none;align-items:flex-end;justify-content:center}
+.mask.on{display:flex}
+.sheet{background:var(--card);border-radius:22px 22px 0 0;padding:20px 18px 30px;width:100%;max-width:640px;border-top:2px solid var(--line)}
+.sheet h3{font-size:1rem;margin-bottom:12px}
+.sheet label{font-size:11.5px;color:var(--sub);display:block;margin:10px 0 4px}
+.sheet input,.sheet select,.sheet textarea{width:100%;background:var(--bg);border:1.5px solid var(--line);
+  border-radius:12px;color:var(--ink);padding:11px;font-family:inherit;font-size:.9rem}
+.sheet textarea{min-height:80px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+</style>
+</head>
+<body>
+
+<div class="hd">
+  <h1>🎯 Mission <span>Board</span></h1>
+  <div class="sync"><span class="dot load" id="dot"></span><span id="syncTxt">โหลด...</span></div>
+  <button class="rf" id="btnRf" title="รีเฟรช">🔄</button>
+</div>
+
+<div class="stats" id="stats"></div>
+<div class="chips" id="chips"></div>
+<div class="upd" id="upd"></div>
+<div id="projects"></div>
+<div id="cards"></div>
+<div class="empty" id="empty" style="display:none">ไม่มีงานในหมวดนี้ ✨</div>
+
+<button class="fab" id="fab" style="display:none">＋</button>
+
+<div class="mask" id="addMask">
+  <div class="sheet">
+    <h3>➕ เพิ่มงานใหม่</h3>
+    <label>รายละเอียดงาน</label>
+    <textarea id="f_detail" placeholder="เช่น ทำโปสเตอร์โปรโมชั่นหน้าฝน..."></textarea>
+    <div class="row2">
+      <div><label>ธุรกิจ</label><select id="f_biz"><option>โรงน้ำ</option><option>คาเฟ่</option><option>อื่นๆ</option></select></div>
+      <div><label>ความเร่งด่วน</label><select id="f_urg"><option>ปกติ</option><option>ด่วนมาก</option><option>ไม่เร่ง</option></select></div>
+    </div>
+    <div class="row2">
+      <div><label>ใครทำ</label><select id="f_who"><option value="ทีมAI">🤖 ทีม AI</option><option value="คน">👤 คน</option></select></div>
+      <div><label>แผนก (ทีม AI)</label><select id="f_dept">
+        <option value="">— ให้เลือกให้ —</option><option value="content">🎨 ดีไซน์</option><option value="writer">✍️ นักเขียน</option>
+        <option value="analyst">📈 วิเคราะห์</option><option value="researcher">🔍 วิจัย</option><option value="procurement">🛒 จัดซื้อ</option>
+        <option value="finance">💰 การเงิน</option><option value="data">🗄️ ข้อมูล</option><option value="coder">💻 โค้ด</option>
+      </select></div>
+    </div>
+    <div class="acts" style="margin-top:16px">
+      <button class="bt bt-run" id="f_save" style="flex:1;justify-content:center">บันทึกงาน</button>
+      <button class="bt bt-gray" id="f_close">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<div class="mask" id="keyMask">
+  <div class="sheet">
+    <h3>🔑 ใส่รหัสบอร์ด</h3>
+    <p style="font-size:.83rem;color:var(--sub);line-height:1.5">เปิดครั้งแรกต้องใส่รหัส (ขอจากคุณเลขาในไลน์: พิมพ์ "ขอลิงก์บอร์ด") — ใส่ครั้งเดียว เครื่องจะจำไว้ค่ะ</p>
+    <label>รหัส (key)</label>
+    <input id="keyInput" placeholder="เช่น HelloMonday">
+    <div class="acts" style="margin-top:16px">
+      <button class="bt bt-run" id="keySave" style="flex:1;justify-content:center">เริ่มใช้งาน</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════ Mission Board — หน้าบ้านอยู่ GitHub Pages (เร็ว/นิ่ง) ข้อมูลมาจาก GAS ══════════
+const GAS = 'https://script.google.com/macros/s/AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J/exec';
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+
+let KEY = new URLSearchParams(location.search).get('key') || localStorage.getItem('BD_KEY') || '';
+let MODE = 'owner';          // owner | team (เซิร์ฟเวอร์เป็นคนบอก)
+let TASKS = [];
+let NEXT = '';
+let F = 'open';              // ตัวกรองปัจจุบัน
+let OPEN = {};               // การ์ดที่ถูกขยาย {ref:1}
+let busy = {};               // กันกดซ้ำ {ref+action:1}
+let armCancel = null;        // ปุ่มยกเลิกที่รอแตะยืนยันครั้งที่ 2
+
+// ── สถานะ → หน้าตา (สีมาพร้อมไอคอน+ป้ายเสมอ ไม่ใช้สีเดี่ยวๆ) ──
+const ST = {
+  'ใหม่':          { i:'🆕', p:'p-blue',  l:'ใหม่' },
+  'รออนุมัติ':      { i:'📝', p:'p-gold',  l:'รออนุมัติ' },
+  'รอทีม AI':      { i:'🕐', p:'p-teal',  l:'อยู่ในคิว' },
+  'กำลังทำ (AI)':  { i:'⚙️', p:'p-gold',  l:'กำลังทำ' },
+  'รอข้อมูล':      { i:'⏸️', p:'p-gray',  l:'รอข้อมูล' },
+  'เสร็จ (AI)':    { i:'✅', p:'p-green', l:'เสร็จแล้ว' },
+  'เสร็จ':         { i:'✅', p:'p-green', l:'เสร็จแล้ว' },
+  'ยกเลิก':        { i:'🗑️', p:'p-gray',  l:'ยกเลิก' },
+};
+const stOf = t => ST[t.status] || { i:'·', p:'p-gray', l: t.status || '-' };
+const DEPT_EM = { content:'🎨', writer:'✍️', analyst:'📈', researcher:'🔍', procurement:'🛒', finance:'💰', data:'🗄️', coder:'💻' };
+const done = t => /เสร็จ|ปิด|ยกเลิก/.test(t.status || '');
+const canc = t => /ยกเลิก/.test(t.status || '');
+
+// ── หัวข้อย่อของงาน: บรรทัดแรก/ประโยคแรกของ detail (การ์ดย่ออ่านปราดเดียวรู้เรื่อง) ──
+function shortTitle(t) {
+  let d = String(t.detail || '').split('\n')[0].trim();
+  const cut = d.search(/[.!?]|(?: — )/);
+  if (cut > 14) d = d.slice(0, cut);
+  return d.length > 84 ? d.slice(0, 84) + '…' : (d || '(ไม่มีรายละเอียด)');
+}
+
+// ══════════ เรียก GAS (GET + retry — GAS ตอบ JSON พร้อม CORS หลัง redirect) ══════════
+async function api(params, retries = 1) {
+  const qs = new URLSearchParams(Object.assign({ key: KEY }, params)).toString();
+  for (let i = 0; ; i++) {
+    try {
+      const ctl = new AbortController();
+      const tm = setTimeout(() => ctl.abort(), 25000);
+      const res = await fetch(GAS + '?' + qs, { signal: ctl.signal, redirect: 'follow' });
+      clearTimeout(tm);
+      const j = await res.json();
+      return j;
+    } catch (e) {
+      if (i >= retries) throw new Error('เชื่อมต่อไม่สำเร็จ ลองใหม่อีกครั้งนะคะ');
+      await new Promise(r => setTimeout(r, 1200 * (i + 1)));
+    }
+  }
+}
+
+// ══════════ โหลดข้อมูล — โชว์ของแคชก่อนทันที แล้วค่อยอัปเดตของสด (stale-while-revalidate) ══════════
+function fromCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem('BD_CACHE') || 'null');
+    if (c && c.tasks) { TASKS = c.tasks; MODE = c.mode || 'owner'; NEXT = c.next || ''; render();
+      $('upd').textContent = 'ข้อมูลเมื่อ ' + new Date(c.t).toLocaleTimeString('th-TH', {hour:'2-digit',minute:'2-digit'}) + ' — กำลังอัปเดต...'; }
+  } catch (e) {}
+}
+async function load(silent) {
+  if (!KEY) { $('keyMask').classList.add('on'); return; }
+  $('dot').className = 'dot load'; $('syncTxt').textContent = 'ซิงก์...';
+  try {
+    const j = await api({ action: 'board' }, 2);
+    if (!j.ok) throw new Error(j.error || 'รหัสไม่ถูกต้อง');
+    TASKS = j.tasks || []; MODE = j.mode || 'owner'; NEXT = j.next || '';
+    localStorage.setItem('BD_CACHE', JSON.stringify({ t: Date.now(), tasks: TASKS, mode: MODE, next: NEXT }));
+    $('dot').className = 'dot'; $('syncTxt').textContent = MODE === 'team' ? 'บอร์ดทีม' : 'สดล่าสุด';
+    $('upd').textContent = 'อัปเดต ' + new Date().toLocaleTimeString('th-TH', {hour:'2-digit',minute:'2-digit'}) + ' น. · รีเฟรชเองทุก 1 นาที';
+    render();
+  } catch (e) {
+    $('dot').className = 'dot off'; $('syncTxt').textContent = 'ออฟไลน์';
+    if (!silent) toast(e.message, false);
+    if (String(e.message).indexOf('รหัส') !== -1) { localStorage.removeItem('BD_KEY'); KEY=''; $('keyMask').classList.add('on'); }
+  }
+}
+
+// ══════════ วาดหน้า ══════════
+function stMatch(t) {
+  if (F === 'all') return !canc(t);
+  if (F === 'open') return !done(t);
+  if (F === 'urgent') return t.urgency === 'ด่วนมาก' && !done(t);
+  if (F === 'wait') return t.status === 'รออนุมัติ';
+  if (F === 'queue') return t.status === 'รอทีม AI' || t.status === 'กำลังทำ (AI)';
+  if (F === 'done') return done(t) && !canc(t);
+  if (F === 'cancelled') return canc(t);
+  return true;
+}
+
+function render() {
+  const open = TASKS.filter(t => !done(t));
+  const S = [
+    ['open',   open.length, 'งานค้าง', 'c-gold'],
+    ['urgent', open.filter(t => t.urgency === 'ด่วนมาก').length, 'ด่วนมาก', 'c-red'],
+    ['queue',  TASKS.filter(t => t.status === 'รอทีม AI' || t.status === 'กำลังทำ (AI)').length, 'คิว AI', 'c-teal'],
+    ['done',   TASKS.filter(t => done(t) && !canc(t)).length, 'เสร็จแล้ว', 'c-green'],
+  ];
+  $('stats').innerHTML = S.map(s =>
+    `<div class="st ${s[3]}${F===s[0]?' on':''}" data-f="${s[0]}"><div class="n">${s[1]}</div><div class="l">${s[2]}</div></div>`).join('');
+  document.querySelectorAll('#stats .st').forEach(el => el.onclick = () => { F = el.dataset.f; render(); });
+
+  const CH = [['open','📋 ค้างอยู่'],['wait','📝 รออนุมัติ'],['queue','🤖 คิว AI'],['done','✅ เสร็จ'],['cancelled','🗑️ ยกเลิก'],['all','ทั้งหมด']];
+  $('chips').innerHTML = CH.map(c => `<button class="ch${F===c[0]?' on':''}" data-f="${c[0]}">${c[1]}</button>`).join('');
+  document.querySelectorAll('#chips .ch').forEach(el => el.onclick = () => { F = el.dataset.f; render(); });
+
+  // ── โปรเจกต์ → แมพภารกิจ ──
+  const list = TASKS.filter(stMatch);
+  const seen = {}; let ph = '';
+  list.filter(t => t.project).forEach(t => {
+    if (seen[t.project]) return; seen[t.project] = 1;
+    const steps = TASKS.filter(x => x.project === t.project && !canc(x)).sort((a,b) => a.step - b.step);
+    if (!steps.length) return;
+    const dn = steps.filter(done).length, pc = Math.round(dn / steps.length * 100);
+    ph += `<div class="prj"><div class="prj-h"><span>📁</span><span class="t">${esc(t.projectTitle || t.project)}</span>
+      <span class="pc">${dn}/${steps.length}</span></div>
+      <div class="bar"><i style="width:${pc}%"></i></div><div class="map">` +
+      steps.map(s => {
+        const cls = done(s) ? 'done' : (s.status === 'กำลังทำ (AI)' ? 'doing' : '');
+        const st = stOf(s);
+        const opened = OPEN[s.ref];
+        return `<div class="node ${cls}" data-ref="${esc(s.ref)}">
+          <div class="rail"><div class="pin">${st.i}</div><div class="wire"></div></div>
+          <div class="body"><div class="nm">${s.step}. ${esc(shortTitle(s))}</div>
+          <div class="ms">${DEPT_EM[s.dept]||'👤'} ${esc(s.dept || s.assignee || '')} · ${st.l}${s.doneAt?' · '+esc(s.doneAt):''}</div>
+          ${opened ? nodeDetail(s) : ''}</div></div>`;
+      }).join('') + '</div></div>';
+  });
+  $('projects').innerHTML = ph;
+  document.querySelectorAll('.node').forEach(el => {
+    el.querySelector('.nm').onclick = () => { const r = el.dataset.ref; OPEN[r] = !OPEN[r]; render(); };
+  });
+
+  // ── งานเดี่ยว → การ์ดย่อ กดขยาย ──
+  const solo = list.filter(t => !t.project);
+  const ord = { 'ด่วนมาก': 0, 'ปกติ': 1, 'ไม่เร่ง': 2 };
+  solo.sort((a,b) => (ord[a.urgency] ?? 1) - (ord[b.urgency] ?? 1));
+  $('cards').innerHTML = solo.map(card).join('');
+  $('empty').style.display = (list.length ? 'none' : 'block');
+  bindCards();
+  $('fab').style.display = (MODE === 'owner') ? 'grid' : 'none';
+}
+
+function nodeDetail(s) {
+  return `<div style="margin-top:8px">${detailBlock(s)}${actionBar(s)}</div>`;
+}
+
+function card(t) {
+  const st = stOf(t);
+  const opened = OPEN[t.ref];
+  const em = DEPT_EM[t.dept] || (t.assignee === 'คน' ? '👤' : '🗂️');
+  return `<div class="cd${t.urgency==='ด่วนมาก'&&!done(t)?' u':''}${opened?' open':''}" data-ref="${esc(t.ref)}">
+    <div class="cd-top">
+      <div class="cd-em">${em}</div>
+      <div class="cd-mid">
+        <div class="cd-t">${esc(shortTitle(t))}</div>
+        <div class="cd-s">
+          <span class="pill ${st.p}">${st.i} ${st.l}</span>
+          ${t.urgency==='ด่วนมาก'?'<span class="pill p-red">🔥 ด่วนมาก</span>':''}
+          ${t.biz?`<span class="pill p-gray">${esc(t.biz)}</span>`:''}
+          ${MODE==='owner'&&t.vis?`<span class="pill p-gray">${t.vis==='ทีม'?'👥':'🔒'}</span>`:''}
+        </div>
+      </div>
+      <div class="cd-x">▾</div>
+    </div>
+    <div class="cd-body">${detailBlock(t)}${actionBar(t)}</div>
+  </div>`;
+}
+
+function detailBlock(t) {
+  return `<div class="cd-detail">${esc(t.detail)}</div>
+    <div class="meta">
+      <span>#${esc(t.ref)}</span>
+      ${t.from && t.from!=='LINE' ? `<span>👤 ${esc(t.from)}</span>`:''}
+      ${t.time ? `<span>📥 ${esc(t.time)}</span>`:''}
+      ${t.status==='รอทีม AI'&&NEXT ? `<span style="color:var(--gold)">⏰ รอบสำรอง ${esc(NEXT)}</span>`:''}
+      ${t.startedAt ? `<span>⚙️ เริ่ม ${esc(t.startedAt)}</span>`:''}
+      ${t.doneAt ? `<span>✅ เสร็จ ${esc(t.doneAt)}</span>`:''}
+      ${t.due ? `<span>⏳ กำหนด ${esc(t.due)}</span>`:''}
+    </div>
+    ${t.blocked ? `<div class="nt">⏸️ ${esc(t.blocked)}</div>`:''}
+    ${t.result ? `<div class="rs">💬 ${esc(t.result)}</div>`:''}
+    ${t.notes ? `<div class="nt">${esc(t.notes)}</div>`:''}`;
+}
+
+// ── แถบปุ่ม: สถานะเดียวชัดๆ ต่อหนึ่งงาน ──
+function actionBar(t) {
+  if (MODE !== 'owner' || canc(t)) return '';
+  let main = '';
+  const b = ref => busy[ref] ? 'disabled' : '';
+  if (t.status === 'รอทีม AI') {
+    main = `<button class="bt bt-stop" data-act="unqueue" data-ref="${esc(t.ref)}" ${b(t.ref)}>↩️ ถอนออกจากคิว</button>`;
+  } else if (t.status === 'กำลังทำ (AI)') {
+    main = `<button class="bt bt-gray" disabled><span class="spin"></span> ทีมกำลังทำอยู่...</button>`;
+  } else if (!done(t)) {
+    main = `<button class="bt bt-run" data-act="runnow" data-ref="${esc(t.ref)}" ${b(t.ref)}>⚡ เริ่มทันที</button>`;
+  }
+  return `<div class="acts">${main}
+    <button class="bt bt-gray" data-cmt="${esc(t.ref)}">💬</button>
+    <button class="bt bt-gray" data-act="vis" data-ref="${esc(t.ref)}" ${b(t.ref)}>${t.vis==='ทีม'?'👥':'🔒'}</button>
+    ${done(t)?'':`<button class="bt bt-red" data-cancel="${esc(t.ref)}">✕</button>`}
+  </div><textarea class="cmt-box" id="cmt-${esc(t.ref)}" placeholder="คอมเมนต์/สั่งแก้ตรงนี้ แล้วกด 💬 อีกครั้งเพื่อส่ง"></textarea>`;
+}
+
+function bindCards() {
+  document.querySelectorAll('.cd-top').forEach(el => {
+    el.onclick = () => { const r = el.parentElement.dataset.ref; OPEN[r] = !OPEN[r]; render(); };
+  });
+  // ปุ่มแอ็กชันหลัก — ยิงแล้วล็อกปุ่มทันที เปลี่ยนสถานะบนการ์ดเมื่อสำเร็จ
+  document.querySelectorAll('[data-act]').forEach(el => {
+    el.onclick = ev => { ev.stopPropagation(); doAction(el.dataset.act, el.dataset.ref, el); };
+  });
+  // ยกเลิก = แตะ 2 ครั้งยืนยัน
+  document.querySelectorAll('[data-cancel]').forEach(el => {
+    el.onclick = ev => {
+      ev.stopPropagation();
+      const r = el.dataset.cancel;
+      if (armCancel !== r) {
+        armCancel = r; el.classList.add('arm'); el.textContent = '✕ แตะย้ำเพื่อยืนยัน';
+        setTimeout(() => { if (armCancel === r) { armCancel = null; render(); } }, 3500);
+        return;
+      }
+      armCancel = null;
+      doAction('cancel', r, el);
+    };
+  });
+  // คอมเมนต์
+  document.querySelectorAll('[data-cmt]').forEach(el => {
+    el.onclick = ev => {
+      ev.stopPropagation();
+      const r = el.dataset.cmt, box = $('cmt-' + r);
+      if (!box.classList.contains('show')) { box.classList.add('show'); box.focus(); return; }
+      const txt = box.value.trim();
+      if (!txt) { box.classList.remove('show'); return; }
+      el.disabled = true;
+      api({ action: 'comment', ref: r, text: txt }, 1).then(j => {
+        el.disabled = false; toast(j.msg || (j.ok ? 'ส่งคอมเมนต์แล้ว' : 'ไม่สำเร็จ'), j.ok);
+        if (j.ok) { box.value = ''; box.classList.remove('show'); load(true); }
+      }).catch(e => { el.disabled = false; toast(e.message, false); });
+    };
+  });
+}
+
+async function doAction(act, ref, el) {
+  const bk = ref + act;
+  if (busy[bk]) return;
+  busy[bk] = 1;
+  const old = el.innerHTML;
+  el.disabled = true; el.innerHTML = '<span class="spin"></span> กำลังสั่ง...';
+  try {
+    const j = await api({ action: 'boardDo', 'do': act, ref: ref }, 1);
+    toast(j.msg || (j.ok ? 'สำเร็จ' : 'ไม่สำเร็จ'), j.ok);
+    if (j.ok) {
+      TASKS.forEach(t => { if (t.ref === ref) {
+        if (act === 'cancel') t.status = 'ยกเลิก';
+        if (act === 'runnow') t.status = 'รอทีม AI';
+        if (act === 'unqueue') t.status = 'ใหม่';
+        if (act === 'vis') t.vis = (t.vis === 'ทีม' ? 'ส่วนตัว' : 'ทีม');
+      }});
+      render();
+      setTimeout(() => load(true), 6000);   // ดึงของจริงตามมา เผื่อสถานะฝั่งเซิร์ฟเวอร์ขยับต่อ
+    } else { el.disabled = false; el.innerHTML = old; }
+  } catch (e) {
+    toast(e.message, false); el.disabled = false; el.innerHTML = old;
+  } finally { delete busy[bk]; }
+}
+
+function toast(msg, ok) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (ok ? '' : ' warn');
+  t.textContent = (ok ? '✅ ' : '⚠️ ') + msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.style.opacity = '0', 3200);
+  setTimeout(() => t.remove(), 3700);
+}
+
+// ── ฟอร์มเพิ่มงาน ──
+$('fab').onclick = () => $('addMask').classList.add('on');
+$('f_close').onclick = () => $('addMask').classList.remove('on');
+$('addMask').onclick = e => { if (e.target === $('addMask')) $('addMask').classList.remove('on'); };
+$('f_save').onclick = async function () {
+  const d = $('f_detail').value.trim();
+  if (!d) { toast('กรอกรายละเอียดงานก่อนนะคะ', false); return; }
+  this.disabled = true; this.innerHTML = '<span class="spin"></span> บันทึก...';
+  try {
+    const j = await api({ action: 'addTask', detail: d, biz: $('f_biz').value, urgency: $('f_urg').value,
+      assignee: $('f_who').value, dept: $('f_who').value === 'ทีมAI' ? $('f_dept').value : '', type: '', due: '' }, 1);
+    toast(j.msg || (j.ok ? 'บันทึกแล้ว' : 'ไม่สำเร็จ'), j.ok);
+    if (j.ok) { $('f_detail').value = ''; $('addMask').classList.remove('on'); load(true); }
+  } catch (e) { toast(e.message, false); }
+  this.disabled = false; this.textContent = 'บันทึกงาน';
+};
+
+// ── key ครั้งแรก ──
+$('keySave').onclick = () => {
+  const k = $('keyInput').value.trim();
+  if (!k) return;
+  KEY = k; localStorage.setItem('BD_KEY', k);
+  $('keyMask').classList.remove('on'); load();
+};
+if (KEY) localStorage.setItem('BD_KEY', KEY);
+
+$('btnRf').onclick = () => load();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true); });
+setInterval(() => { if (!document.hidden) load(true); }, 60000);
+
+fromCache();
+load(true);
+</script>
+</body>
+</html>
