@@ -1,0 +1,2992 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ละกอน Sales</title>
+<style>
+  :root {
+    --brand: #0EA5E9;
+    --brand-dark: #0284C7;
+    --brand-light: #E0F2FE;
+    --bg: #F1F5F9;
+    --card: #FFFFFF;
+    --text: #0F172A;
+    --muted: #64748B;
+    --green: #16A34A;
+    --red: #DC2626;
+    --amber: #D97706;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans Thai", "Sarabun", sans-serif;
+    background: var(--bg); color: var(--text); font-size: 16px;
+    max-width: 480px; margin: 0 auto; min-height: 100vh; padding-bottom: 90px;
+  }
+  .hidden { display: none !important; }
+
+  .topbar {
+    background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+    color: #fff; padding: 14px 16px; position: sticky; top: 0; z-index: 500;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .topbar h1 { font-size: 17px; font-weight: 700; flex: 1; }
+  .topbar .back { background: rgba(255,255,255,.2); border: none; color: #fff;
+    border-radius: 8px; padding: 6px 12px; font-size: 15px; cursor: pointer; }
+  .badge-mock { background: #FDE047; color: #713F12; font-size: 11px; font-weight: 700;
+    padding: 3px 8px; border-radius: 99px; }
+
+  .page { padding: 16px; }
+  .card { background: var(--card); border-radius: 14px; padding: 16px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.08); margin-bottom: 14px; }
+
+  .login-hero { text-align: center; padding: 36px 16px 20px; }
+  .login-hero .logo { font-size: 52px; }
+  .login-hero h2 { font-size: 22px; margin-top: 8px; }
+  .login-hero p { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+  label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin: 12px 0 5px; }
+  select, input, textarea {
+    width: 100%; padding: 12px; border: 1.5px solid #CBD5E1; border-radius: 10px;
+    font-size: 16px; font-family: inherit; background: #fff; color: var(--text);
+  }
+  select:focus, input:focus, textarea:focus { outline: none; border-color: var(--brand); }
+  textarea { min-height: 72px; resize: vertical; }
+
+  .btn {
+    display: block; width: 100%; padding: 14px; border: none; border-radius: 12px;
+    font-size: 17px; font-weight: 700; font-family: inherit; cursor: pointer; margin-top: 16px;
+  }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-primary:active { background: var(--brand-dark); }
+  .btn-ghost { background: #fff; color: var(--brand); border: 1.5px solid var(--brand); }
+  .btn:disabled { opacity: .5; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat { background: var(--card); border-radius: 14px; padding: 14px 8px; text-align: center;
+    box-shadow: 0 1px 3px rgba(15,23,42,.08); }
+  .stat .num { font-size: 24px; font-weight: 800; color: var(--brand-dark); }
+  .stat .lbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .menu { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .menu button {
+    background: var(--card); border: none; border-radius: 16px; padding: 20px 10px;
+    font-family: inherit; font-size: 15px; font-weight: 700; color: var(--text);
+    box-shadow: 0 1px 3px rgba(15,23,42,.08); cursor: pointer;
+  }
+  .menu button .ic { display: block; font-size: 30px; margin-bottom: 6px; }
+  .menu button:active { background: var(--brand-light); }
+
+  .cust-list { max-height: 300px; overflow-y: auto; margin-top: 8px; }
+  .cust-item { padding: 12px; border-bottom: 1px solid #E2E8F0; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .cust-item:active { background: var(--brand-light); }
+  .cust-item .nm { font-weight: 600; font-size: 15px; }
+  .cust-item .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .cust-add { padding: 12px; text-align: center; color: var(--brand); font-weight: 700;
+    font-size: 14px; cursor: pointer; border-top: 1px dashed #CBD5E1; }
+  .pill { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+  .pill-A, .pill-Aplus { background: #DCFCE7; color: var(--green); }
+  .pill-B { background: #FEF3C7; color: var(--amber); }
+  .pill-C, .pill-D { background: #F1F5F9; color: var(--muted); }
+  .selected-cust { background: var(--brand-light); border: 1.5px solid var(--brand);
+    border-radius: 10px; padding: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .selected-cust .nm { font-weight: 700; }
+  .selected-cust button { background: none; border: none; color: var(--brand); font-weight: 700;
+    font-family: inherit; font-size: 14px; cursor: pointer; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .chip { padding: 9px 15px; border-radius: 99px; border: 1.5px solid #CBD5E1;
+    background: #fff; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .chip.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+  .item-head { display: grid; grid-template-columns: 1fr 64px 74px 28px; gap: 6px;
+    font-size: 12px; font-weight: 700; color: var(--muted); margin: 6px 0 4px; padding: 0 2px; }
+  .item-head span { text-align: center; }
+  .item-head span:first-child { text-align: left; }
+  .item-row { display: grid; grid-template-columns: 1fr 64px 74px 28px; gap: 6px;
+    align-items: center; margin-bottom: 8px; }
+  .item-row input { padding: 10px 8px; text-align: center; }
+  .item-row .del { background: none; border: none; color: var(--red); font-size: 18px; cursor: pointer; }
+  .total-bar { display: flex; justify-content: space-between; font-size: 18px; font-weight: 800;
+    padding: 12px 4px 0; border-top: 2px dashed #CBD5E1; margin-top: 8px; }
+  .total-bar .amt { color: var(--brand-dark); }
+
+  .gps-line { display: flex; align-items: center; gap: 8px; margin-top: 6px;
+    background: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+  .gps-line .st { flex: 1; color: var(--muted); }
+  .gps-line .st.ok { color: var(--green); font-weight: 600; }
+  .map-box { height: 230px; border-radius: 12px; margin-top: 8px; border: 1.5px solid #CBD5E1;
+    position: relative; z-index: 1; }
+  .map-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .photo-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+  .photo-row img { width: 72px; height: 72px; object-fit: cover; border-radius: 10px;
+    border: 1.5px solid #CBD5E1; }
+
+  .comp-item { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    background: #fff; border: 1.5px solid #CBD5E1; border-radius: 10px;
+    padding: 10px 12px; margin-top: 8px; font-size: 13px; }
+  .comp-item .del { background: none; border: none; color: var(--red); font-size: 16px; cursor: pointer; }
+  .sec-toggle { width: 100%; text-align: left; background: var(--bg); border: none;
+    border-radius: 10px; padding: 12px; font-family: inherit; font-size: 14px;
+    font-weight: 700; color: var(--text); cursor: pointer; margin-top: 14px; }
+  .sec-body { border: 1.5px dashed #CBD5E1; border-radius: 10px; padding: 4px 12px 12px; margin-top: 8px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .quote-paper { background: var(--bg); border-radius: 12px; padding: 14px;
+    font-size: 14px; white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
+  .btn-row { display: flex; gap: 10px; }
+  .btn-row .btn { margin-top: 12px; }
+
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #0F172A; color: #fff; padding: 12px 22px; border-radius: 99px;
+    font-size: 15px; font-weight: 600; z-index: 999; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    max-width: 90%; text-align: center; }
+  #toast.ok { background: var(--green); }
+  #toast.err { background: var(--red); }
+
+  .filter-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .cust-card { background: var(--card); border-radius: 12px; padding: 14px; margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.08); }
+  .cust-card .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .cust-card .nm { font-weight: 700; font-size: 15px; }
+  .cust-card .sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .cust-card a { color: var(--brand); text-decoration: none; font-weight: 700; font-size: 13px; }
+  .cust-card .acts { display: flex; gap: 8px; margin-top: 8px; }
+  .mini-btn { flex: 1; padding: 8px; border-radius: 8px; border: 1.5px solid #CBD5E1;
+    background: #fff; font-family: inherit; font-size: 13px; font-weight: 700;
+    color: var(--text); cursor: pointer; text-align: center; text-decoration: none; }
+  .mini-btn.danger { color: var(--red); border-color: #FECACA; }
+  .mini-btn.primary { color: var(--brand); border-color: var(--brand); }
+
+  /* ---------- ปฏิทิน ---------- */
+  .cal-week { display: grid; grid-template-columns: repeat(7,1fr); text-align: center;
+    font-size: 12px; color: var(--muted); font-weight: 700; margin: 10px 0 4px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7,1fr); row-gap: 2px; text-align: center; }
+  .cal-cell { padding: 5px 0 8px; border-radius: 10px; cursor: pointer; position: relative; min-height: 38px; }
+  .cal-cell:active { background: var(--brand-light); }
+  .cal-cell .n { font-size: 14px; font-weight: 600; }
+  .cal-cell.today { border: 1.5px solid var(--brand); }
+  .cal-cell.today .n { color: var(--brand-dark); font-weight: 800; }
+  .cal-cell.sel { background: var(--brand); border-color: var(--brand); }
+  .cal-cell.sel .n { color: #fff; }
+  .cal-cell.sun .n { color: #D85A30; }
+  .cal-dots { display: flex; gap: 3px; justify-content: center; position: absolute;
+    left: 0; right: 0; bottom: 3px; }
+  .cal-dots i { width: 5px; height: 5px; border-radius: 50%; display: block; }
+  .cal-cell.sel .cal-dots i { background: #fff !important; }
+  .cal-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    font-size: 11px; color: var(--muted); margin-top: 10px; }
+  .cal-legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block;
+    margin-right: 4px; vertical-align: 0; }
+
+  .fu-card { background: #FFF7ED; border: 1.5px solid #FDBA74; border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 14px; cursor: pointer; }
+  .fu-card .t { font-weight: 800; font-size: 15px; color: #9A3412; }
+  .fu-card .sub { font-size: 13px; color: #C2410C; margin-top: 4px; }
+  .fu-late { background: #FEE2E2; color: var(--red); font-size: 11px; font-weight: 700;
+    padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+  .fu-today { background: #FEF3C7; color: var(--amber); font-size: 11px; font-weight: 700;
+    padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+  .fu-soon { background: var(--brand-light); color: var(--brand-dark); font-size: 11px; font-weight: 700;
+    padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+  .st-pill { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px;
+    background: var(--bg); color: var(--muted); white-space: nowrap; }
+
+  .today-item { background: var(--card); border-radius: 12px; padding: 12px 14px;
+    margin-bottom: 10px; box-shadow: 0 1px 3px rgba(15,23,42,.08); cursor: pointer; }
+  .today-item:active { background: var(--brand-light); }
+  .ord-items { margin-top: 8px; border-top: 1px dashed #CBD5E1; padding-top: 4px; }
+
+  /* ---------- หน้าพรีเซนต์การเข้าพบ ---------- */
+  .vd-hero { background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+    border-radius: 16px; padding: 20px 18px; color: #fff; margin-bottom: 14px; }
+  .vd-hero .nm { font-size: 21px; font-weight: 800; line-height: 1.3; }
+  .vd-hero .sub { font-size: 13px; opacity: .9; margin-top: 4px; }
+  .vd-badges { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  .vd-outcome { background: #fff; color: var(--brand-dark); font-weight: 800;
+    padding: 7px 16px; border-radius: 99px; font-size: 15px; }
+  .vd-prob { display: flex; align-items: baseline; gap: 4px; margin-left: auto; }
+  .vd-prob b { font-size: 32px; font-weight: 800; }
+  .vd-prob span { font-size: 12px; opacity: .9; }
+  .vd-sec { background: var(--card); border-radius: 14px; padding: 14px 16px;
+    margin-bottom: 12px; box-shadow: 0 1px 3px rgba(15,23,42,.08); }
+  .vd-sec .h { font-size: 12px; font-weight: 800; color: var(--muted); margin-bottom: 6px; }
+  .vd-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0;
+    font-size: 14px; border-bottom: 1px dashed #E2E8F0; }
+  .vd-row:last-child { border-bottom: none; }
+  .vd-row .k { color: var(--muted); flex-shrink: 0; }
+  .vd-photo img { width: 100%; border-radius: 12px; display: block; }
+  .today-item .r1 { display: flex; justify-content: space-between; gap: 8px; font-weight: 700; font-size: 15px; }
+  .today-item .sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .today-item.cancelled { opacity: .55; }
+  .sec-title { font-size: 14px; font-weight: 800; color: var(--muted); margin: 14px 0 8px; }
+
+  .spin { border: 3px solid var(--brand-light); border-top-color: var(--brand);
+    border-radius: 50%; width: 34px; height: 34px; margin: 40px auto;
+    animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <button class="back hidden" id="btnBack" onclick="goHome()">←</button>
+  <h1 id="topTitle">ละกอน Sales 💧</h1>
+  <span class="badge-mock hidden" id="mockBadge">โหมดทดลอง</span>
+</div>
+
+<!-- ============ LOGIN ============ -->
+<div id="pgLogin" class="page hidden">
+  <div class="login-hero">
+    <div class="logo">💧</div>
+    <h2>ระบบทีมเซลส์</h2>
+    <p>ละกอน · เพียวซ่า — จังหวัดลำปาง</p>
+  </div>
+  <div class="card">
+    <label>เลือกชื่อของคุณ</label>
+    <select id="selRep"></select>
+    <label>PIN</label>
+    <input id="inPin" type="tel" inputmode="numeric" maxlength="6" placeholder="กรอก PIN">
+    <button class="btn btn-primary" onclick="doLogin()">เข้าสู่ระบบ</button>
+  </div>
+</div>
+
+<!-- ============ HOME ============ -->
+<div id="pgHome" class="page hidden">
+  <div class="card" style="display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <div style="font-weight:800;font-size:17px" id="homeRep"></div>
+      <div style="font-size:13px;color:var(--muted)" id="homeRoute"></div>
+    </div>
+    <button class="chip" onclick="logout()">ออกจากระบบ</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="num" id="stVisits">-</div><div class="lbl">เข้าพบวันนี้</div></div>
+    <div class="stat"><div class="num" id="stOrders">-</div><div class="lbl">ออเดอร์วันนี้</div></div>
+    <div class="stat"><div class="num" id="stSales">-</div><div class="lbl">ยอดขาย (฿)</div></div>
+  </div>
+  <div id="homeFollowUp"></div>
+  <div class="menu">
+    <button onclick="openVisit()"><span class="ic">📝</span>บันทึกเข้าพบ</button>
+    <button onclick="openOrder()"><span class="ic">🛒</span>ลงออเดอร์</button>
+    <button onclick="openQuote()" id="mnQuote"><span class="ic">📄</span>ใบเสนอราคา</button>
+    <button onclick="openNewCust()"><span class="ic">➕</span>ลูกค้าใหม่</button>
+    <button onclick="openCustList()"><span class="ic">📋</span>ลูกค้าในสาย</button>
+    <button onclick="openOrders()"><span class="ic">📦</span>ออเดอร์ทั้งหมด</button>
+    <button onclick="openRounds()" id="mnRounds" class="hidden"><span class="ic">🚚</span>จัดรอบส่ง</button>
+    <button onclick="openSummary()"><span class="ic">📊</span>ยอดสะสม</button>
+    <button onclick="openToday()"><span class="ic">🕒</span>วันนี้ของฉัน</button>
+    <button onclick="openCalendar()"><span class="ic">📅</span>ปฏิทินนัด</button>
+    <button onclick="openLeave()"><span class="ic">🏖</span>วันลา</button>
+    <button onclick="openVan()" id="mnVan" style="grid-column:1/-1"><span class="ic">🛻</span>รถเร่ (ขึ้นของ · ขายหน้ารถ · คืนของ)</button>
+  </div>
+</div>
+
+<!-- ============ VAN (รถเร่) ============ -->
+<div id="pgVan" class="page hidden">
+  <div class="stats">
+    <div class="stat"><div class="num" id="vanOnTruck">-</div><div class="lbl">บนรถ (แพ็ค)</div></div>
+    <div class="stat"><div class="num" id="vanSoldToday">-</div><div class="lbl">ขายวันนี้ (แพ็ค)</div></div>
+    <div class="stat"><div class="num" id="vanCashToday">-</div><div class="lbl">เงินวันนี้ (฿)</div></div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <label style="margin-top:0">⚡ ขายหน้ารถ (กดจบใน 10 วิ)</label>
+    <div style="margin-bottom:8px">
+      <button class="chip" type="button" id="vanCustToggle" onclick="toggleVanCust()">＋ ผูกลูกค้าประจำ (ไม่ผูก = ขายเร่ทั่วไป)</button>
+    </div>
+    <div id="vanCustPicker" class="hidden" style="margin-bottom:10px"></div>
+    <div class="item-head"><span>สินค้า</span><span>จำนวน</span><span>ราคา/หน่วย</span><span></span></div>
+    <div id="vanSaleItems"></div>
+    <button class="btn btn-ghost" style="margin-top:8px;padding:10px" onclick="addItemRow('vanSaleItems','vanSaleTotal')">＋ เพิ่มสินค้า</button>
+    <div class="total-bar"><span>ยอดรวม</span><span class="amt" id="vanSaleTotal">฿0</span></div>
+    <label>รับเงินแบบ</label>
+    <div class="chips" id="vanPay"></div>
+    <button class="btn btn-primary" id="btnVanSale" onclick="saveVanSale()">💰 บันทึกขาย</button>
+  </div>
+
+  <div class="card">
+    <label style="margin-top:0">📦 ของบนรถตอนนี้</label>
+    <div id="vanStockList"></div>
+  </div>
+
+  <div class="card">
+    <label style="margin-top:0">🔄 ขอขึ้นของ / เติมของ / คืนของ</label>
+    <div class="chips" id="vanLoadType"></div>
+    <div class="item-head" style="grid-template-columns:1fr 74px 28px"><span>สินค้า</span><span>จำนวน</span><span></span></div>
+    <div id="vanLoadItems"></div>
+    <button class="btn btn-ghost" style="margin-top:8px;padding:10px" onclick="addVanLoadRow()">＋ เพิ่มรายการ</button>
+    <label>หมายเหตุถึงคนนับสต๊อก</label>
+    <input id="vanLoadNote" placeholder="เช่น ขึ้นของรอบเย็น พรุ่งนี้วิ่งสายแม่ทะ">
+    <button class="btn btn-primary" id="btnVanLoad" onclick="saveVanLoad()">📨 ส่งให้คนนับสต๊อกเช็ค</button>
+  </div>
+
+  <div class="sec-title">⏳ คำขอที่รอคนนับสต๊อกยืนยัน</div>
+  <div id="vanPendingList"></div>
+
+  <button class="btn btn-ghost" onclick="openVanClose()">📋 ปิดยอดวันนี้ (สรุปให้คนนับสต๊อกตรวจเงิน+ของ)</button>
+  <div id="vanCloseWrap"></div>
+</div>
+
+<!-- ============ SUMMARY (ยอดขายสะสม) ============ -->
+<div id="pgSummary" class="page hidden">
+  <div class="card" style="padding:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <button class="chip" onclick="sumShift(-1)">‹</button>
+      <div style="font-weight:800;font-size:16px" id="sumTitle"></div>
+      <button class="chip" onclick="sumShift(1)">›</button>
+    </div>
+    <div class="chips" id="sumScope" style="margin-top:10px"></div>
+  </div>
+  <div id="sumBody"><div class="spin"></div></div>
+</div>
+
+<!-- ============ CALENDAR (ปฏิทินนัด) ============ -->
+<div id="pgCalendar" class="page hidden">
+  <div class="card" style="padding:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <button class="chip" onclick="calShift(-1)">‹</button>
+      <div style="font-weight:800;font-size:16px" id="calTitle"></div>
+      <button class="chip" onclick="calShift(1)">›</button>
+    </div>
+    <div id="calOverdue" style="margin-top:8px"></div>
+    <div id="calGridWrap"><div class="spin"></div></div>
+    <div class="cal-legend">
+      <span><i style="background:#EF9F27"></i>นัดติดตาม</span>
+      <span><i style="background:#E24B4A"></i>เลยนัด</span>
+      <span><i style="background:#378ADD"></i>ส่ง OEM</span>
+      <span><i style="background:#7F77DD"></i>นัดเอง</span>
+      <button class="chip" id="calVisitToggle" style="padding:4px 10px;font-size:11px" onclick="toggleCalVisits()">แสดงเข้าพบแล้ว</button>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <div class="sec-title" style="margin:0" id="calDayTitle"></div>
+    <button class="chip" onclick="toggleApptForm()">＋ เพิ่มนัด</button>
+  </div>
+  <div class="card hidden" id="apptForm">
+    <label>เรื่องที่นัด *</label>
+    <input id="apptTitle" placeholder="เช่น เก็บเช็คร้านโสมสิริ / ส่งของเอง">
+    <label>หมายเหตุ</label>
+    <input id="apptNote" placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)">
+    <button class="btn btn-primary" id="btnSaveAppt" onclick="saveAppt()">✅ บันทึกนัด</button>
+  </div>
+  <div id="calDayList"></div>
+</div>
+
+<!-- ============ LEAVE (วันลา) ============ -->
+<div id="pgLeave" class="page hidden">
+  <div class="card" style="padding:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <button class="chip" onclick="lvShift(-1)">‹</button>
+      <div style="font-weight:800;font-size:16px" id="lvTitle"></div>
+      <button class="chip" onclick="lvShift(1)">›</button>
+    </div>
+    <div id="lvGridWrap" style="margin-top:8px"><div class="spin"></div></div>
+    <div class="cal-legend">
+      <span><i style="background:#F09595"></i>วันหยุดประจำ (อาทิตย์)</span>
+      <span><i style="background:#1D9E75"></i>วันลาของฉัน</span>
+      <span id="lvTeamLegend" class="hidden"><i style="background:#378ADD"></i>ทีมลา</span>
+      <span style="color:var(--brand-dark);font-weight:700">⬤ วันนี้</span>
+    </div>
+  </div>
+  <div class="sec-title" id="lvDayTitle"></div>
+  <div id="lvDayBody"></div>
+</div>
+
+<!-- ============ ORDERS (รวมออเดอร์) ============ -->
+<div id="pgOrders" class="page hidden">
+  <div class="chips" id="ordStatusChips" style="margin-bottom:10px"></div>
+  <div style="margin-bottom:10px">
+    <button class="chip on" id="ordMineBtn" onclick="toggleOrdMine()">เฉพาะของฉัน</button>
+  </div>
+  <div id="ordersWrap"><div class="spin"></div></div>
+</div>
+
+<!-- ============ ORDER EDIT ============ -->
+<div id="pgOrderEdit" class="page hidden">
+  <div class="card">
+    <div id="oeInfo"></div>
+    <label>สถานะออเดอร์</label>
+    <div class="chips" id="oeStatus"></div>
+    <label>การชำระเงิน</label>
+    <div class="chips" id="oePayment"></div>
+    <label>หมายเหตุ</label>
+    <textarea id="oeNote"></textarea>
+    <button class="btn btn-primary" id="btnSaveOe" onclick="saveOrderEdit()">💾 บันทึกการแก้ไข</button>
+  </div>
+</div>
+
+<!-- ============ REASSIGN (ย้ายลีด) ============ -->
+<div id="pgReassign" class="page hidden">
+  <div class="card">
+    <div id="raInfo"></div>
+    <div style="background:#FEF3C7;color:#92400E;border-radius:10px;padding:10px 12px;font-size:13px;margin-top:10px">
+      ⚠️ ย้ายลีดแล้วยอดออเดอร์นี้จะนับเป็นผลงานของเซลส์คนใหม่ทันที และมีผลต่อค่าคอมของสาย
+      ระบบเก็บประวัติการย้ายทุกครั้งไว้ในชีต LeadTransfers
+    </div>
+    <label>ย้ายไปให้ใคร</label>
+    <div class="chips" id="raRep"></div>
+    <label>เหตุผล (เก็บลงประวัติ — แนะนำให้ใส่)</label>
+    <input id="raReason" placeholder="เช่น ลูกค้าอยู่เขตวิ่งของอีกคน / ตกลงกันในทีมแล้ว">
+    <button class="btn btn-primary" id="btnSaveRa" onclick="saveReassign()">🔁 ยืนยันย้ายลีด</button>
+  </div>
+</div>
+
+<!-- ============ ROUNDS (จัดรอบส่ง) ============ -->
+<div id="pgRounds" class="page hidden">
+  <div class="card">
+    <label style="margin-top:0">🚚 สร้างรอบส่งใหม่</label>
+    <div class="grid2">
+      <div><label>วันที่ส่ง</label><input type="date" id="rdDate"></div>
+      <div><label>ความจุรถ (แพ็ค)</label><input type="number" id="rdCap" value="300" min="1" oninput="updateRdBar()"></div>
+    </div>
+    <label>เลือกออเดอร์ที่จะส่งรอบนี้ (แตะเพื่อเลือก · จัดกลุ่มตามสาย)</label>
+    <div id="rdPendingWrap"><div class="spin"></div></div>
+    <div id="rdCapBar" style="margin-top:10px"></div>
+    <div id="rdStockWarn"></div>
+    <label>หมายเหตุ (ถ้ามี)</label>
+    <input id="rdNote" placeholder="เช่น รถกระบะเล็ก / แวะเก็บเช็คร้านโสมสิริ">
+    <button class="btn btn-primary" id="btnSaveRound" onclick="saveRoundUI()">💾 บันทึกรอบส่ง</button>
+  </div>
+  <div class="sec-title">รอบส่งที่วางไว้</div>
+  <div id="rdRoundsWrap"></div>
+</div>
+
+<!-- ============ VISIT ============ -->
+<div id="pgVisit" class="page hidden">
+  <div class="card">
+    <label>ลูกค้า</label>
+    <div id="visitPicker"></div>
+    <label>ผลการเข้าพบ</label>
+    <div class="chips" id="visitOutcomes"></div>
+    <label>สินค้าที่ลูกค้าสนใจ (ถ้ามี)</label>
+    <div class="chips" id="visitInterest"></div>
+    <label>โอกาสสั่งซื้อ</label>
+    <div class="chips" id="visitProb"></div>
+
+    <button type="button" class="sec-toggle" id="compToggle" onclick="toggleComp()">🔍 ลูกค้ารับน้ำเจ้าไหนอยู่บ้าง ▾</button>
+    <div class="sec-body hidden" id="compBody">
+      <div id="compList"></div>
+      <label>แบรนด์ที่รับอยู่</label>
+      <div class="chips" id="compBrandChips"></div>
+      <input id="compBrand" placeholder="หรือพิมพ์ชื่อแบรนด์อื่น" style="margin-top:8px">
+      <label>ขนาด</label>
+      <div class="chips" id="compSizeChips"></div>
+      <div class="grid2">
+        <div><label>ซื้อมา (บ./หน่วย)</label><input id="compBuy" type="tel" inputmode="decimal" placeholder="เช่น 22"></div>
+        <div><label>ขายต่อ (บ./หน่วย)</label><input id="compSell" type="tel" inputmode="decimal" placeholder="เช่น 35"></div>
+      </div>
+      <label>ปริมาณที่รับ ต่อเดือน</label>
+      <div class="grid2">
+        <input id="compVolume" type="tel" inputmode="numeric" placeholder="เช่น 100">
+        <div class="chips" id="compUnitChips" style="margin-top:0"></div>
+      </div>
+      <label>ความถี่การสั่ง</label>
+      <div class="chips" id="compFreqChips"></div>
+      <button class="btn btn-ghost" style="padding:10px" type="button" onclick="addCompItem()">＋ เพิ่มรายการนี้เข้าลิสต์</button>
+    </div>
+
+    <label>รูปหน้าร้าน (ถ้ามี)</label>
+    <div class="photo-row">
+      <button class="chip" type="button" onclick="document.getElementById('visitPhotoCam').click()">📷 ถ่ายรูป</button>
+      <button class="chip" type="button" onclick="document.getElementById('visitPhotoGal').click()">🖼 เลือกจากเครื่อง</button>
+      <img id="visitPhotoPreview" class="hidden" alt="รูปหน้าร้าน">
+      <input type="file" id="visitPhotoCam" accept="image/*" capture="environment" class="hidden">
+      <input type="file" id="visitPhotoGal" accept="image/*" class="hidden">
+    </div>
+
+    <div id="visitGpsSection">
+      <label>พิกัดร้าน (ใช้จัดส่ง/จัดสายวิ่ง)</label>
+      <div class="gps-line">
+        <span class="st" id="visitGpsStatus">กำลังหาตำแหน่ง...</span>
+        <button class="chip" type="button" onclick="checkVisitMap()">🗺 เช็ค/ขยับหมุด</button>
+        <button class="chip on" type="button" id="visitGpsToggle" onclick="toggleVisitGps()">บันทึกพิกัด ✓</button>
+      </div>
+      <div id="visitMap" class="map-box hidden"></div>
+      <div id="visitMapHint" class="map-hint hidden">ลากหมุด หรือแตะบนแผนที่ เพื่อย้ายตำแหน่งให้ตรงหน้าร้าน</div>
+      <input id="visitGpsManual" placeholder="📍 วางลิงก์ Google Maps ของร้าน (แม่นสุด)" style="margin-top:8px"
+             oninput="handleMapsInput(this.value, setVisitGps, document.getElementById('visitGpsStatus'))">
+      <div class="map-hint">แนะนำ: เปิด Google Maps → ปักหมุดร้าน → แชร์ → คัดลอกลิงก์ → วางตรงนี้</div>
+    </div>
+
+    <label>หมายเหตุ</label>
+    <textarea id="visitNote" placeholder="เช่น เจ้าของไม่อยู่ คุยกับลูกน้อง / นัดคุยราคาอีกที"></textarea>
+    <label>วันนัดติดตาม (ถ้ามี)</label>
+    <input type="date" id="visitFollowUp">
+    <button class="btn btn-primary" id="btnSaveVisit" onclick="saveVisit()">✅ บันทึกการเข้าพบ</button>
+  </div>
+</div>
+
+<!-- ============ ORDER ============ -->
+<div id="pgOrder" class="page hidden">
+  <div class="card">
+    <label>ประเภทออเดอร์</label>
+    <div class="chips" id="orderTypeChips"></div>
+    <label>ลูกค้า</label>
+    <div id="orderPicker"></div>
+
+    <div id="orderBrandSec">
+      <label>รายการสินค้า (ราคาแก้ได้ตามที่ตกลงจริง)</label>
+      <div class="item-head"><span>สินค้า</span><span>จำนวน</span><span>ราคา/หน่วย</span><span></span></div>
+      <div id="orderItems"></div>
+      <button class="btn btn-ghost" style="margin-top:8px;padding:10px" onclick="addItemRow('orderItems','orderTotal')">＋ เพิ่มสินค้า</button>
+      <div class="total-bar"><span>ยอดรวม</span><span class="amt" id="orderTotal">฿0</span></div>
+    </div>
+
+    <div id="orderOemSec" class="hidden">
+      <label>ชื่อแบรนด์ของลูกค้า (ที่จะสวมฉลาก)</label>
+      <input id="oemBrand" placeholder="เช่น น้ำดื่มบุญวาทย์">
+      <label>ขนาดขวด</label>
+      <div class="chips" id="oemSizeChips"></div>
+      <div class="grid2">
+        <div><label>จำนวน</label><input id="oemQty" type="tel" inputmode="numeric" placeholder="เช่น 500" oninput="calcOemTotal()"></div>
+        <div><label>หน่วย</label><div class="chips" id="oemUnitChips" style="margin-top:6px"></div></div>
+      </div>
+      <label>ราคา/หน่วย (บาท)</label>
+      <input id="oemPrice" type="tel" inputmode="decimal" placeholder="เช่น 25" oninput="calcOemTotal()">
+      <div class="total-bar"><span>ยอดรวม</span><span class="amt" id="oemTotal">฿0</span></div>
+      <label>กำหนดส่ง (ปกติผลิต ~10 วัน: ทำแบบ 3 + อย. 3 + ผลิต)</label>
+      <input type="date" id="oemDue">
+    </div>
+
+    <label>การชำระเงิน</label>
+    <div class="chips" id="orderPayment"></div>
+    <label>หมายเหตุ</label>
+    <textarea id="orderNote" placeholder="เช่น ส่งวันศุกร์ / โทรก่อนส่ง"></textarea>
+    <button class="btn btn-primary" id="btnSaveOrder" onclick="saveOrder()">✅ ยืนยันออเดอร์</button>
+  </div>
+</div>
+
+<!-- ============ QUOTE ============ -->
+<div id="pgQuote" class="page hidden">
+  <div class="card">
+    <label>ลูกค้า</label>
+    <div id="quotePicker"></div>
+    <label>รายการสินค้า</label>
+    <div class="item-head"><span>สินค้า</span><span>จำนวน</span><span>ราคา/หน่วย</span><span></span></div>
+    <div id="quoteItems"></div>
+    <button class="btn btn-ghost" style="margin-top:8px;padding:10px" onclick="addItemRow('quoteItems','quoteTotal')">＋ เพิ่มสินค้า</button>
+    <div class="total-bar"><span>ยอดรวม</span><span class="amt" id="quoteTotal">฿0</span></div>
+    <label>ยืนราคา (วัน)</label>
+    <div class="chips" id="quoteValid"></div>
+    <label>หมายเหตุ / เงื่อนไข</label>
+    <textarea id="quoteNote" placeholder="เช่น ราคารวมส่ง ขั้นต่ำ 50 แพ็ค/ครั้ง"></textarea>
+    <button class="btn btn-primary" id="btnSaveQuote" onclick="saveQuote()">📄 สร้างใบเสนอราคา</button>
+  </div>
+</div>
+
+<!-- ============ QUOTE DONE ============ -->
+<div id="pgQuoteDone" class="page hidden">
+  <div class="card">
+    <a id="btnQuotePdf" class="btn btn-primary hidden" target="_blank"
+       style="text-align:center;text-decoration:none;margin-top:0">📄 เปิดไฟล์ PDF ใบเสนอราคา</a>
+    <div class="quote-paper" id="quotePaper" style="margin-top:12px"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="copyQuote()">📋 คัดลอก</button>
+      <button class="btn btn-ghost" id="btnShareQuote" onclick="shareQuote()">↗️ แชร์</button>
+    </div>
+    <button class="btn btn-ghost" onclick="goHome()">กลับหน้าแรก</button>
+  </div>
+</div>
+
+<!-- ============ NEW / EDIT CUSTOMER ============ -->
+<div id="pgNewCust" class="page hidden">
+  <div class="card">
+    <label>ชื่อลูกค้า / ร้าน *</label>
+    <input id="ncName" placeholder="เช่น โรงน้ำดื่มใจดี">
+    <label>ประเภท</label>
+    <select id="ncType"></select>
+    <label>อำเภอ</label>
+    <select id="ncDistrict"></select>
+    <label>ที่อยู่</label>
+    <input id="ncAddress" placeholder="บ้านเลขที่ หมู่ ตำบล">
+    <label>ชื่อผู้ติดต่อ</label>
+    <input id="ncContact" placeholder="เช่น คุณสมชาย">
+    <label>เบอร์โทร</label>
+    <input id="ncPhone" type="tel" placeholder="08x-xxx-xxxx">
+    <label>พิกัดร้าน (ใช้จัดส่ง/จัดสายวิ่ง)</label>
+    <div class="gps-line">
+      <span class="st" id="ncGpsStatus">ยังไม่มีพิกัด</span>
+      <button class="chip" type="button" onclick="pinNcGps()">📍 ปักหมุดตรงนี้</button>
+      <button class="chip" type="button" onclick="checkNcMap()">🗺 เช็ค</button>
+    </div>
+    <div id="ncMap" class="map-box hidden"></div>
+    <div id="ncMapHint" class="map-hint hidden">ลากหมุด หรือแตะบนแผนที่ เพื่อย้ายตำแหน่งให้ตรงหน้าร้าน</div>
+    <input id="ncGpsManual" placeholder="หรือวางพิกัด/ลิงก์ Google Maps" style="margin-top:8px" oninput="parseNcGpsManual()">
+    <label>ศักยภาพ</label>
+    <div class="chips" id="ncGrade"></div>
+    <div id="ncStatusWrap" class="hidden">
+      <label>สถานะ</label>
+      <div class="chips" id="ncStatus"></div>
+    </div>
+    <label>หมายเหตุ</label>
+    <textarea id="ncNote" placeholder="ข้อมูลเพิ่มเติม"></textarea>
+    <button class="btn btn-primary" id="btnSaveCust" onclick="saveCustomer()">✅ เพิ่มลูกค้า</button>
+  </div>
+</div>
+
+<!-- ============ CUSTOMER LIST ============ -->
+<div id="pgCustList" class="page hidden">
+  <div class="filter-row">
+    <input id="clSearch" placeholder="🔍 ค้นหาชื่อลูกค้า..." oninput="renderCustList()" style="flex:2">
+    <select id="clStatus" onchange="renderCustList()" style="flex:1">
+      <option value="">ทุกสถานะ</option>
+      <option>สนใจ</option><option>รอติดตาม</option><option>Prospect</option>
+      <option>Active</option><option>ไม่สนใจ</option>
+    </select>
+  </div>
+  <div class="chips" id="clGrade" style="margin-bottom:10px"></div>
+  <div id="clScopeNote" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+  <div id="custListWrap"></div>
+</div>
+
+<!-- ============ TODAY (สรุปวัน + แก้ไข/ยกเลิก) ============ -->
+<div id="pgToday" class="page hidden">
+  <div id="todaySummary"></div>
+  <div class="sec-title">📝 บันทึกเข้าพบวันนี้ — กดการ์ดเพื่อดูแบบเต็ม</div>
+  <div id="todayVisits"></div>
+  <div class="sec-title">🛒 ออเดอร์วันนี้ — กดเพื่อดูรายการสินค้า</div>
+  <div id="todayOrders"></div>
+</div>
+
+<!-- ============ VISIT DETAIL (หน้าพรีเซนต์) ============ -->
+<div id="pgVisitDetail" class="page hidden">
+  <div class="vd-hero" id="vdHero"></div>
+  <div id="vdBody"></div>
+</div>
+
+<!-- ============ CUSTOMER DETAIL (ทบทวนการบ้าน) ============ -->
+<div id="pgCustDetail" class="page hidden">
+  <div class="vd-hero" id="cdHero"></div>
+  <div id="cdBody"></div>
+  <div id="cdHistory"><div class="spin"></div></div>
+</div>
+
+<div id="pgLoading" class="page"><div class="spin"></div></div>
+
+<script>
+// ============================================================
+// API bridge — google.script.run บน Apps Script / mock ตอนพรีวิว
+// ============================================================
+const IS_GAS = typeof google !== "undefined" && google.script && google.script.run;
+
+const MOCK = {
+  reps: [
+    { id: "R01", name: "เซลส์ 1 (ตัวอย่าง)", route: "1", hasPin: true, role: "เซลส์" },
+    { id: "R02", name: "เซลส์ 2 (ตัวอย่าง)", route: "2", hasPin: true, role: "เซลส์" },
+    { id: "R03", name: "หัวหน้าสาย (ตัวอย่าง)", route: "1,2", hasPin: true, role: "หัวหน้าสาย" },
+    { id: "R04", name: "วุดดี้ (ตัวอย่างเซลส์เร่)", route: "1", hasPin: true, role: "เซลส์เร่" },
+    { id: "R05", name: "ผู้จัดการ (ตัวอย่าง)", route: "KA", hasPin: true, role: "ผู้จัดการ" },
+  ],
+  routes: [
+    { route: "1", zone: "โซนเมือง", districts: "เมืองลำปาง", target: "15-20" },
+    { route: "2", zone: "โซนตะวันตก", districts: "ห้างฉัตร, เกาะคา, เสริมงาม", target: "10-15" },
+    { route: "3", zone: "โซนตะวันออก", districts: "แม่ทะ, แม่เมาะ, แจ้ห่ม, เมืองปาน", target: "10-15" },
+    { route: "4", zone: "โซนเหนือ-ใต้", districts: "วังเหนือ, งาว, เถิน, สบปราบ, แม่พริก", target: "10-15" },
+    { route: "KA", zone: "Key Account", districts: "ทุกอำเภอ", target: "-" },
+  ],
+  customers: [
+    { id: "SC005", name: "โรงน้ำชานนท์", type: "โรงน้ำ", district: "เมือง", phone: "", rep: "เซลส์ 1 (ตัวอย่าง)", route: "1", grade: "A", status: "สนใจ", address: "", contact: "", note: "", lat: 18.2888, lng: 99.4909,
+      compItems: [{ brand: "เมาท์เท่น", size: "600 ml", buy: "20", sell: "", volume: "100 โหล/เดือน", freq: "ทุกวัน" }] },
+    { id: "SC012", name: "น้ำดื่มสปริงเกอร์ แม่หล้า", type: "โรงน้ำ", district: "เมือง", phone: "", rep: "เซลส์ 1 (ตัวอย่าง)", route: "1", grade: "A", status: "สนใจ", address: "", contact: "", note: "", lat: "", lng: "", compItems: [] },
+    { id: "SC010", name: "โรงน้ำดื่มคอปแอนด์คิน", type: "โรงน้ำ", district: "เมือง", phone: "", rep: "เซลส์ 1 (ตัวอย่าง)", route: "1", grade: "B", status: "รอติดตาม", address: "", contact: "", note: "", lat: "", lng: "",
+      compItems: [
+        { brand: "เมาท์เท่น", size: "250 ml", buy: "22", sell: "35", volume: "500 โหล/เดือน", freq: "ทุกสัปดาห์" },
+        { brand: "เมาท์เท่น", size: "600 ml", buy: "25", sell: "40", volume: "50 โหล/เดือน", freq: "ทุกสัปดาห์" },
+      ] },
+    { id: "SC002", name: "โรงน้ำดื่มบ้านบ่อแฮ้ว", type: "โรงน้ำ", district: "เมือง", phone: "084-372-3102", rep: "เซลส์ 1 (ตัวอย่าง)", route: "1", grade: "C", status: "ไม่สนใจ", address: "ม.2 ต.บ่อแฮ้ว", contact: "", note: "", lat: "", lng: "", compItems: [] },
+  ],
+  products: [
+    { id: "dd39aef6", brand: "ละกอน", name: "ละกอน 250 ml ฉลาก", price: 64, stock: 56 },
+    { id: "cd0807cb", brand: "ละกอน", name: "ละกอน 600 ml ฉลาก", price: 66, stock: 56 },
+    { id: "b78ae648", brand: "เพียวซ่า", name: "เพียวซ่า 250 ml สกรีน", price: 57, stock: 56 },
+    { id: "e1942e3f", brand: "เพียวซ่า", name: "เพียวซ่า 600 ml สกรีน", price: 60, stock: 56 },
+  ],
+  todayVisits: [
+    { visitId: "V-M1", customerId: "SC005", customerName: "โรงน้ำชานนท์", outcome: "สนใจ", interest: "", note: "คุยราคาแล้ว", followUp: "", probability: 70, photoUrl: "" },
+  ],
+  todayOrders: [
+    { orderId: "SO-M1", customerName: "โรงน้ำชานนท์", total: 2750, payment: "เก็บหน้างาน", status: "Pending", type: "brand",
+      lat: 18.2888, lng: 99.4909, mapsUrl: "https://maps.app.goo.gl/MOCKCHANON",
+      items: [{ name: "ละกอน 250 ml ฉลาก", qty: 25, unit: "แพ็ค", unitPrice: 64 },
+              { name: "ละกอน 600 ml ฉลาก", qty: 17, unit: "แพ็ค", unitPrice: 66 }] },
+  ],
+};
+
+function api(fn, ...args) {
+  if (IS_GAS) {
+    return new Promise((resolve, reject) =>
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args));
+  }
+  return new Promise(resolve => setTimeout(() => {
+    const a = args[0] || {};
+    const dstr = off => { const d = new Date(); d.setDate(d.getDate() + off); return d.toISOString().slice(0, 10); };
+    if (fn === "getInit")    resolve(JSON.parse(JSON.stringify(MOCK)));
+    if (fn === "login")      { const r = MOCK.reps.find(x => x.id === args[0]); resolve({ success: true, rep: { ...r, routes: String(r.route).split(","), teamSize: 2 } }); }
+    if (fn === "resolveMapsLink") resolve({ success: true, lat: 18.2916, lng: 99.4913, mapsUrl: args[0] });
+    if (fn === "getSalesSummary") {
+      const scope = args[2] || "me";
+      const s = { month: args[1], role: ME ? ME.role : "เซลส์", scope,
+        total: 45900, units: { "โหล": 320, "แพ็ค": 210 }, orders: 12, customers: 8, visits: 46, newCust: 5,
+        byRep: [
+          { rep: "เซลส์ 1 (ตัวอย่าง)", route: "1", total: 28100, units: { "โหล": 200, "แพ็ค": 110 }, orders: 7 },
+          { rep: "เซลส์ 2 (ตัวอย่าง)", route: "2", total: 17800, units: { "โหล": 120, "แพ็ค": 100 }, orders: 5 },
+        ],
+        byRoute: [{ route: "1", total: 28100 }, { route: "2", total: 17800 }],
+        byProduct: [
+          { name: "เพียวซ่า 250 ml สกรีน", qty: 320, unit: "โหล", total: 18240 },
+          { name: "ละกอน 600 ml ฉลาก", qty: 180, unit: "แพ็ค", total: 11880 },
+        ] };
+      if (scope === "me") { s.total = 28100; s.units = { "โหล": 200, "แพ็ค": 110 }; s.orders = 7; s.byRep = []; s.byRoute = []; }
+      resolve(s);
+    }
+    if (fn === "getMyStats") resolve({ visits: MOCK.todayVisits.length, orders: MOCK.todayOrders.filter(o=>o.status!=="Cancelled").length, sales: 2750 });
+    if (fn === "getMyToday") resolve(JSON.parse(JSON.stringify({ visits: MOCK.todayVisits, orders: MOCK.todayOrders })));
+    if (fn === "getCustomerHistory") resolve({
+      visits: [
+        { visitId: "V-H1", date: "2026-07-17", rep: "เซลส์ 1", outcome: "สนใจ", note: "คุยราคาแล้ว ติดขั้นต่ำ", followUp: "2026-07-24", probability: 70, photoUrl: "" },
+        { visitId: "V-H2", date: "2026-07-10", rep: "เซลส์ 1", outcome: "ไม่อยู่", note: "", followUp: "", probability: "", photoUrl: "" },
+      ],
+      orders: [{ orderId: "SO-H1", date: "2026-07-17", total: 2750, status: "Pending", oem: false }],
+      quotes: [{ quoteId: "QT-H1", date: "2026-07-17", total: 6600, pdfUrl: "https://drive.google.com/file/d/MOCK/view" }],
+    });
+    if (fn === "getCalendar") {
+      const m = args[1];
+      const evs = [
+        { type: "fu", date: dstr(-2), customerId: "SC005", customerName: "โรงน้ำชานนท์", outcome: "สนใจ", probability: 70, note: "รอคุยขั้นต่ำ" },
+        { type: "fu", date: dstr(0), customerId: "SC012", customerName: "น้ำดื่มสปริงเกอร์ แม่หล้า", outcome: "ขอใบเสนอราคา", probability: 90, note: "" },
+        { type: "fu", date: dstr(3), customerId: "SC010", customerName: "โรงน้ำดื่มคอปแอนด์คิน", outcome: "รอติดตาม", probability: 50, note: "" },
+        { type: "oem", date: dstr(4), orderId: "OEM-M1", customerName: "โรงน้ำชานนท์", clientBrand: "น้ำดื่มบุญวาทย์", total: 12500, status: "รอผลิต" },
+        { type: "visit", date: dstr(-3), customerId: "SC002", customerName: "โรงน้ำดื่มบ้านบ่อแฮ้ว", outcome: "ไม่สนใจ" },
+      ].concat((MOCK.appts || []).filter(a => a.status === "Active").map(a =>
+        ({ type: "appt", date: a.date, apptId: a.apptId, title: a.title, note: a.note })));
+      resolve({ month: m, today: dstr(0),
+        events: evs.filter(e => String(e.date).slice(0, 7) === m),
+        overdue: evs.filter(e => e.type === "fu" && e.date < dstr(0)) });
+    }
+    if (fn === "addAppointment") { MOCK.appts = MOCK.appts || []; MOCK.appts.push({ apptId: "AP-M" + Date.now(), date: a.date, title: a.title, note: a.note, status: "Active" }); resolve({ success: true }); }
+    if (fn === "updateAppointment") { const t = (MOCK.appts || []).find(x => x.apptId === args[0]); if (t) t.status = args[1]; resolve({ success: true }); }
+    if (fn === "getLeaves") {
+      MOCK.leaves = MOCK.leaves || [{ leaveId: "LV-M1", date: dstr(5), type: "ลากิจ", note: "ไปธุระ", status: "Active" }];
+      const isBoss = ME && ME.role !== "เซลส์";
+      resolve({ month: args[1], today: dstr(0),
+        leaves: MOCK.leaves.filter(l => l.status === "Active" && String(l.date).slice(0, 7) === args[1]),
+        team: isBoss ? [
+          { date: dstr(1), rep: "เซลส์ 1 (ตัวอย่าง)", type: "ลาป่วย" },
+          { date: dstr(1), rep: "เซลส์ 2 (ตัวอย่าง)", type: "ลากิจ" },
+          { date: dstr(6), rep: "เซลส์ 2 (ตัวอย่าง)", type: "พักร้อน" },
+        ].filter(t => String(t.date).slice(0, 7) === args[1]) : [] });
+    }
+    if (fn === "addLeave") { MOCK.leaves = MOCK.leaves || []; if (MOCK.leaves.some(l => l.date === a.date && l.status === "Active")) { resolve({ success: false, error: "วันนี้บุ๊คลาไว้แล้ว" }); } else { MOCK.leaves.push({ leaveId: "LV-M" + Date.now(), date: a.date, type: a.type, note: a.note, status: "Active" }); resolve({ success: true }); } }
+    if (fn === "cancelLeave") { const t = (MOCK.leaves || []).find(x => x.leaveId === args[0]); if (t) t.status = "Cancelled"; resolve({ success: true }); }
+    if (fn === "getVanState") {
+      MOCK.van = MOCK.van || {
+        vanStock: [
+          { productId: "dd39aef6", name: "ละกอน 250 ml ฉลาก", qty: 40 },
+          { productId: "cd0807cb", name: "ละกอน 600 ml ฉลาก", qty: 25 },
+        ],
+        pending: [{ loadId: "VL-M1", type: "เติมของ", date: dstr(0), note: "เติมรอบบ่าย",
+          items: [{ productId: "b78ae648", name: "เพียวซ่า 250 ml สกรีน", qty: 30 }] }],
+        todayPacks: 12, todayCash: 780,
+      };
+      resolve(JSON.parse(JSON.stringify(MOCK.van)));
+    }
+    if (fn === "addVanLoad") { MOCK.van.pending.unshift({ loadId: "VL-M" + Date.now(), type: a.type, date: dstr(0), note: a.note, items: a.items.map(i => ({ productId: i.productId, name: i.productName, qty: i.qty })) }); resolve({ success: true }); }
+    if (fn === "cancelVanLoad") { MOCK.van.pending = MOCK.van.pending.filter(p => p.loadId !== args[0]); resolve({ success: true }); }
+    if (fn === "addVanSale") { let t = 0; a.items.forEach(i => { t += i.qty * i.unitPrice; const on = MOCK.van.vanStock.find(x => x.productId === i.productId); if (on) on.qty -= i.qty; MOCK.van.todayPacks += i.qty; }); MOCK.van.todayCash += t; resolve({ success: true, orderId: "VS-MOCK", grandTotal: t }); }
+    if (fn === "getVanDaySummary") resolve({
+      date: dstr(0),
+      loads: { "ขึ้นของ": 65, "เติมของ": 30, "คืนของ": 20 },
+      pendingPacks: 10,
+      soldPacks: MOCK.van ? MOCK.van.todayPacks : 12,
+      totalCash: MOCK.van ? MOCK.van.todayCash : 780,
+      cashBy: { "เงินสด": (MOCK.van ? MOCK.van.todayCash : 780) - 200, "โอน": 200 },
+      byProduct: {
+        "ละกอน 250 ml ฉลาก": { loaded: 50, sold: 8, returned: 12 },
+        "ละกอน 600 ml ฉลาก": { loaded: 45, sold: 4, returned: 8 },
+      },
+      onTruck: MOCK.van ? MOCK.van.vanStock.reduce((s, x) => s + x.qty, 0) : 65,
+    });
+    if (fn === "getRoundPlanning") {
+      MOCK.rp = MOCK.rp || {
+        success: true,
+        pending: [
+          { orderId: "SO-M1", date: dstr(0),  rep: "เซลส์ 1 (ตัวอย่าง)", customerId: "SC005", customerName: "โรงน้ำชานนท์", route: "KA", status: "Pending", packs: 120, total: 7200, products: { p1: 120 } },
+          { orderId: "SO-M2", date: dstr(0),  rep: "เซลส์ 1 (ตัวอย่าง)", customerId: "SC010", customerName: "ร้านเสกสรร 871", route: "KA", status: "Pending", packs: 40, total: 2160, products: { p2: 40 } },
+          { orderId: "SO-M3", date: dstr(-1), rep: "เซลส์ 2 (ตัวอย่าง)", customerId: "SC020", customerName: "โรงเรียนจิตต์อารีย์", route: "2", status: "Pending", packs: 90, total: 4860, products: { p1: 50, p2: 40 } },
+          { orderId: "SO-M4", date: dstr(-1), rep: "เซลส์ 2 (ตัวอย่าง)", customerId: "SC021", customerName: "มินิมาร์ทบ้านฟ่อน", route: "2", status: "Pending", packs: 200, total: 10800, products: { p2: 200 } },
+        ],
+        rounds: [
+          { roundId: "RD-M0", date: dstr(0), routes: "KA", capacity: 300, status: "กำลังส่ง", by: "คุณกอล์ฟ", note: "",
+            orders: [{ orderId: "SO-M9", customerName: "โสมสิริการค้า", route: "KA", packs: 250, total: 13500, status: "กำลังส่ง", rep: "เซลส์ 1 (ตัวอย่าง)" }] },
+        ],
+        stock: { p1: { name: "ละกอน 600 ml ฉลาก", stock: 100 }, p2: { name: "เพียวซ่า 250 ml สกรีน", stock: 500 } },
+      };
+      resolve(JSON.parse(JSON.stringify(MOCK.rp)));
+    }
+    if (fn === "saveRound") {
+      const moved = MOCK.rp.pending.filter(o => a.orderIds.indexOf(o.orderId) !== -1);
+      MOCK.rp.pending = MOCK.rp.pending.filter(o => a.orderIds.indexOf(o.orderId) === -1);
+      MOCK.rp.rounds.unshift({ roundId: "RD-M" + Date.now(), date: a.date,
+        routes: [...new Set(moved.map(o => o.route))].join(","), capacity: a.capacity,
+        status: "วางแผน", by: ME ? ME.name : "", note: a.note || "", orders: moved });
+      resolve({ success: true, roundId: "RD-MOCK", packs: moved.reduce((s, o) => s + o.packs, 0), orders: moved.length });
+    }
+    if (fn === "setRoundStatus") {
+      const rd = (MOCK.rp && MOCK.rp.rounds || []).find(x => x.roundId === args[0]);
+      if (rd) {
+        if (args[1] === "ยกเลิก") { MOCK.rp.rounds = MOCK.rp.rounds.filter(x => x !== rd); MOCK.rp.pending = MOCK.rp.pending.concat(rd.orders); }
+        else { rd.status = args[1]; rd.orders.forEach(o => o.status = args[1]); }
+      }
+      resolve({ success: true, orders: rd ? rd.orders.length : 0 });
+    }
+    if (fn === "reassignOrder") {
+      const o = (MOCK.allOrders || []).find(x => x.orderId === args[0]);
+      const from = o ? o.rep : "";
+      if (o) o.rep = args[1];
+      resolve({ success: true, from, to: args[1] });
+    }
+    if (fn === "getFollowUps") resolve({ today: dstr(0), items: [
+      { customerId: "SC005", customerName: "โรงน้ำชานนท์", followUp: dstr(-2), outcome: "สนใจ", note: "รอคุยขั้นต่ำ", probability: 70 },
+      { customerId: "SC012", customerName: "น้ำดื่มสปริงเกอร์ แม่หล้า", followUp: dstr(0), outcome: "ขอใบเสนอราคา", note: "", probability: 90 },
+      { customerId: "SC010", customerName: "โรงน้ำดื่มคอปแอนด์คิน", followUp: dstr(3), outcome: "รอติดตาม", note: "เจ้าของกลับมาปลายเดือน", probability: 50 },
+    ]});
+    if (fn === "getMyOrders") {
+      if (!MOCK.allOrders) MOCK.allOrders = MOCK.todayOrders.map(o => ({ ...o, date: dstr(0), rep: "เซลส์ 1 (ตัวอย่าง)", note: "" }))
+        .concat([{ orderId: "SO-OLD1", date: "2026-07-15", rep: "เซลส์ 1 (ตัวอย่าง)", customerName: "โรงเรียนจิตต์อารีย์", total: 5400,
+          payment: "เครดิต", status: "ส่งแล้ว", type: "brand", note: "", items: [{ name: "ละกอน 600 ml ฉลาก", qty: 100, unit: "แพ็ค", unitPrice: 54 }] }]);
+      resolve(JSON.parse(JSON.stringify(MOCK.allOrders)));
+    }
+    if (fn === "updateOrderMeta") {
+      const o = (MOCK.allOrders || []).find(x => x.orderId === args[0]);
+      if (o) Object.assign(o, args[1]);
+      const t = MOCK.todayOrders.find(x => x.orderId === args[0]);
+      if (t) Object.assign(t, args[1]);
+      resolve({ success: true });
+    }
+    const applyComp = () => { if (a.compItems) { const c = MOCK.customers.find(x=>x.id===a.customerId); if (c) c.compItems = a.compItems; } };
+    if (fn === "addVisit")   { applyComp(); MOCK.todayVisits.unshift({ visitId: "V-M" + Date.now(), customerId: a.customerId, customerName: a.customerName, outcome: a.outcome, interest: a.interest, note: a.note, followUp: a.followUp, probability: a.probability, photoUrl: a.photoBase64 ? "(mock-photo)" : "" }); resolve({ success: true, visitId: "V-MOCK" }); }
+    if (fn === "updateVisit") { applyComp(); const t = MOCK.todayVisits.find(x=>x.visitId===a.visitId); if (t) Object.assign(t, { outcome:a.outcome, interest:a.interest, note:a.note, followUp:a.followUp, probability:a.probability }); resolve({ success: true }); }
+    if (fn === "addOrder")   { const total = a.items.reduce((s,i)=>s+i.qty*i.unitPrice,0); MOCK.todayOrders.unshift({ orderId:"SO-M"+Date.now(), customerName:a.customerName, total, payment:a.payment, status:"Pending", type:"brand", items: a.items.map(i=>({ name:i.productName, qty:i.qty, unit:i.unit, unitPrice:i.unitPrice })) }); resolve({ success: true, orderId: "SO-MOCK", grandTotal: total }); }
+    if (fn === "addOemOrder") { const total = a.qty*a.unitPrice; MOCK.todayOrders.unshift({ orderId:"OEM-M"+Date.now(), customerName:a.customerName, total, payment:a.payment, status:"รอผลิต", type:"oem", due:a.dueDate, items:[{ name:(a.clientBrand||"")+" "+(a.size||""), qty:a.qty, unit:a.unit, unitPrice:a.unitPrice }] }); resolve({ success: true, orderId: "OEM-MOCK", grandTotal: total }); }
+    if (fn === "cancelOrder") { const o = MOCK.todayOrders.find(x=>x.orderId===args[0]); if (o) o.status = "Cancelled"; resolve({ success: true }); }
+    if (fn === "addCustomer") {
+      if (!a.force) {
+        const nn = String(a.name||"").toLowerCase().replace(/\s+/g,"");
+        const dups = MOCK.customers.filter(c => { const rn = String(c.name||"").toLowerCase().replace(/\s+/g,""); return nn.length>=3 && (rn.includes(nn) || nn.includes(rn)); })
+          .slice(0,3).map(c => ({ name:c.name, route:c.route||"-", rep:c.rep||"เซลส์ 1 (ตัวอย่าง)", phone:c.phone||"", why:"ชื่อคล้ายกัน" }));
+        if (dups.length) { resolve({ success:false, dup:true, matches:dups }); return; }
+      }
+      MOCK.customers.push({ id:"SC-M"+Date.now(), ...a, lat: a.gpsLat, lng: a.gpsLng, status:"Prospect" }); resolve({ success: true, customerId: MOCK.customers[MOCK.customers.length-1].id });
+    }
+    if (fn === "updateCustomer") { const c = MOCK.customers.find(x=>x.id===a.id); if (c) Object.assign(c, a, { lat: a.gpsLat || c.lat, lng: a.gpsLng || c.lng }); resolve({ success: true }); }
+    if (fn === "addQuote")   resolve({ success: true, quoteId: "QT-MOCK", total: a.items.reduce((s,i)=>s+i.qty*i.unitPrice,0), pdfUrl: "https://drive.google.com/file/d/MOCK-PDF/view" });
+  }, 250));
+}
+
+// ============================================================
+// state
+// ============================================================
+let DB = { reps: [], routes: [], customers: [], products: [] };
+let ME = null;
+let visitCust = null, orderCust = null, quoteCust = null;
+let visitOutcome = "", ncTypeVal = "โรงน้ำ", ncGradeVal = "D", ncStatusVal = "Prospect", orderPayVal = "เก็บหน้างาน";
+let visitInterestSel = new Set();
+let onlyMine = true;
+let visitProb = "", visitPhotoB64 = null, visitGpsData = null, visitSaveGps = true;
+let visitMapsUrl = "", ncMapsUrl = "";
+let ncGpsData = null;
+let sumMonth = "", sumScopeVal = "";
+let quoteValidDays = "7", lastQuoteText = "";
+let editingVisit = null;      // แก้ไขบันทึกเข้าพบ
+let editingCust = null;       // แก้ไขลูกค้า
+let afterCustSave = null;     // "visit" = กลับไปหน้าเข้าพบหลังเพิ่มลูกค้า
+let orderType = "brand";      // brand | oem
+let oemSize = "600 ml", oemUnit = "โหล";
+let compUnit = "โหล", compFreqVal = "", compSize = "600 ml";
+let compItems = [], compDirty = false;   // ลิสต์คู่แข่งของลูกค้าที่เลือก (หลายรายการ)
+let clGradeVal = "ทั้งหมด";              // ฟิลเตอร์ศักยภาพในหน้ารายชื่อลูกค้า
+let ordersData = [], ordStatus = "ทั้งหมด", ordMine = true; // หน้ารวมออเดอร์
+let oeOrder = null;                       // ออเดอร์ที่กำลังแก้ไข
+
+const BRAND_EDIT_STATUSES = ["Pending", "กำลังส่ง", "ส่งแล้ว", "เก็บเงินแล้ว"];
+const OEM_EDIT_STATUSES   = ["รอผลิต", "กำลังผลิต", "ส่งแล้ว", "เก็บเงินแล้ว"];
+const STATUS_ORDER = ["Pending", "รอผลิต", "กำลังผลิต", "กำลังส่ง", "ส่งแล้ว", "เก็บเงินแล้ว", "Cancelled"];
+
+const OUTCOMES   = ["สั่งซื้อ", "สนใจ", "ขอใบเสนอราคา", "รอติดตาม", "ไม่สนใจ", "ไม่อยู่"];
+const PROBS      = ["10%", "30%", "50%", "70%", "90%"];
+const VALIDDAYS  = ["7", "15", "30"];
+const TYPES      = ["โรงน้ำ", "ร้านค้าส่ง", "โชห่วย", "ร้านอาหาร", "คาเฟ่", "โรงแรม", "โรงพยาบาล", "โรงเรียน", "โรงงาน", "ราชการ"];
+const GRADES     = ["A+", "A", "B", "C", "D"];
+const STATUSES   = ["Prospect", "สนใจ", "รอติดตาม", "Active", "ไม่สนใจ"];
+const PAYMENTS   = ["เก็บหน้างาน", "มัดจำ 50%", "โอนก่อนส่ง", "เครดิต"];
+const OEM_PAY    = ["มัดจำ 50%", "จ่ายเต็มก่อนผลิต", "เครดิต"];
+const OEM_SIZES  = ["250 ml", "350 ml", "600 ml", "1500 ml"];
+const UNITS      = ["โหล", "แพ็ค"];
+const COMP_BRANDS = ["เมาท์เท่น", "สปริงเคิล", "คริสตัล", "ไม่มีเจ้าประจำ"];
+const COMP_FREQS  = ["ทุกวัน", "ทุกสัปดาห์", "ทุก 2 สัปดาห์", "รายเดือน"];
+const COMP_SIZES  = ["250 ml", "350 ml", "600 ml", "1500 ml", "ถัง 20 ล."];
+const DISTRICTS  = ["เมืองลำปาง", "ห้างฉัตร", "เกาะคา", "เสริมงาม", "แม่ทะ", "แม่เมาะ",
+                    "แจ้ห่ม", "เมืองปาน", "วังเหนือ", "งาว", "เถิน", "สบปราบ", "แม่พริก"];
+const LAMPANG = { lat: 18.2916, lng: 99.4913 };
+
+// ============================================================
+// helpers
+// ============================================================
+const $ = id => document.getElementById(id);
+const PAGES = ["pgLogin", "pgHome", "pgVisit", "pgOrder", "pgQuote", "pgQuoteDone",
+               "pgNewCust", "pgCustList", "pgToday", "pgVisitDetail", "pgCustDetail",
+               "pgCalendar", "pgLeave", "pgVan", "pgOrders", "pgOrderEdit", "pgReassign",
+               "pgRounds", "pgSummary", "pgLoading"];
+
+let custDetailBackFn = null; // หน้าที่เปิด CustDetail มา (รายชื่อ หรือ นัดติดตาม)
+
+function show(page, title) {
+  PAGES.forEach(p => $(p).classList.toggle("hidden", p !== page));
+  $("topTitle").textContent = title || "ละกอน Sales 💧";
+  $("btnBack").classList.toggle("hidden", page === "pgHome" || page === "pgLogin" || page === "pgLoading");
+  // หน้ารายละเอียด → ย้อนกลับไปหน้ารายการที่มา ไม่ใช่หน้าแรก
+  $("btnBack").onclick =
+    (page === "pgVisitDetail") ? openToday :
+    (page === "pgCustDetail") ? (custDetailBackFn || openCustList) :
+    (page === "pgOrderEdit" || page === "pgReassign") ? openOrders : goHome;
+  if (page === "pgCalendar" || page === "pgLeave") $("btnBack").onclick = goHome;
+  window.scrollTo(0, 0);
+}
+
+function toast(msg, cls) {
+  const t = document.createElement("div");
+  t.id = "toast"; t.className = cls || ""; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+// แทค 👤 เจ้าของลูกค้า — สีคงที่ตามชื่อเซลส์ จะได้กวาดตาแยกได้ทันทีว่าใครดูแลใคร
+function repHue(name) {
+  let h = 0; const s = String(name || "");
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+}
+function repTag(name) {
+  if (!name) return "";
+  const h = repHue(name);
+  const label = ME && name === ME.name ? "ฉันดูแล" : name;
+  return '<span style="display:inline-flex;align-items:center;gap:3px;background:hsl(' + h + ',70%,93%);color:hsl(' +
+    h + ',55%,32%);border:1px solid hsl(' + h + ',60%,85%);border-radius:999px;padding:1px 8px;font-size:11.5px;font-weight:700;white-space:nowrap;vertical-align:middle">👤 ' +
+    esc(label) + "</span>";
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function baht(n) { return "฿" + Number(n || 0).toLocaleString("th-TH"); }
+
+function chipGroup(elId, options, current, onPick) {
+  $(elId).innerHTML = "";
+  options.forEach(o => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip" + (current === o ? " on" : ""); b.textContent = o;
+    b.onclick = () => { onPick(o); chipGroup(elId, options, o, onPick); };
+    $(elId).appendChild(b);
+  });
+}
+
+function multiChipGroup(elId, options, selSet) {
+  $(elId).innerHTML = "";
+  options.forEach(o => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip" + (selSet.has(o) ? " on" : ""); b.textContent = o;
+    b.onclick = () => { selSet.has(o) ? selSet.delete(o) : selSet.add(o); multiChipGroup(elId, options, selSet); };
+    $(elId).appendChild(b);
+  });
+}
+
+// ---------- GPS ----------
+function getGps() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error("เครื่องนี้ไม่รองรับ GPS")); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: +pos.coords.latitude.toFixed(6), lng: +pos.coords.longitude.toFixed(6) }),
+      () => reject(new Error("หาตำแหน่งไม่ได้")),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+  });
+}
+
+function parseGpsText(s) {
+  const pats = [
+    /!3d(-?\d+\.\d{3,})!4d(-?\d+\.\d{3,})/,        // ลิงก์ยาว: พิกัดหมุดจริง (แม่นสุด)
+    /@(-?\d+\.\d{3,}),(-?\d+\.\d{3,})/,            // ลิงก์ยาว: จุดกึ่งกลางแผนที่
+    /[?&]q=(-?\d+\.\d{3,}),\s*(-?\d+\.\d{3,})/,
+    /(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/, // พิกัดดิบ "18.28, 99.49"
+  ];
+  for (let i = 0; i < pats.length; i++) {
+    const m = String(s).match(pats[i]);
+    if (m) return { lat: Number(m[1]), lng: Number(m[2]) };
+  }
+  return null;
+}
+
+// อ่านพิกัดจากช่องวางลิงก์ Google Maps — ลิงก์ย่อ (maps.app.goo.gl)
+// อ่านในเครื่องไม่ได้ ต้องให้ฝั่งเซิร์ฟเวอร์ตามลิงก์ให้
+let gpsLinkTimer = null;
+function handleMapsInput(val, setter, statusEl) {
+  val = String(val || "").trim();
+  if (!val) return;
+  const g = parseGpsText(val);
+  if (g) { setter(g, /^https?:/.test(val) ? val : ""); return; }
+  if (!/^https?:\/\//.test(val)) return;
+  clearTimeout(gpsLinkTimer);
+  statusEl.textContent = "กำลังอ่านลิงก์...";
+  gpsLinkTimer = setTimeout(async () => {
+    try {
+      const res = await api("resolveMapsLink", val);
+      if (res.success) setter({ lat: res.lat, lng: res.lng }, val);
+      else statusEl.textContent = res.error || "อ่านลิงก์ไม่ได้";
+    } catch (e) {
+      statusEl.textContent = "อ่านลิงก์ไม่สำเร็จ: " + e.message;
+    }
+  }, 700);
+}
+
+// ---------- แผนที่เช็ค/ขยับหมุด (Leaflet + OpenStreetMap ไม่ต้องใช้ API key) ----------
+let leafletReady = null;
+const mapInstances = {};
+
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (leafletReady) return leafletReady;
+  leafletReady = new Promise((resolve, reject) => {
+    const css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(css);
+    const s = document.createElement("script");
+    s.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    s.onload = () => resolve();
+    s.onerror = () => { leafletReady = null; reject(new Error("โหลดแผนที่ไม่สำเร็จ (เช็คเน็ต)")); };
+    document.head.appendChild(s);
+  });
+  return leafletReady;
+}
+
+async function showGpsMap(containerId, hintId, gps, onMove) {
+  await loadLeaflet();
+  $(containerId).classList.remove("hidden");
+  $(hintId).classList.remove("hidden");
+  if (mapInstances[containerId]) { mapInstances[containerId].remove(); delete mapInstances[containerId]; }
+  const map = L.map(containerId).setView([gps.lat, gps.lng], 17);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+  const marker = L.marker([gps.lat, gps.lng], { draggable: true }).addTo(map);
+  const report = ll => onMove({ lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) });
+  marker.on("dragend", () => report(marker.getLatLng()));
+  map.on("click", e => { marker.setLatLng(e.latlng); report(e.latlng); });
+  mapInstances[containerId] = map;
+  setTimeout(() => map.invalidateSize(), 150);
+}
+
+// ---------- รูปถ่าย: ย่อเหลือด้านยาว 1024px → JPEG base64 ----------
+function fileToBase64Jpeg(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.72).split(",")[1]);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("อ่านรูปไม่ได้")); };
+    img.src = url;
+  });
+}
+
+["visitPhotoCam", "visitPhotoGal"].forEach(id => {
+  document.addEventListener("change", async e => {
+    if (e.target.id !== id || !e.target.files[0]) return;
+    try {
+      visitPhotoB64 = await fileToBase64Jpeg(e.target.files[0]);
+      const img = $("visitPhotoPreview");
+      img.src = "data:image/jpeg;base64," + visitPhotoB64;
+      img.classList.remove("hidden");
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  });
+});
+
+// ---------- customer picker (ค้นหา + เลือก + เพิ่มใหม่ได้เลย) ----------
+function buildPicker(containerId, onPick, getSelected, opts) {
+  opts = opts || {};
+  const wrap = $(containerId);
+  const sel = getSelected();
+  if (sel) {
+    wrap.innerHTML = '<div class="selected-cust"><div><div class="nm">' + esc(sel.name) +
+      '</div><div class="sub" style="font-size:12px;color:var(--muted)">' + esc(sel.type || "") +
+      (sel.district ? " · อ." + esc(sel.district) : "") + '</div></div>' +
+      (opts.locked ? "" : "<button>เปลี่ยน</button>") + "</div>";
+    if (!opts.locked) {
+      wrap.querySelector("button").onclick = () => { onPick(null); buildPicker(containerId, onPick, getSelected, opts); };
+    }
+    return;
+  }
+  wrap.innerHTML = '<input placeholder="🔍 พิมพ์ชื่อลูกค้า..." autocomplete="off"><div class="cust-list"></div>';
+  const input = wrap.querySelector("input");
+  const list = wrap.querySelector(".cust-list");
+  const render = () => {
+    const q = input.value.trim().toLowerCase();
+    const items = DB.customers.filter(c => !q || String(c.name).toLowerCase().includes(q));
+    list.innerHTML = "";
+    items.slice(0, 30).forEach(c => {
+      const d = document.createElement("div");
+      d.className = "cust-item";
+      d.innerHTML = '<div><div class="nm">' + esc(c.name) + '</div><div class="sub">' +
+        esc(c.type || "") + (c.district ? " · อ." + esc(c.district) : "") + " · " + esc(c.status || "") +
+        " " + repTag(c.rep) +
+        '</div></div><span class="pill pill-' + (c.grade === "A+" ? "Aplus" : esc(c.grade)) + '">' + esc(c.grade || "-") + "</span>";
+      d.onclick = () => { onPick(c); buildPicker(containerId, onPick, getSelected, opts); };
+      list.appendChild(d);
+    });
+    if (!items.length) {
+      list.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:14px;text-align:center">ไม่พบลูกค้าในระบบ</div>';
+    }
+    if (opts.allowAdd) {
+      const add = document.createElement("div");
+      add.className = "cust-add";
+      add.textContent = "➕ เพิ่ม “" + (input.value.trim() || "ลูกค้าใหม่") + "” เป็นลูกค้าใหม่";
+      add.onclick = () => openNewCust({ prefillName: input.value.trim(), returnTo: opts.returnTo });
+      list.appendChild(add);
+    }
+  };
+  input.oninput = render;
+  render();
+}
+
+// ============================================================
+// boot / login
+// ============================================================
+async function boot() {
+  if (!IS_GAS) $("mockBadge").classList.remove("hidden");
+  const saved = localStorage.getItem("lakon_rep");
+  if (saved) {
+    ME = JSON.parse(saved);
+    try {
+      DB = await api("getInit", ME.name); // ข้อมูลลูกค้ากรองตามสิทธิ์ของคนล็อกอิน
+    } catch (e) {
+      toast("โหลดข้อมูลไม่สำเร็จ: " + e.message, "err");
+    }
+    goHome();
+  } else {
+    try {
+      DB = await api("getInit", ""); // ยังไม่ล็อกอิน: ได้แค่รายชื่อเซลส์/สินค้า
+    } catch (e) {
+      toast("โหลดข้อมูลไม่สำเร็จ: " + e.message, "err");
+    }
+    $("selRep").innerHTML = DB.reps.map(r =>
+      '<option value="' + esc(r.id) + '">' + esc(r.name) + "</option>").join("");
+    show("pgLogin");
+  }
+}
+
+async function doLogin() {
+  const res = await api("login", $("selRep").value, $("inPin").value);
+  if (!res.success) { toast(res.error, "err"); return; }
+  ME = res.rep;
+  localStorage.setItem("lakon_rep", JSON.stringify(ME));
+  show("pgLoading");
+  try {
+    DB = await api("getInit", ME.name); // โหลดลูกค้าตามสิทธิ์หลังล็อกอิน
+  } catch (e) {
+    toast("โหลดข้อมูลไม่สำเร็จ: " + e.message, "err");
+  }
+  goHome();
+}
+
+function logout() {
+  localStorage.removeItem("lakon_rep");
+  ME = null;
+  boot();
+}
+
+async function goHome() {
+  show("pgHome");
+  // เมนูตามบทบาท: เซลส์เร่เห็น 🛻 เด่นบนสุด (ซ่อนใบเสนอราคา) / คนอื่นไม่เห็นเมนูรถเร่
+  const isVanRep = (ME.role === "เซลส์เร่");
+  $("mnVan").classList.toggle("hidden", !(isVanRep || ME.role === "ผู้จัดการ"));
+  $("mnVan").style.order = isVanRep ? "-1" : "";
+  $("mnQuote").classList.toggle("hidden", isVanRep);
+  // จัดรอบส่ง + ย้ายลีด = งานของหัวหน้าสาย/ผู้จัดการ
+  $("mnRounds").classList.toggle("hidden", !(ME.role === "หัวหน้าสาย" || ME.role === "ผู้จัดการ"));
+  $("homeRep").textContent = "สวัสดี " + (ME.name || "");
+  const rt = DB.routes.find(r => String(r.route) === String(ME.route));
+  const roleLabel = ME.role && ME.role !== "เซลส์" ? "👑 " + ME.role + " · " : "";
+  $("homeRoute").textContent = roleLabel +
+    (rt ? ("สาย " + rt.route + " · " + rt.zone) : ("สาย " + (ME.route || "-")));
+  try {
+    const st = await api("getMyStats", ME.name);
+    $("stVisits").textContent = st.visits;
+    $("stOrders").textContent = st.orders;
+    $("stSales").textContent = Number(st.sales).toLocaleString("th-TH");
+  } catch (e) { /* ไม่ block หน้า */ }
+  try {
+    renderHomeFollowUp(await api("getFollowUps", ME.name));
+  } catch (e) { $("homeFollowUp").innerHTML = ""; }
+}
+
+// ============================================================
+// FOLLOW-UP — แจ้งเตือนนัดติดตามในแอป
+// ============================================================
+function fuBuckets(fu) {
+  const t = new Date(String(fu.today) + "T00:00:00");
+  const buckets = { late: [], today: [], soon: [] };
+  (fu.items || []).forEach(it => {
+    const d = new Date(String(it.followUp) + "T00:00:00");
+    if (isNaN(d)) return;
+    const diff = Math.round((d - t) / 86400000);
+    it.diff = diff;
+    if (diff < 0) buckets.late.push(it);
+    else if (diff === 0) buckets.today.push(it);
+    else if (diff <= 7) buckets.soon.push(it);
+  });
+  return buckets;
+}
+
+function renderHomeFollowUp(fu) {
+  const b = fuBuckets(fu);
+  const wrap = $("homeFollowUp");
+  if (!b.late.length && !b.today.length && !b.soon.length) { wrap.innerHTML = ""; return; }
+  const parts = [];
+  if (b.late.length)  parts.push("⚠️ เลยนัด " + b.late.length + " ราย");
+  if (b.today.length) parts.push("📅 วันนี้ " + b.today.length + " ราย");
+  if (b.soon.length)  parts.push("🗓 ใน 7 วัน " + b.soon.length + " ราย");
+  wrap.innerHTML = '<div class="fu-card" onclick="openCalendar()">' +
+    '<div class="t">🔔 นัดติดตามลูกค้า</div>' +
+    '<div class="sub">' + parts.join(" · ") + " — กดเปิดปฏิทิน</div></div>";
+}
+
+// ============================================================
+// ปฏิทินร่วม (ใช้ทั้งหน้านัดและหน้าวันลา)
+// ============================================================
+let calMonth = "", calSel = "", calData = null, calShowVisits = false;
+let lvMonth = "", lvSel = "", lvData = null, lvTypeVal = "ลากิจ";
+const LV_TYPES = ["ลากิจ", "ลาป่วย", "พักร้อน", "อื่นๆ"];
+
+function localDateStr() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+function calGridRender(wrapId, month, dayFn, onPick, selected) {
+  const p = month.split("-").map(Number);
+  const first = new Date(p[0], p[1] - 1, 1).getDay(); // 0 = อาทิตย์
+  const days = new Date(p[0], p[1], 0).getDate();
+  const today = localDateStr();
+  let html = '<div class="cal-week">' +
+    ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"].map(x => "<span>" + x + "</span>").join("") +
+    '</div><div class="cal-grid">';
+  for (let i = 0; i < first; i++) html += "<span></span>";
+  for (let d = 1; d <= days; d++) {
+    const ds = month + "-" + String(d).padStart(2, "0");
+    const info = dayFn(ds, new Date(p[0], p[1] - 1, d).getDay()) || {};
+    html += '<span class="cal-cell' + (ds === today ? " today" : "") + (ds === selected ? " sel" : "") +
+      (info.cls ? " " + info.cls : "") + '" data-d="' + ds + '"><span class="n">' + d + "</span>" +
+      ((info.dots || []).length
+        ? '<span class="cal-dots">' + info.dots.slice(0, 3).map(c => '<i style="background:' + c + '"></i>').join("") + "</span>"
+        : "") + "</span>";
+  }
+  html += "</div>";
+  $(wrapId).innerHTML = html;
+  $(wrapId).querySelectorAll(".cal-cell").forEach(c => { c.onclick = () => onPick(c.dataset.d); });
+}
+
+function calDayLabel(ds) {
+  const p = ds.split("-").map(Number);
+  const names = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+  return names[new Date(p[0], p[1] - 1, p[2]).getDay()] + " " + p[2] + " " + THM[p[1] - 1];
+}
+
+// ============================================================
+// CALENDAR — ปฏิทินนัด (นัดติดตาม / ส่ง OEM / นัดเอง / ประวัติเข้าพบ)
+// ============================================================
+async function openCalendar() {
+  if (!calMonth) calMonth = localMonth();
+  if (!calSel || calSel.slice(0, 7) !== calMonth) {
+    calSel = localDateStr().slice(0, 7) === calMonth ? localDateStr() : calMonth + "-01";
+  }
+  show("pgCalendar", "📅 ปฏิทินนัด");
+  $("calTitle").textContent = thMonthLabel(calMonth);
+  $("apptForm").classList.add("hidden");
+  $("calGridWrap").innerHTML = '<div class="spin"></div>';
+  $("calDayList").innerHTML = ""; $("calDayTitle").textContent = "";
+  try {
+    calData = await api("getCalendar", ME.name, calMonth);
+    renderCal();
+  } catch (e) {
+    $("calGridWrap").innerHTML = '<div class="card">โหลดไม่สำเร็จ: ' + esc(e.message) + "</div>";
+  }
+}
+
+function calShift(d) {
+  const p = calMonth.split("-").map(Number);
+  const nd = new Date(p[0], p[1] - 1 + d, 1);
+  calMonth = nd.getFullYear() + "-" + String(nd.getMonth() + 1).padStart(2, "0");
+  calSel = "";
+  openCalendar();
+}
+
+function toggleCalVisits() {
+  calShowVisits = !calShowVisits;
+  $("calVisitToggle").classList.toggle("on", calShowVisits);
+  if (calData) renderCal();
+}
+
+function calEventsByDate() {
+  const map = {};
+  (calData.events || []).forEach(ev => {
+    if (ev.type === "visit" && !calShowVisits) return;
+    (map[ev.date] = map[ev.date] || []).push(ev);
+  });
+  return map;
+}
+
+function renderCal() {
+  const od = calData.overdue || [];
+  $("calOverdue").innerHTML = od.length
+    ? '<span class="fu-late" style="cursor:pointer;font-size:12px;padding:6px 12px" onclick="showOverdue()">⚠️ เลยนัด ' + od.length + " ราย — กดดู</span>"
+    : "";
+  const map = calEventsByDate();
+  const today = calData.today || localDateStr();
+  calGridRender("calGridWrap", calMonth, ds => {
+    const evs = map[ds] || [];
+    if (!evs.length) return null;
+    const dots = [];
+    evs.forEach(ev => {
+      const c = ev.type === "fu" ? (ds < today ? "#E24B4A" : "#EF9F27")
+        : ev.type === "oem" ? "#378ADD"
+        : ev.type === "appt" ? "#7F77DD"
+        : ev.type === "fdeliv" ? "#16A34A"   // นัดส่งจากโรงงาน
+        : ev.type === "screen" ? "#BE185D"   // วันสกรีนขวด OEM
+        : ev.type === "fplan" ? "#64748B"    // แผนผลิตโรงงาน
+        : "#B4B2A9";
+      if (dots.indexOf(c) === -1) dots.push(c);
+    });
+    return { dots };
+  }, ds => { calSel = ds; renderCal(); }, calSel);
+  renderCalDay();
+}
+
+function renderCalDay() {
+  const map = calEventsByDate();
+  const evs = map[calSel] || [];
+  $("calDayTitle").textContent = calDayLabel(calSel) + " — " + (evs.length ? evs.length + " รายการ" : "ว่าง");
+  const wrap = $("calDayList");
+  wrap.innerHTML = "";
+  const order = { fu: 0, appt: 1, oem: 2, fdeliv: 3, screen: 4, fplan: 5, visit: 6 };
+  evs.slice().sort((a, b) => (order[a.type] || 9) - (order[b.type] || 9))
+     .forEach(ev => wrap.appendChild(calEventCard(ev)));
+  if (!evs.length) {
+    wrap.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);cursor:default">ไม่มีนัดวันนี้ — กด ＋ เพิ่มนัด ได้เลย</div>';
+  }
+}
+
+function calEventCard(ev) {
+  const d = document.createElement("div");
+  d.className = "today-item";
+  if (ev.type === "fu") {
+    d.innerHTML = '<div class="r1"><span>🔔 ' + esc(ev.customerName) + '</span><span style="color:var(--amber)">นัดติดตาม ›</span></div>' +
+      '<div class="sub">' + esc(ev.outcome || "") +
+      (ev.probability ? " · โอกาส " + esc(ev.probability) + "%" : "") +
+      (ev.note ? " · " + esc(String(ev.note).slice(0, 50)) : "") + "</div>";
+    d.onclick = () => openCustDetail(ev.customerId, "calendar");
+  } else if (ev.type === "oem") {
+    d.innerHTML = '<div class="r1"><span>🚚 ' + esc(ev.clientBrand || ev.customerName) + "</span><span>" + baht(ev.total) + " ›</span></div>" +
+      '<div class="sub">กำหนดส่ง OEM · ' + esc(ev.customerName) + " · " + esc(ev.status || "") + "</div>";
+    d.onclick = () => openOemFromCal(ev.orderId);
+  } else if (ev.type === "appt") {
+    d.innerHTML = '<div class="r1"><span>📌 ' + esc(ev.title) + "</span></div>" +
+      '<div class="sub">นัดเอง' + (ev.note ? " · " + esc(ev.note) : "") + "</div>" +
+      '<div class="acts" style="display:flex;gap:8px;margin-top:8px">' +
+      '<button class="mini-btn primary" onclick=\'event.stopPropagation();doneAppt("' + esc(ev.apptId) + '","Done")\'>✓ เสร็จแล้ว</button>' +
+      '<button class="mini-btn danger" onclick=\'event.stopPropagation();doneAppt("' + esc(ev.apptId) + '","Cancelled")\'>✕ ยกเลิก</button></div>';
+  } else if (ev.type === "fdeliv") {
+    // นัดส่งจากโรงงาน (จองผ่านแอปโรงงาน)
+    d.innerHTML = '<div class="r1"><span>🚛 ' + esc(ev.customerName) + '</span><span class="st-pill">' + esc(ev.status || "นัดไว้") + "</span></div>" +
+      '<div class="sub">นัดส่งจากโรงงาน' + (ev.detail ? " · " + esc(String(ev.detail).slice(0, 60)) : "") +
+      (ev.orderId ? " · " + esc(ev.orderId) : "") + "</div>";
+  } else if (ev.type === "screen") {
+    d.innerHTML = '<div class="r1"><span>🎨 สกรีนขวด</span><span class="st-pill">' + esc(ev.status || "") + "</span></div>" +
+      '<div class="sub">งาน OEM โรงงาน · ' + esc(ev.customerName || "") + (ev.orderId ? " · " + esc(ev.orderId) : "") + "</div>";
+  } else if (ev.type === "fplan") {
+    d.innerHTML = '<div class="r1"><span>🏭 ' + esc(ev.product || "แผนผลิต") + "</span>" +
+      (ev.target ? "<span>" + Number(ev.target).toLocaleString("th-TH") + " แพ็ค</span>" : "") + "</div>" +
+      '<div class="sub">แผนผลิตของโรงงาน — ของจะออกวันนี้</div>';
+  } else {
+    d.innerHTML = '<div class="r1"><span>📝 ' + esc(ev.customerName) + '</span><span class="st-pill">' + esc(ev.outcome || "เข้าพบแล้ว") + "</span></div>";
+    d.onclick = () => openCustDetail(ev.customerId, "calendar");
+  }
+  return d;
+}
+
+function showOverdue() {
+  $("calDayTitle").textContent = "⚠️ เลยนัดทั้งหมด";
+  const wrap = $("calDayList");
+  wrap.innerHTML = "";
+  (calData.overdue || []).forEach(ev => wrap.appendChild(calEventCard(ev)));
+}
+
+function toggleApptForm() {
+  const f = $("apptForm");
+  f.classList.toggle("hidden");
+  if (!f.classList.contains("hidden")) { $("apptTitle").value = ""; $("apptNote").value = ""; }
+}
+
+async function saveAppt() {
+  const title = $("apptTitle").value.trim();
+  if (!title) { toast("กรอกเรื่องที่นัดก่อน", "err"); return; }
+  $("btnSaveAppt").disabled = true;
+  try {
+    await api("addAppointment", { rep: ME.name, date: calSel, title, note: $("apptNote").value.trim() });
+    toast("✅ เพิ่มนัด " + calDayLabel(calSel) + " แล้ว", "ok");
+    openCalendar();
+  } catch (e) { toast(e.message, "err"); }
+  $("btnSaveAppt").disabled = false;
+}
+
+async function doneAppt(apptId, status) {
+  try {
+    const res = await api("updateAppointment", apptId, status);
+    if (!res.success) throw new Error(res.error || "ไม่สำเร็จ");
+    toast(status === "Done" ? "✓ ปิดนัดแล้ว" : "ยกเลิกนัดแล้ว", "ok");
+    openCalendar();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function openOemFromCal(orderId) {
+  try {
+    ordersData = await api("getMyOrders", ME.name, true);
+    openOrderEdit(orderId);
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ============================================================
+// VAN — รถเร่: ขึ้นของ/เติม/คืน (รอคนนับสต๊อกยืนยัน) + ขายหน้ารถ
+// ============================================================
+let vanState = null, vanLoadTypeVal = "ขึ้นของ", vanPayVal = "เงินสด";
+let vanCust = null, lastVanCloseText = "";
+
+async function openVan() {
+  show("pgVan", "🛻 รถเร่");
+  vanLoadTypeVal = "ขึ้นของ"; vanPayVal = "เงินสด"; vanCust = null;
+  $("vanCustPicker").classList.add("hidden");
+  $("vanCustToggle").textContent = "＋ ผูกลูกค้าประจำ (ไม่ผูก = ขายเร่ทั่วไป)";
+  $("vanCloseWrap").innerHTML = "";
+  $("vanSaleItems").innerHTML = ""; $("vanLoadItems").innerHTML = "";
+  $("vanLoadNote").value = "";
+  chipGroup("vanLoadType", ["ขึ้นของ", "เติมของ", "คืนของ"], vanLoadTypeVal, v => vanLoadTypeVal = v);
+  chipGroup("vanPay", ["เงินสด", "โอน"], vanPayVal, v => vanPayVal = v);
+  addItemRow("vanSaleItems", "vanSaleTotal");
+  addVanLoadRow();
+  $("vanStockList").innerHTML = '<div class="spin"></div>';
+  $("vanPendingList").innerHTML = "";
+  try {
+    vanState = await api("getVanState", ME.name);
+    renderVan();
+  } catch (e) {
+    $("vanStockList").innerHTML = '<div style="color:var(--red)">โหลดไม่สำเร็จ: ' + esc(e.message) + "</div>";
+  }
+}
+
+function renderVan() {
+  const totalOnTruck = (vanState.vanStock || []).reduce((s, x) => s + Number(x.qty), 0);
+  $("vanOnTruck").textContent = totalOnTruck.toLocaleString("th-TH");
+  $("vanSoldToday").textContent = Number(vanState.todayPacks).toLocaleString("th-TH");
+  $("vanCashToday").textContent = Number(vanState.todayCash).toLocaleString("th-TH");
+
+  $("vanStockList").innerHTML = (vanState.vanStock || []).length
+    ? vanState.vanStock.map(x =>
+        '<div class="vd-row"><span>' + esc(x.name) + "</span><span><b>" +
+        Number(x.qty).toLocaleString("th-TH") + "</b> แพ็ค</span></div>").join("")
+    : '<div style="color:var(--muted);font-size:13px">ยังไม่มีของบนรถ — ขอขึ้นของด้านล่างได้เลย</div>';
+
+  const pw = $("vanPendingList");
+  pw.innerHTML = "";
+  (vanState.pending || []).forEach(p => {
+    const d = document.createElement("div");
+    d.className = "today-item";
+    d.style.cursor = "default";
+    d.innerHTML = '<div class="r1"><span>🔄 ' + esc(p.type) + " · " + esc(p.date) +
+      '</span><span class="st-pill">รอเช็ค</span></div>' +
+      '<div class="sub">' + p.items.map(i => esc(i.name) + " × " + i.qty).join(", ") +
+      (p.note ? " · " + esc(p.note) : "") + "</div>" +
+      '<div class="acts" style="display:flex;gap:8px;margin-top:8px">' +
+      '<button class="mini-btn danger" onclick=\'cancelVanLoadUi("' + esc(p.loadId) + '")\'>ยกเลิกคำขอ</button></div>';
+    pw.appendChild(d);
+  });
+  if (!(vanState.pending || []).length) {
+    pw.innerHTML = '<div class="card" style="color:var(--muted);text-align:center;cursor:default">ไม่มีคำขอค้างเช็ค</div>';
+  }
+}
+
+function addVanLoadRow() {
+  const row = document.createElement("div");
+  row.className = "item-row";
+  row.style.gridTemplateColumns = "1fr 74px 28px";
+  const opts = DB.products.map(p =>
+    '<option value="' + esc(p.id) + '" data-name="' + esc(p.name) + '">' + esc(p.name) + "</option>").join("");
+  row.innerHTML = '<select class="vl-prod">' + opts + "</select>" +
+    '<input class="vl-qty" type="tel" inputmode="numeric" placeholder="แพ็ค">' +
+    '<button class="del" type="button">✕</button>';
+  row.querySelector(".del").onclick = () => row.remove();
+  $("vanLoadItems").appendChild(row);
+}
+
+async function saveVanLoad() {
+  const items = [...document.querySelectorAll("#vanLoadItems .item-row")].map(r => {
+    const opt = r.querySelector(".vl-prod").selectedOptions[0];
+    return { productId: opt.value, productName: opt.dataset.name,
+             qty: Number(r.querySelector(".vl-qty").value) || 0 };
+  }).filter(i => i.qty > 0);
+  if (!items.length) { toast("ใส่จำนวนอย่างน้อย 1 รายการ", "err"); return; }
+  if (vanLoadTypeVal === "คืนของ" && vanState) {
+    for (const it of items) {
+      const on = (vanState.vanStock || []).find(x => x.productId === it.productId);
+      if (!on || Number(on.qty) < it.qty) { toast("คืน " + it.productName + " เกินจำนวนที่มีบนรถ", "err"); return; }
+    }
+  }
+  $("btnVanLoad").disabled = true;
+  try {
+    await api("addVanLoad", { rep: ME.name, type: vanLoadTypeVal, items, note: $("vanLoadNote").value.trim() });
+    toast("📨 ส่งคำขอ" + vanLoadTypeVal + "แล้ว — รอคนนับสต๊อกยืนยัน", "ok");
+    openVan();
+  } catch (e) { toast(e.message, "err"); }
+  $("btnVanLoad").disabled = false;
+}
+
+// ผูกลูกค้าประจำริมทางกับการขายหน้ารถ (สร้างใหม่จาก picker ได้เลย)
+function renderVanCustPicker() {
+  buildPicker("vanCustPicker", c => {
+    vanCust = c;
+    $("vanCustToggle").textContent = c
+      ? "👤 ขายให้: " + c.name
+      : "＋ ผูกลูกค้าประจำ (ไม่ผูก = ขายเร่ทั่วไป)";
+  }, () => vanCust, { allowAdd: true, returnTo: "van" });
+}
+
+function toggleVanCust() {
+  const p = $("vanCustPicker");
+  p.classList.toggle("hidden");
+  if (!p.classList.contains("hidden")) renderVanCustPicker();
+}
+
+async function saveVanSale() {
+  const items = readItems("vanSaleItems");
+  if (!items.length) { toast("เพิ่มสินค้าที่ขายก่อน", "err"); return; }
+  if (vanState) {
+    for (const it of items) {
+      const on = (vanState.vanStock || []).find(x => x.productId === it.productId);
+      const have = on ? Number(on.qty) : 0;
+      if (have < it.qty && !confirm(it.productName + " บนรถมี " + have + " แพ็ค จะบันทึกขาย " + it.qty + " แพ็คใช่ไหม?")) return;
+    }
+  }
+  $("btnVanSale").disabled = true;
+  try {
+    const res = await api("addVanSale", {
+      rep: ME.name, items, payment: vanPayVal,
+      customerId: vanCust ? vanCust.id : "", customerName: vanCust ? vanCust.name : "",
+    });
+    toast("💰 ขายแล้ว " + baht(res.grandTotal) + (vanCust ? " · " + vanCust.name : ""), "ok");
+    openVan();
+  } catch (e) { toast(e.message, "err"); }
+  $("btnVanSale").disabled = false;
+}
+
+// ---------- ปิดยอดรายวัน — สรุปเงิน+ของให้คนนับสต๊อกตรวจพร้อมกัน ----------
+async function openVanClose() {
+  $("vanCloseWrap").innerHTML = '<div class="spin"></div>';
+  try {
+    const s = await api("getVanDaySummary", ME.name);
+    lastVanCloseText = buildVanCloseText(s);
+    $("vanCloseWrap").innerHTML =
+      '<div class="card" style="cursor:default"><div class="quote-paper">' + esc(lastVanCloseText) + "</div>" +
+      '<button class="btn btn-primary" onclick="copyVanClose()">📋 คัดลอกส่งไลน์ให้คนนับสต๊อก</button></div>';
+  } catch (e) {
+    $("vanCloseWrap").innerHTML = '<div class="card">โหลดไม่สำเร็จ: ' + esc(e.message) + "</div>";
+  }
+}
+
+function buildVanCloseText(s) {
+  const th = n => Number(n || 0).toLocaleString("th-TH");
+  const d = new Date();
+  const up = (s.loads["ขึ้นของ"] || 0) + (s.loads["เติมของ"] || 0);
+  let t = "📋 ปิดยอดรถเร่ — " + ME.name +
+    "\n" + d.toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" }) +
+    "\n────────────────" +
+    "\nขึ้นของ+เติม (ยืนยันแล้ว): " + th(up) + " แพ็ค" +
+    "\nขายได้: " + th(s.soldPacks) + " แพ็ค · รวม " + th(s.totalCash) + " บาท";
+  Object.keys(s.cashBy || {}).forEach(k => {
+    t += "\n  • " + k + ": " + th(s.cashBy[k]) + " บาท";
+  });
+  t += "\nคืนคลังวันนี้ (ยืนยันแล้ว): " + th(s.loads["คืนของ"] || 0) + " แพ็ค";
+  if (s.pendingPacks) t += "\n⏳ ค้างรอคนนับสต๊อกเช็ค: " + th(s.pendingPacks) + " แพ็ค";
+  t += "\n🚚 ค้างบนรถตอนนี้: " + th(s.onTruck) + " แพ็ค";
+  const names = Object.keys(s.byProduct || {});
+  if (names.length) {
+    t += "\n────────────────\nรายสินค้า (ขึ้น·ขาย·คืน):";
+    names.forEach(n => {
+      const p = s.byProduct[n];
+      t += "\n• " + n + ": " + th(p.loaded) + " · " + th(p.sold) + " · " + th(p.returned);
+    });
+  }
+  return t;
+}
+
+async function copyVanClose() {
+  try {
+    await navigator.clipboard.writeText(lastVanCloseText);
+    toast("✅ คัดลอกแล้ว วางใน LINE ได้เลย", "ok");
+  } catch (e) {
+    toast("คัดลอกไม่ได้ — กดค้างที่ข้อความแล้วเลือกคัดลอก", "err");
+  }
+}
+
+async function cancelVanLoadUi(loadId) {
+  try {
+    const res = await api("cancelVanLoad", loadId);
+    if (!res.success) throw new Error(res.error || "ยกเลิกไม่สำเร็จ");
+    toast("ยกเลิกคำขอแล้ว", "ok");
+    openVan();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ============================================================
+// LEAVE — วันลา (ปฏิทิน + บุ๊ค/ยกเลิก, จุดวันอาทิตย์ = วันหยุดประจำ)
+// ============================================================
+async function openLeave() {
+  if (!lvMonth) lvMonth = localMonth();
+  if (!lvSel || lvSel.slice(0, 7) !== lvMonth) {
+    lvSel = localDateStr().slice(0, 7) === lvMonth ? localDateStr() : lvMonth + "-01";
+  }
+  show("pgLeave", "🏖 วันลา");
+  $("lvTitle").textContent = thMonthLabel(lvMonth);
+  $("lvGridWrap").innerHTML = '<div class="spin"></div>';
+  $("lvDayBody").innerHTML = "";
+  try {
+    lvData = await api("getLeaves", ME.name, lvMonth);
+    renderLv();
+  } catch (e) {
+    $("lvGridWrap").innerHTML = '<div class="card">โหลดไม่สำเร็จ: ' + esc(e.message) + "</div>";
+  }
+}
+
+function lvShift(d) {
+  const p = lvMonth.split("-").map(Number);
+  const nd = new Date(p[0], p[1] - 1 + d, 1);
+  lvMonth = nd.getFullYear() + "-" + String(nd.getMonth() + 1).padStart(2, "0");
+  lvSel = "";
+  openLeave();
+}
+
+function renderLv() {
+  const leaveMap = {};
+  (lvData.leaves || []).forEach(l => leaveMap[l.date] = l);
+  const teamMap = {};
+  (lvData.team || []).forEach(t => (teamMap[t.date] = teamMap[t.date] || []).push(t));
+  $("lvTeamLegend").classList.toggle("hidden", !(lvData.team || []).length && (ME.role || "เซลส์") === "เซลส์");
+  calGridRender("lvGridWrap", lvMonth, (ds, dow) => {
+    const dots = [];
+    if (dow === 0) dots.push("#F09595");          // วันอาทิตย์ = วันหยุดประจำ
+    if (leaveMap[ds]) dots.push("#1D9E75");       // วันลาของฉัน
+    if (teamMap[ds]) dots.push("#378ADD");        // ทีมลา (เห็นเฉพาะหัวหน้าสาย/ผู้จัดการ)
+    return { dots, cls: dow === 0 ? "sun" : "" };
+  }, ds => { lvSel = ds; renderLv(); }, lvSel);
+  renderLvDay(leaveMap, teamMap);
+}
+
+function renderLvDay(leaveMap, teamMap) {
+  const p = lvSel.split("-").map(Number);
+  const dow = new Date(p[0], p[1] - 1, p[2]).getDay();
+  $("lvDayTitle").textContent = calDayLabel(lvSel) + (lvSel === localDateStr() ? " (วันนี้)" : "");
+  const wrap = $("lvDayBody");
+  const team = (teamMap || {})[lvSel] || [];
+  const teamCard = team.length
+    ? '<div class="card" style="cursor:default"><div style="font-weight:800">👥 ทีมลาวันนี้ (' + team.length + ")</div>" +
+      team.map(t => '<div class="vd-row"><span>' + esc(t.rep) + "</span><span>" + esc(t.type) + "</span></div>").join("") +
+      "</div>"
+    : "";
+  const lv = leaveMap[lvSel];
+  if (lv) {
+    wrap.innerHTML = teamCard +
+      '<div class="card"><div style="font-weight:800">🏖 ' + esc(lv.type) + "</div>" +
+      (lv.note ? '<div style="font-size:13px;color:var(--muted);margin-top:4px">' + esc(lv.note) + "</div>" : "") +
+      '<button class="btn btn-ghost" onclick=\'cancelLv("' + esc(lv.leaveId) + '")\'>ยกเลิกวันลานี้</button></div>';
+    return;
+  }
+  let html = teamCard;
+  if (dow === 0) html += '<div class="card" style="color:#D85A30;cursor:default">⛱ วันอาทิตย์ — วันหยุดประจำสัปดาห์</div>';
+  if (lvSel < localDateStr()) {
+    html += '<div class="card" style="color:var(--muted);cursor:default">วันที่ผ่านมาแล้ว บุ๊คลาไม่ได้</div>';
+  } else {
+    html += '<div class="card"><label>ประเภทการลา</label><div class="chips" id="lvTypeChips"></div>' +
+      '<label>หมายเหตุ</label><input id="lvNote" placeholder="เช่น ไปธุระต่างอำเภอ">' +
+      '<button class="btn btn-primary" id="btnSaveLv" onclick="saveLv()">🏖 บุ๊ควันลา ' + calDayLabel(lvSel) + "</button></div>";
+  }
+  wrap.innerHTML = html;
+  if ($("lvTypeChips")) chipGroup("lvTypeChips", LV_TYPES, lvTypeVal, v => lvTypeVal = v);
+}
+
+async function saveLv() {
+  $("btnSaveLv").disabled = true;
+  try {
+    const res = await api("addLeave", { rep: ME.name, date: lvSel, type: lvTypeVal, note: $("lvNote").value.trim() });
+    if (!res.success) throw new Error(res.error || "บุ๊คไม่สำเร็จ");
+    toast("🏖 บุ๊คลา " + calDayLabel(lvSel) + " แล้ว", "ok");
+    openLeave();
+  } catch (e) {
+    toast(e.message, "err");
+    if ($("btnSaveLv")) $("btnSaveLv").disabled = false;
+  }
+}
+
+async function cancelLv(id) {
+  try {
+    const res = await api("cancelLeave", id);
+    if (!res.success) throw new Error(res.error || "ยกเลิกไม่สำเร็จ");
+    toast("ยกเลิกวันลาแล้ว", "ok");
+    openLeave();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ============================================================
+// ORDERS — รวมออเดอร์ทั้งหมด แยกตามสถานะ + แก้ไข
+// ============================================================
+async function openOrders() {
+  show("pgOrders", "📦 ออเดอร์ทั้งหมด");
+  $("ordersWrap").innerHTML = '<div class="spin"></div>';
+  try {
+    ordersData = await api("getMyOrders", ME.name, !ordMine);
+    renderOrders();
+  } catch (e) {
+    $("ordersWrap").innerHTML = '<div class="card">โหลดไม่สำเร็จ: ' + esc(e.message) + "</div>";
+  }
+}
+
+function toggleOrdMine() {
+  ordMine = !ordMine;
+  $("ordMineBtn").classList.toggle("on", ordMine);
+  $("ordMineBtn").textContent = ordMine ? "เฉพาะของฉัน" : "ทุกคน";
+  openOrders();
+}
+
+function ordCard(o) {
+  const d = document.createElement("div");
+  d.className = "today-item" + (o.status === "Cancelled" ? " cancelled" : "");
+  const itemLines = (o.items || []).map(i =>
+    '<div class="vd-row"><span>' + esc(i.name) + " × " + Number(i.qty).toLocaleString("th-TH") +
+    " " + esc(i.unit || "") + "</span><span>" + baht(i.qty * i.unitPrice) + "</span></div>").join("") +
+    (o.due ? '<div class="vd-row"><span class="k">กำหนดส่ง</span><span>' + esc(o.due) + "</span></div>" : "") +
+    (o.note ? '<div class="vd-row"><span class="k">หมายเหตุ</span><span>' + esc(o.note) + "</span></div>" : "");
+  const canCancel = o.status !== "Cancelled" && o.status !== "เก็บเงินแล้ว";
+  d.innerHTML = '<div class="r1"><span>' + esc(o.customerName) + "</span><span>" + baht(o.total) + " ›</span></div>" +
+    '<div class="sub">' + esc(o.orderId) + " · " + esc(o.date || "") + (o.type === "oem" ? " · OEM" : "") +
+    " · " + esc(o.payment || "") + ' · <span class="st-pill">' + esc(o.status || "-") + "</span>" +
+    (!ordMine && o.rep ? " · " + esc(o.rep) : "") + "</div>" +
+    '<div class="ord-items hidden">' + itemLines +
+    '<div class="acts" style="display:flex;gap:8px;margin-top:8px">' +
+    ((o.mapsUrl || (o.lat && o.lng))
+      ? '<a class="mini-btn" onclick="event.stopPropagation()" target="_blank" href="' +
+        esc(o.mapsUrl || ("https://www.google.com/maps?q=" + o.lat + "," + o.lng)) + '">🗺 นำทาง</a>'
+      : "") +
+    '<button class="mini-btn primary" onclick=\'event.stopPropagation();openOrderEdit("' + esc(o.orderId) + '")\'>✏️ แก้ไข</button>' +
+    ((ME.role === "หัวหน้าสาย" || ME.role === "ผู้จัดการ") && o.status !== "Cancelled"
+      ? '<button class="mini-btn" onclick=\'event.stopPropagation();openReassign("' + esc(o.orderId) + '")\'>🔁 ย้ายลีด</button>' : "") +
+    (canCancel ? '<button class="mini-btn danger" onclick=\'event.stopPropagation();cancelOrderFromList("' + esc(o.orderId) + '")\'>🗑 ยกเลิก</button>' : "") +
+    "</div></div>";
+  d.onclick = () => d.querySelector(".ord-items").classList.toggle("hidden");
+  return d;
+}
+
+function renderOrders() {
+  const present = [...new Set(ordersData.map(o => String(o.status || "-")))];
+  present.sort((a, b) => {
+    const ia = STATUS_ORDER.indexOf(a), ib = STATUS_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+  if (ordStatus !== "ทั้งหมด" && present.indexOf(ordStatus) === -1) ordStatus = "ทั้งหมด";
+  chipGroup("ordStatusChips", ["ทั้งหมด"].concat(present), ordStatus, v => { ordStatus = v; renderOrders(); });
+
+  const wrap = $("ordersWrap");
+  wrap.innerHTML = "";
+  if (!ordersData.length) {
+    wrap.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);cursor:default">ยังไม่มีออเดอร์</div>';
+    return;
+  }
+  if (ordStatus === "ทั้งหมด") {
+    present.forEach(st => {
+      const grp = ordersData.filter(o => String(o.status || "-") === st);
+      if (!grp.length) return;
+      const h = document.createElement("div");
+      h.className = "sec-title";
+      h.textContent = st + " · " + grp.length + " ออเดอร์ · " +
+        baht(grp.reduce((s, o) => s + Number(o.total || 0), 0));
+      wrap.appendChild(h);
+      grp.forEach(o => wrap.appendChild(ordCard(o)));
+    });
+  } else {
+    ordersData.filter(o => String(o.status || "-") === ordStatus)
+      .forEach(o => wrap.appendChild(ordCard(o)));
+  }
+}
+
+async function cancelOrderFromList(orderId) {
+  if (!confirm("ยกเลิกออเดอร์ " + orderId + " ?\n(ออเดอร์แบรนด์เราจะคืนสต๊อกอัตโนมัติ)")) return;
+  try {
+    const res = await api("cancelOrder", orderId);
+    if (!res.success) throw new Error(res.error || "ยกเลิกไม่สำเร็จ");
+    toast("🗑 ยกเลิก " + orderId + " แล้ว", "ok");
+    openOrders();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+let oeStatusVal = "", oePayVal = "";
+
+function openOrderEdit(orderId) {
+  oeOrder = ordersData.find(o => o.orderId === orderId);
+  if (!oeOrder) return;
+  const stList = (oeOrder.type === "oem" ? OEM_EDIT_STATUSES : BRAND_EDIT_STATUSES).slice();
+  if (oeOrder.status && stList.indexOf(oeOrder.status) === -1) stList.unshift(oeOrder.status);
+  const payList = (oeOrder.type === "oem" ? OEM_PAY : PAYMENTS).slice();
+  if (oeOrder.payment && payList.indexOf(oeOrder.payment) === -1) payList.unshift(oeOrder.payment);
+  oeStatusVal = oeOrder.status || stList[0];
+  oePayVal = oeOrder.payment || payList[0];
+  $("oeInfo").innerHTML = '<div style="font-weight:800;font-size:16px">' + esc(oeOrder.customerName) + "</div>" +
+    '<div style="font-size:13px;color:var(--muted);margin-top:2px">' + esc(oeOrder.orderId) + " · " +
+    esc(oeOrder.date || "") + (oeOrder.type === "oem" ? " · OEM" : "") + " · ยอด " + baht(oeOrder.total) + "</div>";
+  chipGroup("oeStatus", stList, oeStatusVal, v => oeStatusVal = v);
+  chipGroup("oePayment", payList, oePayVal, v => oePayVal = v);
+  $("oeNote").value = oeOrder.note || "";
+  show("pgOrderEdit", "✏️ แก้ไขออเดอร์");
+}
+
+async function saveOrderEdit() {
+  if (!oeOrder) return;
+  $("btnSaveOe").disabled = true;
+  try {
+    const res = await api("updateOrderMeta", oeOrder.orderId,
+      { status: oeStatusVal, payment: oePayVal, note: $("oeNote").value.trim() });
+    if (!res.success) throw new Error(res.error || "แก้ไขไม่สำเร็จ");
+    toast("💾 อัปเดต " + oeOrder.orderId + " แล้ว", "ok");
+    openOrders();
+  } catch (e) { toast(e.message, "err"); }
+  $("btnSaveOe").disabled = false;
+}
+
+// ============================================================
+// REASSIGN — ย้ายลีด (หัวหน้าสาย/ผู้จัดการ)
+// ============================================================
+let raOrder = null, raRepVal = "";
+
+function openReassign(orderId) {
+  raOrder = ordersData.find(o => o.orderId === orderId);
+  if (!raOrder) return;
+  raRepVal = "";
+  const reps = DB.reps.map(r => r.name).filter(n => n !== raOrder.rep);
+  $("raInfo").innerHTML = '<div style="font-weight:800;font-size:16px">' + esc(raOrder.customerName) + "</div>" +
+    '<div style="font-size:13px;color:var(--muted);margin-top:2px">' + esc(raOrder.orderId) + " · ยอด " + baht(raOrder.total) +
+    ' · เจ้าของปัจจุบัน: <b>' + esc(raOrder.rep || "-") + "</b></div>";
+  chipGroup("raRep", reps, raRepVal, v => raRepVal = v);
+  $("raReason").value = "";
+  show("pgReassign", "🔁 ย้ายลีด");
+}
+
+async function saveReassign() {
+  if (!raOrder) return;
+  if (!raRepVal) return toast("เลือกเซลส์ที่จะรับลีดก่อนนะครับ", "err");
+  if (!confirm("ย้ายออเดอร์ " + raOrder.orderId + "\nจาก " + (raOrder.rep || "-") + " → " + raRepVal +
+    " ?\n\n⚠️ ยอดขายจะย้ายไปนับเป็นผลงานของ " + raRepVal + " ทันที และมีผลต่อค่าคอมของสาย")) return;
+  $("btnSaveRa").disabled = true;
+  try {
+    const res = await api("reassignOrder", raOrder.orderId, raRepVal, ME.name, $("raReason").value.trim());
+    if (!res.success) throw new Error(res.error || "ย้ายไม่สำเร็จ");
+    toast("🔁 ย้าย " + raOrder.orderId + " ให้ " + res.to + " แล้ว", "ok");
+    openOrders();
+  } catch (e) { toast(e.message, "err"); }
+  $("btnSaveRa").disabled = false;
+}
+
+// ============================================================
+// ROUNDS — จัดรอบส่งตามความจุรถ (หัวหน้าสาย/ผู้จัดการ)
+// ============================================================
+let rdData = null, rdSel = new Set();
+
+async function openRounds() {
+  show("pgRounds", "🚚 จัดรอบส่ง");
+  $("rdPendingWrap").innerHTML = '<div class="spin"></div>';
+  $("rdRoundsWrap").innerHTML = "";
+  $("rdCapBar").innerHTML = ""; $("rdStockWarn").innerHTML = "";
+  rdSel = new Set();
+  if (!$("rdDate").value) {
+    const d = new Date(); d.setDate(d.getDate() + 1);
+    $("rdDate").value = d.toISOString().slice(0, 10); // ค่าเริ่มต้น: พรุ่งนี้
+  }
+  try {
+    rdData = await api("getRoundPlanning", ME.name);
+    if (!rdData.success) throw new Error(rdData.error || "โหลดไม่สำเร็จ");
+    renderRdPending();
+    renderRdRounds();
+  } catch (e) {
+    $("rdPendingWrap").innerHTML = '<div style="color:var(--muted)">' + esc(e.message) + "</div>";
+  }
+}
+
+function rdToggle(orderId) {
+  if (rdSel.has(orderId)) rdSel.delete(orderId); else rdSel.add(orderId);
+  renderRdPending();
+}
+
+function rdPickRoute(rt) {
+  const grp = (rdData.pending || []).filter(o => String(o.route) === String(rt));
+  const allOn = grp.every(o => rdSel.has(o.orderId));
+  grp.forEach(o => allOn ? rdSel.delete(o.orderId) : rdSel.add(o.orderId));
+  renderRdPending();
+}
+
+function renderRdPending() {
+  const wrap = $("rdPendingWrap");
+  wrap.innerHTML = "";
+  const pend = rdData.pending || [];
+  if (!pend.length) {
+    wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:6px 0">ไม่มีออเดอร์รอจัดรอบ 🎉</div>';
+    updateRdBar();
+    return;
+  }
+  const byRoute = {};
+  pend.forEach(o => (byRoute[o.route] = byRoute[o.route] || []).push(o));
+  Object.keys(byRoute).sort((a, b) => String(a).localeCompare(String(b), "th")).forEach(rt => {
+    const grp = byRoute[rt];
+    const packs = grp.reduce((s, o) => s + Number(o.packs || 0), 0);
+    const h = document.createElement("div");
+    h.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin:10px 0 4px";
+    h.innerHTML = '<b style="font-size:14px">สาย ' + esc(rt) + " · " + grp.length + " ออเดอร์ · " + packs + " แพ็ค</b>" +
+      '<button type="button" class="chip" onclick=\'rdPickRoute("' + esc(rt) + '")\'>เลือกทั้งสาย</button>';
+    wrap.appendChild(h);
+    grp.forEach(o => {
+      const on = rdSel.has(o.orderId);
+      const d = document.createElement("div");
+      d.style.cssText = "display:flex;gap:10px;align-items:center;padding:9px 10px;border-radius:10px;margin-bottom:6px;cursor:pointer;border:1.5px solid " +
+        (on ? "var(--brand,#0284C7);background:rgba(2,132,199,.07)" : "var(--line,#E2E8F0)");
+      d.innerHTML = '<span style="font-size:18px">' + (on ? "☑️" : "⬜") + "</span>" +
+        '<span style="flex:1;min-width:0"><b>' + esc(o.customerName) + "</b>" +
+        '<span style="display:block;font-size:12px;color:var(--muted)">' + esc(o.orderId) + " · " + esc(o.rep || "") + " · " + esc(o.date || "") + "</span></span>" +
+        '<span style="text-align:right"><b>' + Number(o.packs).toLocaleString("th-TH") + " แพ็ค</b>" +
+        '<span style="display:block;font-size:12px;color:var(--muted)">' + baht(o.total) + "</span></span>";
+      d.onclick = () => rdToggle(o.orderId);
+      wrap.appendChild(d);
+    });
+  });
+  updateRdBar();
+}
+
+function updateRdBar() {
+  if (!rdData) return;
+  const cap = Number($("rdCap").value) || 0;
+  const sel = (rdData.pending || []).filter(o => rdSel.has(o.orderId));
+  const packs = sel.reduce((s, o) => s + Number(o.packs || 0), 0);
+  const pct = cap ? Math.round(packs * 100 / cap) : 0;
+  const col = pct > 100 ? "#DC2626" : pct >= 80 ? "#D97706" : "#059669";
+  let hint = "";
+  if (packs && pct < 50) hint = "💡 รถยังว่างอีกเยอะ — ลองรวมออเดอร์สายใกล้กันให้คุ้มเที่ยว";
+  if (pct > 100) hint = "⛔ เกินความจุรถ " + (packs - cap) + " แพ็ค — ตัดบางออเดอร์ไปรอบหน้า";
+  $("rdCapBar").innerHTML =
+    '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-bottom:4px">' +
+    "<span>เลือกแล้ว " + sel.length + " ออเดอร์</span><span style=\"color:" + col + '">' + packs + " / " + cap + " แพ็ค (" + pct + "%)</span></div>" +
+    '<div style="height:10px;border-radius:6px;background:var(--line,#E2E8F0);overflow:hidden">' +
+    '<div style="height:100%;width:' + Math.min(pct, 100) + "%;background:" + col + ';transition:width .2s"></div></div>' +
+    (hint ? '<div style="font-size:12.5px;color:' + col + ';margin-top:5px">' + hint + "</div>" : "");
+
+  // เช็คสต๊อกพอไหม (กันขายแล้วผลิต/ส่งไม่ทัน)
+  const need = {};
+  sel.forEach(o => Object.keys(o.products || {}).forEach(pid => need[pid] = (need[pid] || 0) + o.products[pid]));
+  const warns = [];
+  Object.keys(need).forEach(pid => {
+    const s = (rdData.stock || {})[pid];
+    if (s && need[pid] > s.stock) {
+      warns.push("⚠️ " + esc(s.name) + ": ต้องส่ง " + need[pid] + " แต่สต๊อกมี " + Math.max(s.stock, 0) +
+        " — ต้องผลิตเพิ่ม " + (need[pid] - Math.max(s.stock, 0)) + " แพ็ค แจ้งโรงงานก่อนนัดวันส่ง");
+    }
+  });
+  $("rdStockWarn").innerHTML = warns.length
+    ? '<div style="background:#FEF3C7;color:#92400E;border-radius:10px;padding:9px 12px;font-size:12.5px;margin-top:8px">' + warns.join("<br>") + "</div>"
+    : "";
+}
+
+async function saveRoundUI() {
+  if (!rdSel.size) return toast("แตะเลือกออเดอร์อย่างน้อย 1 รายการก่อนนะครับ", "err");
+  const cap = Number($("rdCap").value) || 0;
+  const sel = (rdData.pending || []).filter(o => rdSel.has(o.orderId));
+  const packs = sel.reduce((s, o) => s + Number(o.packs || 0), 0);
+  if (packs > cap && !confirm("ยอดรวม " + packs + " แพ็ค เกินความจุรถ (" + cap + ")\nยืนยันบันทึกทั้งอย่างนี้เลยไหม?")) return;
+  $("btnSaveRound").disabled = true;
+  try {
+    const res = await api("saveRound", { date: $("rdDate").value, capacity: cap,
+      orderIds: Array.from(rdSel), rep: ME.name, note: $("rdNote").value.trim() });
+    if (!res.success) throw new Error(res.error || "บันทึกไม่สำเร็จ");
+    toast("🚚 สร้างรอบส่งแล้ว · " + res.orders + " ออเดอร์ · " + res.packs + " แพ็ค", "ok");
+    $("rdNote").value = "";
+    openRounds();
+  } catch (e) { toast(e.message, "err"); }
+  $("btnSaveRound").disabled = false;
+}
+
+function renderRdRounds() {
+  const wrap = $("rdRoundsWrap");
+  wrap.innerHTML = "";
+  const rounds = rdData.rounds || [];
+  if (!rounds.length) {
+    wrap.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);cursor:default">ยังไม่มีรอบส่ง</div>';
+    return;
+  }
+  rounds.forEach(rd => {
+    const packs = (rd.orders || []).reduce((s, o) => s + Number(o.packs || 0), 0);
+    const pct = rd.capacity ? Math.round(packs * 100 / rd.capacity) : 0;
+    const col = pct > 100 ? "#DC2626" : pct >= 80 ? "#D97706" : "#059669";
+    const stCol = rd.status === "ส่งแล้ว" ? "#059669" : rd.status === "กำลังส่ง" ? "#D97706" : "var(--muted)";
+    const d = document.createElement("div");
+    d.className = "today-item";
+    const lines = (rd.orders || []).map(o =>
+      '<div class="vd-row"><span>' + esc(o.customerName) + ' <span style="color:var(--muted)">(' + esc(o.rep || "") + ")</span></span><span>" +
+      Number(o.packs).toLocaleString("th-TH") + " แพ็ค</span></div>").join("");
+    const acts =
+      rd.status === "วางแผน"
+        ? '<button class="mini-btn primary" onclick=\'event.stopPropagation();rdSetStatus("' + esc(rd.roundId) + '","กำลังส่ง")\'>🚚 ออกส่ง</button>' +
+          '<button class="mini-btn danger" onclick=\'event.stopPropagation();rdSetStatus("' + esc(rd.roundId) + '","ยกเลิก")\'>🗑 ยกเลิกรอบ</button>'
+        : rd.status === "กำลังส่ง"
+        ? '<button class="mini-btn primary" onclick=\'event.stopPropagation();rdSetStatus("' + esc(rd.roundId) + '","ส่งแล้ว")\'>✅ ส่งครบแล้ว</button>'
+        : "";
+    d.innerHTML = '<div class="r1"><span>🚚 ' + esc(rd.date) + " · สาย " + esc(rd.routes || "-") + "</span>" +
+      '<span style="color:' + col + '">' + packs + "/" + (rd.capacity || "-") + " แพ็ค ›</span></div>" +
+      '<div class="sub">' + esc(rd.roundId) + " · " + (rd.orders || []).length + " ออเดอร์ · โดย " + esc(rd.by || "-") +
+      ' · <b style="color:' + stCol + '">' + esc(rd.status) + "</b>" + (rd.note ? " · " + esc(rd.note) : "") + "</div>" +
+      '<div class="ord-items hidden">' + lines +
+      (acts ? '<div class="acts" style="display:flex;gap:8px;margin-top:8px">' + acts + "</div>" : "") + "</div>";
+    d.onclick = () => d.querySelector(".ord-items").classList.toggle("hidden");
+    wrap.appendChild(d);
+  });
+}
+
+async function rdSetStatus(roundId, status) {
+  const msg = status === "กำลังส่ง" ? "ออกส่งรอบ " + roundId + " ?\n(ออเดอร์ในรอบจะเปลี่ยนเป็น กำลังส่ง)"
+    : status === "ส่งแล้ว" ? "ปิดรอบ " + roundId + " ส่งครบแล้ว?\n(ออเดอร์ในรอบจะเปลี่ยนเป็น ส่งแล้ว)"
+    : "ยกเลิกรอบ " + roundId + " ?\n(ออเดอร์จะกลับไปรอจัดรอบใหม่)";
+  if (!confirm(msg)) return;
+  try {
+    const res = await api("setRoundStatus", roundId, status, ME.name);
+    if (!res.success) throw new Error(res.error || "อัปเดตไม่สำเร็จ");
+    toast(status === "ยกเลิก" ? "🗑 ยกเลิกรอบแล้ว" : "✅ อัปเดตรอบเป็น " + status + " (" + res.orders + " ออเดอร์)", "ok");
+    openRounds();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ============================================================
+// VISIT (บันทึกใหม่ + แก้ไข)
+// ============================================================
+function openVisit(edit) {
+  editingVisit = edit || null;
+  visitOutcome = ""; visitInterestSel = new Set(); visitProb = "";
+  visitPhotoB64 = null; visitGpsData = null; visitSaveGps = true; visitMapsUrl = "";
+  $("visitGpsManual").value = "";
+  compFreqVal = ""; compUnit = "โหล"; compSize = "600 ml";
+  compItems = []; compDirty = false;
+  $("visitNote").value = ""; $("visitFollowUp").value = "";
+  $("visitPhotoCam").value = ""; $("visitPhotoGal").value = "";
+  $("visitPhotoPreview").classList.add("hidden");
+  $("visitMap").classList.add("hidden"); $("visitMapHint").classList.add("hidden");
+  $("compBody").classList.add("hidden");
+  ["compBrand", "compBuy", "compSell", "compVolume"].forEach(id => $(id).value = "");
+
+  if (editingVisit) {
+    visitCust = DB.customers.find(c => c.id === editingVisit.customerId) ||
+                { id: editingVisit.customerId, name: editingVisit.customerName };
+    visitOutcome = editingVisit.outcome || "";
+    visitProb = editingVisit.probability ? editingVisit.probability + "%" : "";
+    visitInterestSel = new Set(String(editingVisit.interest || "").split(", ").filter(Boolean));
+    $("visitNote").value = editingVisit.note || "";
+    $("visitFollowUp").value = editingVisit.followUp || "";
+    $("visitGpsSection").classList.add("hidden");
+    $("btnSaveVisit").textContent = "💾 บันทึกการแก้ไข";
+  } else {
+    visitCust = null;
+    $("visitGpsSection").classList.remove("hidden");
+    $("btnSaveVisit").textContent = "✅ บันทึกการเข้าพบ";
+  }
+
+  buildPicker("visitPicker", c => { visitCust = c; loadCompItems(); }, () => visitCust,
+    { allowAdd: !editingVisit, returnTo: "visit", locked: !!editingVisit });
+  chipGroup("visitOutcomes", OUTCOMES, visitOutcome, v => visitOutcome = v);
+  multiChipGroup("visitInterest", DB.products.map(p => p.name), visitInterestSel);
+  chipGroup("visitProb", PROBS, visitProb, v => visitProb = v);
+  chipGroup("compBrandChips", COMP_BRANDS, "", v => { $("compBrand").value = v === "ไม่มีเจ้าประจำ" ? "ไม่มีเจ้าประจำ" : v; });
+  chipGroup("compSizeChips", COMP_SIZES, compSize, v => compSize = v);
+  chipGroup("compUnitChips", UNITS, compUnit, v => compUnit = v);
+  chipGroup("compFreqChips", COMP_FREQS, compFreqVal, v => compFreqVal = v);
+  loadCompItems();
+
+  if (!editingVisit) {
+    renderVisitGps();
+    getGps().then(g => { if (!visitGpsData) { visitGpsData = g; renderVisitGps(); } })
+            .catch(e => { if (!visitGpsData) $("visitGpsStatus").textContent = e.message + " — วางลิงก์ Maps หรือกด 🗺 ปักเอง"; });
+  }
+  show("pgVisit", editingVisit ? "✏️ แก้ไขบันทึก" : "📝 บันทึกเข้าพบ");
+}
+
+// โหลดลิสต์คู่แข่งของลูกค้าที่เลือก (สำเนา — ยังไม่บันทึกจนกด save)
+function loadCompItems() {
+  compItems = (visitCust && visitCust.compItems)
+    ? JSON.parse(JSON.stringify(visitCust.compItems)) : [];
+  compDirty = false;
+  renderCompList();
+}
+
+function renderCompList() {
+  const wrap = $("compList");
+  wrap.innerHTML = "";
+  compItems.forEach((it, i) => {
+    const d = document.createElement("div");
+    d.className = "comp-item";
+    const detail = [
+      it.buy ? "ซื้อ " + esc(it.buy) : "", it.sell ? "ขาย " + esc(it.sell) : "",
+      esc(it.volume || ""), esc(it.freq || ""),
+    ].filter(Boolean).join(" · ");
+    d.innerHTML = "<div><b>" + esc(it.brand) + (it.size ? " " + esc(it.size) : "") + "</b>" +
+      (detail ? "<br>" + detail : "") + '</div><button class="del" type="button" title="ลบรายการ">✕</button>';
+    d.querySelector(".del").onclick = () => { compItems.splice(i, 1); compDirty = true; renderCompList(); };
+    wrap.appendChild(d);
+  });
+  const open = !$("compBody").classList.contains("hidden");
+  $("compToggle").textContent = "🔍 ลูกค้ารับน้ำเจ้าไหนอยู่บ้าง" +
+    (compItems.length ? " (" + compItems.length + " รายการ)" : "") + (open ? " ▴" : " ▾");
+}
+
+function toggleComp() {
+  $("compBody").classList.toggle("hidden");
+  renderCompList();
+}
+
+function addCompItem() {
+  const brand = $("compBrand").value.trim();
+  if (!brand) { toast("เลือกหรือพิมพ์ชื่อแบรนด์ก่อน", "err"); return; }
+  const volNum = $("compVolume").value.trim();
+  compItems.push({
+    brand, size: brand === "ไม่มีเจ้าประจำ" ? "" : compSize,
+    buy: $("compBuy").value.trim(), sell: $("compSell").value.trim(),
+    volume: volNum ? volNum + " " + compUnit + "/เดือน" : "",
+    freq: compFreqVal,
+  });
+  compDirty = true;
+  ["compBrand", "compBuy", "compSell", "compVolume"].forEach(id => $(id).value = "");
+  compFreqVal = "";
+  chipGroup("compFreqChips", COMP_FREQS, compFreqVal, v => compFreqVal = v);
+  renderCompList();
+  toast("➕ เพิ่มแล้ว กรอกเจ้า/ขนาดถัดไปต่อได้เลย", "ok");
+}
+
+function renderVisitGps() {
+  const st = $("visitGpsStatus");
+  if (visitGpsData) {
+    st.textContent = "✓ " + visitGpsData.lat + ", " + visitGpsData.lng +
+      (visitMapsUrl ? " (จากลิงก์ Maps)" : "");
+    st.classList.add("ok");
+  }
+  $("visitGpsToggle").classList.toggle("on", visitSaveGps);
+  $("visitGpsToggle").textContent = visitSaveGps ? "บันทึกพิกัด ✓" : "ไม่บันทึก";
+}
+
+function setVisitGps(g, url) {
+  visitGpsData = g;
+  if (url) visitMapsUrl = url;
+  renderVisitGps();
+}
+
+function toggleVisitGps() { visitSaveGps = !visitSaveGps; renderVisitGps(); }
+
+async function checkVisitMap() {
+  const start = visitGpsData ||
+    (visitCust && visitCust.lat ? { lat: Number(visitCust.lat), lng: Number(visitCust.lng) } : LAMPANG);
+  try {
+    await showGpsMap("visitMap", "visitMapHint", start,
+      g => { visitGpsData = g; renderVisitGps(); });
+    if (!visitGpsData) { visitGpsData = start; renderVisitGps(); }
+  } catch (e) {
+    toast(e.message, "err");
+  }
+}
+
+async function saveVisit() {
+  if (!visitCust) { toast("กรุณาเลือกลูกค้า", "err"); return; }
+  if (!visitOutcome) { toast("กรุณาเลือกผลการเข้าพบ", "err"); return; }
+  $("btnSaveVisit").disabled = true;
+  try {
+    // ถ้ามีของกรอกค้างในฟอร์มคู่แข่งแต่ลืมกด "เพิ่มเข้าลิสต์" — เพิ่มให้อัตโนมัติ
+    if ($("compBrand").value.trim()) addCompItem();
+    const payload = {
+      rep: ME.name, customerId: visitCust.id, customerName: visitCust.name,
+      outcome: visitOutcome, interest: Array.from(visitInterestSel).join(", "),
+      note: $("visitNote").value.trim(), followUp: $("visitFollowUp").value,
+      probability: visitProb ? parseInt(visitProb) : "",
+      photoBase64: visitPhotoB64 || "",
+    };
+    if (compDirty) payload.compItems = compItems;
+    if (editingVisit) {
+      payload.visitId = editingVisit.visitId;
+      const res = await api("updateVisit", payload);
+      if (!res.success) throw new Error(res.error || "แก้ไขไม่สำเร็จ");
+      toast("💾 แก้ไขบันทึกแล้ว", "ok");
+      if (compDirty) visitCust.compItems = compItems;
+      openToday();
+    } else {
+      const useGps = visitSaveGps && visitGpsData;
+      payload.gpsLat = useGps ? visitGpsData.lat : "";
+      payload.gpsLng = useGps ? visitGpsData.lng : "";
+      payload.mapsUrl = useGps ? visitMapsUrl : "";
+      await api("addVisit", payload);
+      if (useGps) {
+        visitCust.lat = visitGpsData.lat; visitCust.lng = visitGpsData.lng;
+        if (visitMapsUrl) visitCust.mapsUrl = visitMapsUrl;
+      }
+      if (compDirty) visitCust.compItems = compItems;
+      toast("✅ บันทึกเข้าพบ " + visitCust.name + " แล้ว", "ok");
+      goHome();
+    }
+  } catch (e) {
+    toast("บันทึกไม่สำเร็จ: " + e.message, "err");
+  }
+  $("btnSaveVisit").disabled = false;
+}
+
+// ============================================================
+// ORDER (แบรนด์เรา + OEM)
+// ============================================================
+function openOrder() {
+  orderCust = null; orderPayVal = "เก็บหน้างาน"; orderType = "brand";
+  oemSize = "600 ml"; oemUnit = "โหล";
+  $("orderNote").value = ""; $("oemBrand").value = ""; $("oemQty").value = "";
+  $("oemPrice").value = ""; $("oemDue").value = "";
+  $("orderItems").innerHTML = "";
+  buildPicker("orderPicker", c => orderCust = c, () => orderCust, { allowAdd: true, returnTo: "order" });
+  chipGroup("orderTypeChips", ["น้ำแบรนด์เรา", "OEM / สวมฉลาก"],
+    "น้ำแบรนด์เรา", v => setOrderType(v === "น้ำแบรนด์เรา" ? "brand" : "oem"));
+  chipGroup("oemSizeChips", OEM_SIZES, oemSize, v => oemSize = v);
+  chipGroup("oemUnitChips", UNITS, oemUnit, v => oemUnit = v);
+  setOrderType("brand");
+  addItemRow("orderItems", "orderTotal");
+  show("pgOrder", "🛒 ลงออเดอร์");
+}
+
+function setOrderType(t) {
+  orderType = t;
+  $("orderBrandSec").classList.toggle("hidden", t !== "brand");
+  $("orderOemSec").classList.toggle("hidden", t !== "oem");
+  orderPayVal = t === "oem" ? "มัดจำ 50%" : "เก็บหน้างาน";
+  chipGroup("orderPayment", t === "oem" ? OEM_PAY : PAYMENTS, orderPayVal, v => orderPayVal = v);
+}
+
+function calcOemTotal() {
+  const total = (Number($("oemQty").value) || 0) * (Number($("oemPrice").value) || 0);
+  $("oemTotal").textContent = baht(total);
+}
+
+function addItemRow(containerId, totalId) {
+  const row = document.createElement("div");
+  row.className = "item-row";
+  const opts = DB.products.map(p =>
+    '<option value="' + esc(p.id) + '" data-price="' + p.price + '" data-name="' + esc(p.name) + '">' +
+    esc(p.name) + " · เหลือ " + Number(p.stock).toLocaleString("th-TH") + "</option>").join("");
+  row.innerHTML = '<select class="it-prod" title="สินค้า">' + opts + '</select>' +
+    '<input class="it-qty" type="tel" inputmode="numeric" value="1" placeholder="จำนวน" title="จำนวน">' +
+    '<input class="it-price" type="tel" inputmode="decimal" placeholder="ราคา" title="ราคา/หน่วย">' +
+    '<button class="del" type="button" title="ลบรายการ">✕</button>';
+  const prodSel = row.querySelector(".it-prod");
+  const priceIn = row.querySelector(".it-price");
+  const recalc  = () => calcTotal(containerId, totalId);
+  const syncPrice = () => { priceIn.value = prodSel.selectedOptions[0].dataset.price; recalc(); };
+  prodSel.onchange = syncPrice;
+  row.querySelector(".it-qty").oninput = recalc;
+  priceIn.oninput = recalc;
+  row.querySelector(".del").onclick = () => { row.remove(); recalc(); };
+  $(containerId).appendChild(row);
+  syncPrice();
+}
+
+function readItems(containerId) {
+  return Array.from(document.querySelectorAll("#" + containerId + " .item-row")).map(row => {
+    const opt = row.querySelector(".it-prod").selectedOptions[0];
+    return {
+      productId: opt.value, productName: opt.dataset.name,
+      qty: Number(row.querySelector(".it-qty").value) || 0,
+      unitPrice: Number(row.querySelector(".it-price").value) || 0,
+      unit: "แพ็ค",
+    };
+  }).filter(i => i.qty > 0);
+}
+
+function calcTotal(containerId, totalId) {
+  const total = readItems(containerId).reduce((s, i) => s + i.qty * i.unitPrice, 0);
+  $(totalId).textContent = baht(total);
+}
+
+async function saveOrder() {
+  if (!orderCust) { toast("กรุณาเลือกลูกค้า", "err"); return; }
+  $("btnSaveOrder").disabled = true;
+  try {
+    if (orderType === "brand") {
+      const items = readItems("orderItems");
+      if (!items.length) { toast("กรุณาเพิ่มสินค้าอย่างน้อย 1 รายการ", "err"); $("btnSaveOrder").disabled = false; return; }
+      const res = await api("addOrder", {
+        rep: ME.name, customerId: orderCust.id, customerName: orderCust.name,
+        items, payment: orderPayVal, note: $("orderNote").value.trim(),
+      });
+      toast("✅ ออเดอร์ " + res.orderId + " ยอด " + baht(res.grandTotal), "ok");
+    } else {
+      const qty = Number($("oemQty").value) || 0;
+      const price = Number($("oemPrice").value) || 0;
+      if (!$("oemBrand").value.trim()) { toast("กรุณากรอกชื่อแบรนด์ของลูกค้า", "err"); $("btnSaveOrder").disabled = false; return; }
+      if (!qty || !price) { toast("กรุณากรอกจำนวนและราคา", "err"); $("btnSaveOrder").disabled = false; return; }
+      const res = await api("addOemOrder", {
+        rep: ME.name, customerId: orderCust.id, customerName: orderCust.name,
+        clientBrand: $("oemBrand").value.trim(), size: oemSize,
+        qty, unit: oemUnit, unitPrice: price,
+        payment: orderPayVal, dueDate: $("oemDue").value, note: $("orderNote").value.trim(),
+      });
+      toast("✅ งาน OEM " + res.orderId + " ยอด " + baht(res.grandTotal), "ok");
+    }
+    goHome();
+  } catch (e) {
+    toast("บันทึกไม่สำเร็จ: " + e.message, "err");
+  }
+  $("btnSaveOrder").disabled = false;
+}
+
+// ============================================================
+// QUOTE (ใบเสนอราคา)
+// ============================================================
+function openQuote() {
+  // พักการใช้งานชั่วคราวตามนโยบาย — ยังไม่เปิดให้ทีมใช้
+  toast("🚧 กำลังพัฒนาฟังก์ชันนี้อยู่นะครับ", "");
+}
+
+async function saveQuote() {
+  if (!quoteCust) { toast("กรุณาเลือกลูกค้า", "err"); return; }
+  const items = readItems("quoteItems");
+  if (!items.length) { toast("กรุณาเพิ่มสินค้าอย่างน้อย 1 รายการ", "err"); return; }
+  $("btnSaveQuote").disabled = true;
+  try {
+    const res = await api("addQuote", {
+      rep: ME.name, customerId: quoteCust.id, customerName: quoteCust.name,
+      items, validDays: quoteValidDays, note: $("quoteNote").value.trim(),
+    });
+    lastQuoteText = buildQuoteText(res.quoteId, items, res.total, res.pdfUrl);
+    $("quotePaper").textContent = lastQuoteText;
+    $("btnQuotePdf").classList.toggle("hidden", !res.pdfUrl);
+    if (res.pdfUrl) $("btnQuotePdf").href = res.pdfUrl;
+    $("btnShareQuote").classList.toggle("hidden", !navigator.share);
+    show("pgQuoteDone", "📄 ใบเสนอราคา");
+  } catch (e) {
+    toast("สร้างไม่สำเร็จ: " + e.message, "err");
+  }
+  $("btnSaveQuote").disabled = false;
+}
+
+function buildQuoteText(quoteId, items, total, pdfUrl) {
+  const d = new Date();
+  const dateTh = d.toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric" });
+  const lines = items.map((i, n) =>
+    (n + 1) + ". " + i.productName + " × " + i.qty.toLocaleString("th-TH") + " " + i.unit +
+    " @" + i.unitPrice.toLocaleString("th-TH") + " = " + (i.qty * i.unitPrice).toLocaleString("th-TH") + ".-");
+  const note = $("quoteNote").value.trim();
+  return "📄 ใบเสนอราคา " + quoteId +
+    "\nน้ำดื่มละกอน · เพียวซ่า 💧" +
+    "\nวันที่: " + dateTh +
+    "\nเรียน: " + quoteCust.name +
+    "\n────────────────" +
+    "\n" + lines.join("\n") +
+    "\n────────────────" +
+    "\nรวมทั้งสิ้น " + total.toLocaleString("th-TH") + " บาท" +
+    "\nยืนราคา " + quoteValidDays + " วัน" +
+    (note ? "\nเงื่อนไข: " + note : "") +
+    (pdfUrl ? "\n\n📎 ไฟล์ใบเสนอราคา (PDF):\n" + pdfUrl : "") +
+    "\n\nสนใจสั่งซื้อ/สอบถาม: " + ME.name;
+}
+
+async function copyQuote() {
+  try {
+    await navigator.clipboard.writeText(lastQuoteText);
+    toast("✅ คัดลอกแล้ว วางใน LINE ได้เลย", "ok");
+  } catch (e) {
+    const range = document.createRange();
+    range.selectNodeContents($("quotePaper"));
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+    toast("กดค้างที่ข้อความแล้วเลือก คัดลอก", "err");
+  }
+}
+
+function shareQuote() {
+  if (navigator.share) navigator.share({ text: lastQuoteText }).catch(() => {});
+}
+
+// ============================================================
+// NEW / EDIT CUSTOMER
+// ============================================================
+function pinNcGps() {
+  $("ncGpsStatus").textContent = "กำลังหาตำแหน่ง...";
+  getGps().then(g => { ncGpsData = g; renderNcGps(); })
+    .catch(e => { $("ncGpsStatus").textContent = e.message + " — กด 🗺 ปักเอง หรือวางลิงก์แผนที่"; });
+}
+
+function renderNcGps() {
+  const st = $("ncGpsStatus");
+  if (ncGpsData) {
+    st.textContent = "✓ " + ncGpsData.lat + ", " + ncGpsData.lng;
+    st.classList.add("ok");
+  } else {
+    st.textContent = "ยังไม่มีพิกัด"; st.classList.remove("ok");
+  }
+}
+
+function setNcGps(g, url) {
+  ncGpsData = g;
+  if (url) ncMapsUrl = url;
+  renderNcGps();
+}
+
+function parseNcGpsManual() {
+  handleMapsInput($("ncGpsManual").value, setNcGps, $("ncGpsStatus"));
+}
+
+async function checkNcMap() {
+  const start = ncGpsData || LAMPANG;
+  try {
+    await showGpsMap("ncMap", "ncMapHint", start, g => { ncGpsData = g; renderNcGps(); });
+    if (!ncGpsData) { ncGpsData = start; renderNcGps(); }
+  } catch (e) {
+    toast(e.message, "err");
+  }
+}
+
+function openNewCust(opts) {
+  opts = opts || {};
+  editingCust = opts.edit || null;
+  afterCustSave = opts.returnTo || null;
+  ncTypeVal = "โรงน้ำ"; ncGradeVal = "D"; ncStatusVal = "Prospect"; ncGpsData = null; ncMapsUrl = "";
+  ["ncName", "ncAddress", "ncContact", "ncPhone", "ncNote", "ncGpsManual"].forEach(id => $(id).value = "");
+  $("ncMap").classList.add("hidden"); $("ncMapHint").classList.add("hidden");
+  $("ncDistrict").innerHTML = DISTRICTS.map(d => "<option>" + d + "</option>").join("");
+  $("ncStatusWrap").classList.toggle("hidden", !editingCust);
+
+  if (editingCust) {
+    const c = editingCust;
+    $("ncName").value = c.name || "";
+    ncTypeVal = c.type || "โรงน้ำ";
+    if (DISTRICTS.indexOf(c.district) === -1 && c.district) {
+      $("ncDistrict").innerHTML += "<option>" + esc(c.district) + "</option>";
+    }
+    $("ncDistrict").value = c.district || DISTRICTS[0];
+    $("ncAddress").value = c.address || "";
+    $("ncContact").value = c.contact || "";
+    $("ncPhone").value = c.phone || "";
+    $("ncNote").value = c.note || "";
+    ncGradeVal = c.grade || "D";
+    ncStatusVal = c.status || "Prospect";
+    if (c.lat && c.lng) ncGpsData = { lat: Number(c.lat), lng: Number(c.lng) };
+    ncMapsUrl = c.mapsUrl || "";
+    $("btnSaveCust").textContent = "💾 บันทึกการแก้ไข";
+  } else {
+    if (opts.prefillName) $("ncName").value = opts.prefillName;
+    $("btnSaveCust").textContent = "✅ เพิ่มลูกค้า";
+  }
+  renderNcGps();
+  $("ncType").innerHTML = TYPES.map(t => "<option>" + t + "</option>").join("");
+  if (ncTypeVal && TYPES.indexOf(ncTypeVal) === -1) {
+    $("ncType").innerHTML += "<option>" + esc(ncTypeVal) + "</option>";
+  }
+  $("ncType").value = ncTypeVal || TYPES[0];
+  chipGroup("ncGrade", GRADES, ncGradeVal, v => ncGradeVal = v);
+  chipGroup("ncStatus", STATUSES, ncStatusVal, v => ncStatusVal = v);
+  show("pgNewCust", editingCust ? "✏️ แก้ไขลูกค้า" : "➕ ลูกค้าใหม่");
+}
+
+async function saveCustomer() {
+  const name = $("ncName").value.trim();
+  if (!name) { toast("กรุณากรอกชื่อลูกค้า", "err"); return; }
+  $("btnSaveCust").disabled = true;
+  try {
+    ncTypeVal = $("ncType").value;
+    const fields = {
+      name, type: ncTypeVal, district: $("ncDistrict").value,
+      address: $("ncAddress").value.trim(), contact: $("ncContact").value.trim(),
+      phone: $("ncPhone").value.trim(), grade: ncGradeVal, note: $("ncNote").value.trim(),
+      gpsLat: ncGpsData ? ncGpsData.lat : "", gpsLng: ncGpsData ? ncGpsData.lng : "",
+      mapsUrl: ncMapsUrl,
+    };
+    if (editingCust) {
+      fields.id = editingCust.id;
+      fields.status = ncStatusVal;
+      const res = await api("updateCustomer", fields);
+      if (!res.success) throw new Error(res.error || "แก้ไขไม่สำเร็จ");
+      const c = DB.customers.find(x => x.id === editingCust.id);
+      if (c) Object.assign(c, fields, {
+        lat: fields.gpsLat || c.lat, lng: fields.gpsLng || c.lng, status: ncStatusVal,
+      });
+      toast("💾 แก้ไขข้อมูล " + name + " แล้ว", "ok");
+      openCustList();
+    } else {
+      fields.rep = ME.name; fields.route = ME.route;
+      let res = await api("addCustomer", fields);
+      // เจอชื่อคล้าย/เบอร์ซ้ำในระบบ (รวมสายอื่นที่เรามองไม่เห็น) → ให้ยืนยันก่อน
+      if (res.dup) {
+        const list = (res.matches || []).map(m =>
+          "• " + m.name + " — สาย " + m.route + " · ดูแลโดย " + m.rep + " (" + m.why + ")").join("\n");
+        if (!confirm("⚠️ เจอลูกค้าคล้ายกันในระบบแล้ว:\n" + list +
+          "\n\nถ้าเป็นร้านเดียวกัน อย่าสร้างซ้ำนะครับ — แจ้งหัวหน้าให้ย้ายสาย/ย้ายลีดแทน\n\nยืนยันว่าเป็นคนละร้าน สร้างใหม่เลย?")) {
+          $("btnSaveCust").disabled = false;
+          return;
+        }
+        fields.force = true;
+        res = await api("addCustomer", fields);
+      }
+      if (!res.success) throw new Error(res.error || "บันทึกไม่สำเร็จ");
+      const newCust = {
+        id: res.customerId, name, type: ncTypeVal, district: fields.district,
+        address: fields.address, contact: fields.contact, phone: fields.phone,
+        rep: ME.name, route: String(ME.route), grade: ncGradeVal, status: "Prospect",
+        note: fields.note, lat: fields.gpsLat, lng: fields.gpsLng,
+        compItems: [],
+      };
+      DB.customers.push(newCust);
+      toast("✅ เพิ่ม " + name + " (" + res.customerId + ") แล้ว", "ok");
+      // เพิ่มจากหน้าเข้าพบ/ออเดอร์ → กลับไปหน้านั้นพร้อมเลือกลูกค้าให้เลย
+      if (afterCustSave === "visit") {
+        openVisit(); visitCust = newCust;
+        buildPicker("visitPicker", c => { visitCust = c; loadCompItems(); }, () => visitCust,
+          { allowAdd: true, returnTo: "visit" });
+      } else if (afterCustSave === "order") {
+        openOrder(); orderCust = newCust;
+        buildPicker("orderPicker", c => orderCust = c, () => orderCust, { allowAdd: true, returnTo: "order" });
+      } else if (afterCustSave === "quote") {
+        openQuote(); quoteCust = newCust;
+        buildPicker("quotePicker", c => quoteCust = c, () => quoteCust, { allowAdd: true, returnTo: "quote" });
+      } else if (afterCustSave === "van") {
+        openVan();
+        vanCust = newCust;
+        $("vanCustPicker").classList.remove("hidden");
+        $("vanCustToggle").textContent = "👤 ขายให้: " + newCust.name;
+        renderVanCustPicker();
+      } else {
+        goHome();
+      }
+    }
+  } catch (e) {
+    toast("บันทึกไม่สำเร็จ: " + e.message, "err");
+  }
+  $("btnSaveCust").disabled = false;
+}
+
+// ============================================================
+// CUSTOMER LIST
+// ============================================================
+function openCustList() {
+  $("clSearch").value = ""; $("clStatus").value = "";
+  chipGroup("clGrade", ["ทั้งหมด", "A+", "A", "B", "C", "D"], clGradeVal,
+    v => { clGradeVal = v; renderCustList(); });
+  // ข้อมูลถูกกรองตามสิทธิ์จากเซิร์ฟเวอร์แล้ว: เซลส์/หัวหน้าสาย = สายตัวเอง, ผู้จัดการ = ทุกสาย
+  const role = ME.role || "เซลส์";
+  $("clScopeNote").textContent = role === "ผู้จัดการ"
+    ? "👑 เห็นลูกค้าทุกสาย (" + DB.customers.length + " ราย)"
+    : "ลูกค้าในสาย " + (ME.routes || [ME.route]).join(", ") + " (" + DB.customers.length + " ราย)";
+  renderCustList();
+  show("pgCustList", "📋 ลูกค้าในสาย");
+}
+
+function renderCustList() {
+  const q = $("clSearch").value.trim().toLowerCase();
+  const st = $("clStatus").value;
+  const items = DB.customers.filter(c =>
+    (!st || c.status === st) &&
+    (clGradeVal === "ทั้งหมด" || String(c.grade).trim() === clGradeVal) &&
+    (!q || String(c.name).toLowerCase().includes(q)));
+  const wrap = $("custListWrap");
+  wrap.innerHTML = "";
+  items.forEach(c => {
+    const d = document.createElement("div");
+    d.className = "cust-card";
+    const ci = c.compItems || [];
+    const comp = ci.length
+      ? '<div class="sub">🔍 รับ ' +
+        esc(ci.slice(0, 2).map(i => i.brand + (i.size ? " " + i.size : "") + (i.buy ? " @" + i.buy : "")).join(", ")) +
+        (ci.length > 2 ? " +อีก " + (ci.length - 2) + " รายการ" : "") + "</div>"
+      : "";
+    d.style.cursor = "pointer";
+    d.innerHTML =
+      '<div class="row1"><span class="nm">' + esc(c.name) + ' ›</span>' +
+      '<span class="pill pill-' + (c.grade === "A+" ? "Aplus" : esc(c.grade)) + '">' + esc(c.grade || "-") + "</span></div>" +
+      '<div class="sub">' + esc(c.type || "") + (c.district ? " · อ." + esc(c.district) : "") +
+      " · สาย " + esc(c.route || "-") + " · <b>" + esc(c.status || "") + "</b> " + repTag(c.rep) + "</div>" + comp +
+      '<div class="acts">' +
+      (c.phone ? '<a class="mini-btn" onclick="event.stopPropagation()" href="tel:' + esc(c.phone) + '">📞 โทร</a>' : "") +
+      (c.lat && c.lng ? '<a class="mini-btn" onclick="event.stopPropagation()" target="_blank" href="https://www.google.com/maps?q=' + esc(c.lat) + "," + esc(c.lng) + '">🗺 นำทาง</a>' : "") +
+      '<button class="mini-btn primary" onclick="event.stopPropagation();editCustomer(\'' + esc(c.id) + '\')">✏️ แก้ไข</button>' +
+      "</div>";
+    d.onclick = () => openCustDetail(c.id);
+    wrap.appendChild(d);
+  });
+  if (!items.length) wrap.innerHTML = '<div class="card" style="text-align:center;color:var(--muted)">ไม่พบลูกค้า</div>';
+}
+
+function editCustomer(id) {
+  const c = DB.customers.find(x => x.id === id);
+  if (c) openNewCust({ edit: c });
+}
+
+// ---------- หน้ารายละเอียดลูกค้า (ทบทวนการบ้าน) ----------
+async function openCustDetail(id, from) {
+  const c = DB.customers.find(x => x.id === id);
+  if (!c) return;
+  custDetailBackFn = (from === "calendar" || from === "followup") ? openCalendar : openCustList;
+
+  $("cdHero").innerHTML =
+    '<div class="nm">' + esc(c.name) + "</div>" +
+    '<div class="sub">' + esc(c.type || "") + (c.district ? " · อ." + esc(c.district) : "") +
+    " · สาย " + esc(c.route || "-") + " " + repTag(c.rep) + "</div>" +
+    '<div class="vd-badges"><span class="vd-outcome">' + esc(c.status || "-") + "</span>" +
+    '<div class="vd-prob"><b>' + esc(c.grade || "-") + "</b><span>ศักยภาพ</span></div></div>";
+
+  let body = "";
+  const rows = [];
+  if (c.contact) rows.push(["ผู้ติดต่อ", c.contact]);
+  if (c.phone) rows.push(["เบอร์โทร", c.phone]);
+  if (c.address) rows.push(["ที่อยู่", c.address]);
+  if (rows.length) {
+    body += vdSec("ข้อมูลร้าน", rows.map(r =>
+      '<div class="vd-row"><span class="k">' + esc(r[0]) + "</span><span>" + esc(r[1]) + "</span></div>").join(""));
+  }
+  const ci = c.compItems || [];
+  if (ci.length) {
+    body += vdSec("คู่แข่งในร้านนี้ (" + ci.length + " รายการ)", ci.map(i =>
+      '<div class="vd-row"><span><b>' + esc(i.brand + (i.size ? " " + i.size : "")) + "</b></span><span>" +
+      esc([i.buy ? "ซื้อ " + i.buy : "", i.sell ? "ขาย " + i.sell : "", i.volume, i.freq].filter(Boolean).join(" · ")) +
+      "</span></div>").join(""));
+  }
+  if (c.note) {
+    body += vdSec("หมายเหตุ", '<div style="font-size:14px;line-height:1.65">' + esc(c.note) + "</div>");
+  }
+  body += '<div class="btn-row">' +
+    '<button class="btn btn-primary" onclick=\'visitFromDetail("' + esc(c.id) + '")\'>📝 บันทึกเข้าพบ</button>' +
+    '<button class="btn btn-ghost" onclick=\'orderFromDetail("' + esc(c.id) + '")\'>🛒 ลงออเดอร์</button></div>' +
+    '<div class="btn-row">' +
+    '<button class="btn btn-ghost" onclick=\'editCustomer("' + esc(c.id) + '")\'>✏️ แก้ไขข้อมูล</button>' +
+    (c.lat && c.lng
+      ? '<a class="btn btn-ghost" style="text-align:center;text-decoration:none" target="_blank" href="https://www.google.com/maps?q=' + esc(c.lat) + "," + esc(c.lng) + '">🗺 นำทาง</a>'
+      : "") + "</div>";
+  $("cdBody").innerHTML = body;
+  $("cdHistory").innerHTML = '<div class="spin"></div>';
+  show("pgCustDetail", "📋 ข้อมูลลูกค้า");
+
+  // ประวัติโหลดแยก (ช้ากว่า) — หน้าเปิดก่อน ประวัติตามมา
+  try {
+    const h = await api("getCustomerHistory", c.id);
+    let hist = "";
+    if ((h.visits || []).length) {
+      hist += vdSec("ประวัติเข้าพบ (" + h.visits.length + " ครั้งล่าสุด)", h.visits.map(v =>
+        '<div class="vd-row" style="flex-direction:column;align-items:stretch;gap:2px">' +
+        '<div style="display:flex;justify-content:space-between"><b>' + esc(v.outcome || "-") + "</b>" +
+        '<span class="k">' + esc(v.date) + (v.probability ? " · " + esc(v.probability) + "%" : "") + "</span></div>" +
+        (v.note ? '<div style="font-size:13px;color:var(--muted)">' + esc(v.note) + "</div>" : "") +
+        ((v.followUp || v.photoUrl) ? '<div style="font-size:12px;color:var(--muted)">' +
+          (v.followUp ? "นัดติดตาม " + esc(v.followUp) + " " : "") +
+          (String(v.photoUrl).indexOf("http") === 0 ? '· <a href="' + esc(v.photoUrl) + '" target="_blank" onclick="event.stopPropagation()">📷 รูป</a>' : "") +
+          "</div>" : "") +
+        "</div>").join(""));
+    }
+    if ((h.orders || []).length) {
+      hist += vdSec("ประวัติออเดอร์ (" + h.orders.length + " รายการล่าสุด)", h.orders.map(o =>
+        '<div class="vd-row"><span>' + esc(o.date) + (o.oem ? " · OEM" : "") +
+        ' <span class="k">' + esc(o.status || "") + "</span></span><span><b>" + baht(o.total) + "</b></span></div>").join(""));
+    }
+    if ((h.quotes || []).length) {
+      hist += vdSec("ใบเสนอราคาที่เคยส่ง", h.quotes.map(q =>
+        '<div class="vd-row"><span>' + esc(q.date) + " · " + esc(q.quoteId) + "</span><span>" + baht(q.total) +
+        (q.pdfUrl ? ' · <a href="' + esc(q.pdfUrl) + '" target="_blank">PDF</a>' : "") + "</span></div>").join(""));
+    }
+    $("cdHistory").innerHTML = hist ||
+      '<div class="card" style="color:var(--muted);text-align:center">ยังไม่เคยเข้าพบ/มีออเดอร์กับร้านนี้</div>';
+  } catch (e) {
+    $("cdHistory").innerHTML = '<div class="card" style="color:var(--muted)">โหลดประวัติไม่สำเร็จ: ' + esc(e.message) + "</div>";
+  }
+}
+
+function visitFromDetail(id) {
+  const c = DB.customers.find(x => x.id === id);
+  openVisit();
+  visitCust = c; loadCompItems();
+  buildPicker("visitPicker", x => { visitCust = x; loadCompItems(); }, () => visitCust,
+    { allowAdd: true, returnTo: "visit" });
+}
+
+function orderFromDetail(id) {
+  const c = DB.customers.find(x => x.id === id);
+  openOrder();
+  orderCust = c;
+  buildPicker("orderPicker", x => orderCust = x, () => orderCust, { allowAdd: true, returnTo: "order" });
+}
+
+// ============================================================
+// TODAY — แก้ไขบันทึก / ยกเลิกออเดอร์
+// ============================================================
+async function openToday() {
+  show("pgToday", "🕒 วันนี้ของฉัน");
+  $("todayVisits").innerHTML = '<div class="spin"></div>';
+  $("todayOrders").innerHTML = "";
+  try {
+    const t = await api("getMyToday", ME.name);
+    renderToday(t);
+  } catch (e) {
+    $("todayVisits").innerHTML = '<div class="card">โหลดไม่สำเร็จ: ' + esc(e.message) + "</div>";
+  }
+}
+
+function renderToday(t) {
+  window.__todayVisits = t.visits || [];
+  window.__todayOrders = t.orders || [];
+
+  // ---------- แถบสรุปของวัน (ไว้พรีเซนต์ภาพรวม) ----------
+  const active = (t.orders || []).filter(o => o.status !== "Cancelled");
+  const totalSales = active.reduce((s, o) => s + Number(o.total || 0), 0);
+  const outcomeCount = {};
+  (t.visits || []).forEach(v => { outcomeCount[v.outcome] = (outcomeCount[v.outcome] || 0) + 1; });
+  const badges = Object.keys(outcomeCount)
+    .map(k => '<span class="chip" style="pointer-events:none">' + esc(k) + " " + outcomeCount[k] + "</span>").join(" ");
+  $("todaySummary").innerHTML =
+    '<div class="stats">' +
+    '<div class="stat"><div class="num">' + (t.visits || []).length + '</div><div class="lbl">เข้าพบ</div></div>' +
+    '<div class="stat"><div class="num">' + active.length + '</div><div class="lbl">ออเดอร์</div></div>' +
+    '<div class="stat"><div class="num">' + totalSales.toLocaleString("th-TH") + '</div><div class="lbl">ยอดขาย (฿)</div></div>' +
+    "</div>" +
+    (badges ? '<div class="chips" style="margin-top:10px">' + badges + "</div>" : "");
+
+  // ---------- การ์ดเข้าพบ: กดทั้งใบเพื่อเปิดหน้าพรีเซนต์ ----------
+  const vw = $("todayVisits");
+  vw.innerHTML = "";
+  (t.visits || []).forEach(v => {
+    const d = document.createElement("div");
+    d.className = "today-item";
+    d.innerHTML = '<div class="r1"><span>' + esc(v.customerName) + "</span>" +
+      '<span style="color:var(--brand-dark)">' + esc(v.outcome) + " ›</span></div>" +
+      '<div class="sub">' + (v.probability ? "โอกาส " + esc(v.probability) + "% · " : "") +
+      esc(String(v.note || "ไม่มีหมายเหตุ").slice(0, 70)) + "</div>";
+    d.onclick = () => openVisitDetail(v.visitId);
+    vw.appendChild(d);
+  });
+  if (!(t.visits || []).length) vw.innerHTML = '<div class="card" style="color:var(--muted);text-align:center;cursor:default">ยังไม่มีบันทึกวันนี้</div>';
+
+  // ---------- การ์ดออเดอร์: กดเพื่อกางรายการสินค้า ----------
+  const ow = $("todayOrders");
+  ow.innerHTML = "";
+  (t.orders || []).forEach(o => {
+    const d = document.createElement("div");
+    d.className = "today-item" + (o.status === "Cancelled" ? " cancelled" : "");
+    const itemLines = (o.items || []).map(i =>
+      '<div class="vd-row"><span>' + esc(i.name) + " × " + Number(i.qty).toLocaleString("th-TH") +
+      " " + esc(i.unit || "") + "</span><span>" + baht(i.qty * i.unitPrice) + "</span></div>").join("") +
+      (o.due ? '<div class="vd-row"><span class="k">กำหนดส่ง</span><span>' + esc(o.due) + "</span></div>" : "");
+    d.innerHTML = '<div class="r1"><span>' + esc(o.customerName) + "</span><span>" + baht(o.total) + " ›</span></div>" +
+      '<div class="sub">' + esc(o.orderId) + " · " + (o.type === "oem" ? "OEM · " : "") +
+      esc(o.payment || "") + " · " + esc(o.status) + "</div>" +
+      '<div class="ord-items hidden">' + itemLines +
+      (o.status !== "Cancelled"
+        ? '<div class="acts" style="display:flex;gap:8px;margin-top:8px">' +
+          '<button class="mini-btn danger" onclick=\'event.stopPropagation();cancelOrderUi("' + esc(o.orderId) + '")\'>🗑 ยกเลิกออเดอร์</button></div>'
+        : "") + "</div>";
+    d.onclick = () => d.querySelector(".ord-items").classList.toggle("hidden");
+    ow.appendChild(d);
+  });
+  if (!(t.orders || []).length) ow.innerHTML = '<div class="card" style="color:var(--muted);text-align:center;cursor:default">ยังไม่มีออเดอร์วันนี้</div>';
+}
+
+function editVisitById(visitId) {
+  const v = (window.__todayVisits || []).find(x => x.visitId === visitId);
+  if (v) openVisit(v);
+}
+
+// ---------- หน้าพรีเซนต์การเข้าพบ (กดจากการ์ด) ----------
+function vdSec(h, inner) {
+  return '<div class="vd-sec"><div class="h">' + esc(h) + "</div>" + inner + "</div>";
+}
+
+function openVisitDetail(visitId) {
+  const v = (window.__todayVisits || []).find(x => x.visitId === visitId);
+  if (!v) return;
+  const c = DB.customers.find(x => x.id === v.customerId) || {};
+
+  $("vdHero").innerHTML =
+    '<div class="nm">' + esc(v.customerName) + "</div>" +
+    '<div class="sub">' + esc(c.type || "") + (c.district ? " · อ." + esc(c.district) : "") +
+    (c.grade ? " · เกรด " + esc(c.grade) : "") + " · โดย " + esc(ME.name) + "</div>" +
+    '<div class="vd-badges"><span class="vd-outcome">' + esc(v.outcome || "-") + "</span>" +
+    (v.probability ? '<div class="vd-prob"><b>' + esc(v.probability) + "</b><span>% โอกาสสั่งซื้อ</span></div>" : "") +
+    "</div>";
+
+  let body = "";
+  const rows = [];
+  if (v.interest) rows.push(["สินค้าที่ลูกค้าสนใจ", v.interest]);
+  if (v.followUp) rows.push(["นัดติดตาม", v.followUp]);
+  if (c.phone) rows.push(["เบอร์โทร", c.phone]);
+  if (rows.length) {
+    body += vdSec("ข้อมูลสำคัญ", rows.map(r =>
+      '<div class="vd-row"><span class="k">' + esc(r[0]) + "</span><span>" + esc(r[1]) + "</span></div>").join(""));
+  }
+  if (v.note) {
+    body += vdSec("บันทึกจากหน้างาน",
+      '<div style="font-size:14px;line-height:1.65">' + esc(v.note) + "</div>");
+  }
+  const ci = c.compItems || [];
+  if (ci.length) {
+    body += vdSec("คู่แข่งในร้านนี้ (" + ci.length + " รายการ)", ci.map(i =>
+      '<div class="vd-row"><span><b>' + esc(i.brand + (i.size ? " " + i.size : "")) + "</b></span><span>" +
+      esc([i.buy ? "ซื้อ " + i.buy : "", i.sell ? "ขาย " + i.sell : "", i.volume, i.freq].filter(Boolean).join(" · ")) +
+      "</span></div>").join(""));
+  }
+  const photoId = String(v.photoUrl || "").match(/\/d\/([^\/]+)\//);
+  if (photoId) {
+    body += vdSec("รูปหน้าร้าน",
+      '<div class="vd-photo"><a href="' + esc(v.photoUrl) + '" target="_blank">' +
+      '<img src="https://drive.google.com/thumbnail?id=' + esc(photoId[1]) + '&sz=w1000" alt="รูปหน้าร้าน"></a></div>');
+  }
+  body += '<div class="btn-row">' +
+    '<button class="btn btn-ghost" onclick=\'editVisitById("' + esc(v.visitId) + '")\'>✏️ แก้ไข</button>' +
+    (c.lat && c.lng
+      ? '<a class="btn btn-ghost" style="text-align:center;text-decoration:none" target="_blank" href="https://www.google.com/maps?q=' + esc(c.lat) + "," + esc(c.lng) + '">🗺 นำทาง</a>'
+      : "") + "</div>";
+
+  $("vdBody").innerHTML = body;
+  show("pgVisitDetail", "📋 สรุปการเข้าพบ");
+}
+
+async function cancelOrderUi(orderId) {
+  if (!confirm("ยกเลิกออเดอร์ " + orderId + " ?\n(ถ้าเป็นออเดอร์แบรนด์เรา สต๊อกจะถูกคืนอัตโนมัติ)")) return;
+  try {
+    const res = await api("cancelOrder", orderId);
+    if (!res.success) throw new Error(res.error || "ยกเลิกไม่สำเร็จ");
+    toast("🗑 ยกเลิก " + orderId + " แล้ว", "ok");
+    openToday();
+  } catch (e) {
+    toast(e.message, "err");
+  }
+}
+
+// ============================================================
+// SUMMARY — ยอดขายสะสมรายเดือน ตามบทบาท (เซลส์/หัวหน้าสาย/ผู้จัดการ)
+// ============================================================
+const THM = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+             "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+function localMonth() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+}
+
+function thMonthLabel(m) {
+  const p = m.split("-").map(Number);
+  return THM[p[1] - 1] + " " + (p[0] + 543);
+}
+
+function scopeOptions() {
+  const role = ME.role || "เซลส์";
+  if (role === "ผู้จัดการ") return [["ของฉัน", "me"], ["ทั้งโรงน้ำ", "all"]];
+  if (role === "หัวหน้าสาย") return [["ของฉัน", "me"], ["สายของฉัน", "team"]];
+  return null;
+}
+
+function unitText(units) {
+  const n = Object.keys(units || {}).reduce((s, k) => s + Number(units[k] || 0), 0);
+  return n ? n.toLocaleString("th-TH") + " แพ็ค" : "";
+}
+
+async function openSummary() {
+  if (!sumMonth) sumMonth = localMonth();
+  if (!sumScopeVal) {
+    const role = ME.role || "เซลส์";
+    sumScopeVal = role === "ผู้จัดการ" ? "all" : role === "หัวหน้าสาย" ? "team" : "me";
+  }
+  show("pgSummary", "📊 ยอดสะสม");
+  $("sumTitle").textContent = thMonthLabel(sumMonth);
+  const opts = scopeOptions();
+  if (opts) {
+    chipGroup("sumScope", opts.map(o => o[0]),
+      (opts.find(o => o[1] === sumScopeVal) || opts[0])[0],
+      label => { sumScopeVal = opts.find(o => o[0] === label)[1]; openSummary(); });
+  } else {
+    $("sumScope").innerHTML = "";
+  }
+  $("sumBody").innerHTML = '<div class="spin"></div>';
+  try {
+    renderSummary(await api("getSalesSummary", ME.name, sumMonth, sumScopeVal));
+  } catch (e) {
+    $("sumBody").innerHTML = '<div class="card">โหลดไม่สำเร็จ: ' + esc(e.message) + "</div>";
+  }
+}
+
+function sumShift(d) {
+  const p = sumMonth.split("-").map(Number);
+  const nd = new Date(p[0], p[1] - 1 + d, 1);
+  sumMonth = nd.getFullYear() + "-" + String(nd.getMonth() + 1).padStart(2, "0");
+  openSummary();
+}
+
+function totalPacks(units) {
+  // โหล = แพ็ค (12 ขวด) — รวมทุกหน่วยเป็น "แพ็ค" เดียว
+  return Object.keys(units || {}).reduce((s, k) => s + Number(units[k] || 0), 0);
+}
+
+function renderSummary(s) {
+  let html =
+    '<div class="stats" style="margin-bottom:10px">' +
+    '<div class="stat"><div class="num">' + Number(s.total).toLocaleString("th-TH") + '</div><div class="lbl">ยอดขาย (฿)</div></div>' +
+    '<div class="stat"><div class="num">' + totalPacks(s.units).toLocaleString("th-TH") + '</div><div class="lbl">แพ็ค</div></div>' +
+    '<div class="stat"><div class="num">' + s.customers + '</div><div class="lbl">ลูกค้าที่ซื้อ</div></div>' +
+    "</div>" +
+    '<div class="stats" style="margin-bottom:12px">' +
+    '<div class="stat"><div class="num">' + s.orders + '</div><div class="lbl">ออเดอร์</div></div>' +
+    '<div class="stat"><div class="num">' + s.visits + '</div><div class="lbl">เข้าพบ</div></div>' +
+    '<div class="stat"><div class="num">' + s.newCust + '</div><div class="lbl">ลูกค้าใหม่</div></div>' +
+    "</div>";
+
+  if (s.scope !== "me" && (s.byRep || []).length) {
+    html += vdSec("อันดับยอดขาย (" + s.byRep.length + " คน)", s.byRep.map((r, i) =>
+      '<div class="vd-row"><span>' + (i + 1) + ". <b>" + esc(r.rep) + "</b> · สาย " + esc(r.route) +
+      '<br><span class="k" style="font-size:12px">' + unitText(r.units) + " · " + r.orders + " ออเดอร์</span></span>" +
+      "<span><b>" + baht(r.total) + "</b></span></div>").join(""));
+  }
+  if (s.scope === "all" && (s.byRoute || []).length > 1) {
+    html += vdSec("ยอดตามสาย", s.byRoute.map(r =>
+      '<div class="vd-row"><span>สาย ' + esc(r.route) + "</span><span><b>" + baht(r.total) + "</b></span></div>").join(""));
+  }
+  if ((s.byProduct || []).length) {
+    html += vdSec("สินค้าขายดี", s.byProduct.map(p =>
+      '<div class="vd-row"><span>' + esc(p.name) + "</span><span>" +
+      Number(p.qty).toLocaleString("th-TH") + " " + esc(p.unit || "") + " · <b>" + baht(p.total) + "</b></span></div>").join(""));
+  }
+  if (!s.total && !s.visits) {
+    html += '<div class="card" style="text-align:center;color:var(--muted)">เดือนนี้ยังไม่มีข้อมูล</div>';
+  }
+  $("sumBody").innerHTML = html;
+}
+
+boot();
+</script>
+</body>
+</html>
