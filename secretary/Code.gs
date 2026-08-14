@@ -476,8 +476,10 @@ function fireRoutine(note) {
 }
 
 // ลิงก์บอร์ดของ deployment ปัจจุบันเสมอ (ไม่ต้องจำ URL เอง ต่อให้ deploy ใหม่ก็ยังถูก)
+// 🎯 Mission Board — แอปบอร์ดตัวปัจจุบัน เสิร์ฟผ่าน GitHub Pages (เร็ว/นิ่งกว่า GAS)
+// ตัวเก่า (?page=board บน GAS) ยังทำงานอยู่เป็น fallback แต่ไม่ใช้ลิงก์นี้ส่งให้ผู้ใช้อีกแล้ว
 function boardUrl() {
-  return ScriptApp.getService().getUrl() + '?page=board&key=' + encodeURIComponent(cfg('QUEUE_KEY'));
+  return 'https://palmsil2026.github.io/lakon-liff/board/?key=' + encodeURIComponent(cfg('QUEUE_KEY'));
 }
 
 // กุญแจบอร์ดทีม — สร้างอัตโนมัติครั้งแรก (คนละอันกับ QUEUE_KEY ของเจ้าของ ทีมเลยเข้าโหมดเจ้าของไม่ได้)
@@ -490,7 +492,7 @@ function teamKey() {
   return k;
 }
 function teamBoardUrl() {
-  return ScriptApp.getService().getUrl() + '?page=board&key=' + encodeURIComponent(teamKey());
+  return 'https://palmsil2026.github.io/lakon-liff/board/?key=' + encodeURIComponent(teamKey());
 }
 
 // ปุ่ม "เปิดบอร์ดงาน" แบบ LINE template message — แนบต่อท้ายข้อความได้เลย
