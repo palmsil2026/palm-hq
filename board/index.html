@@ -157,10 +157,9 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 @keyframes working{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-3px) rotate(4deg)}}
 @media(prefers-reduced-motion:reduce){.mate .av{animation:none}}
 
-/* ── จอกว้าง: การ์ดงานเรียง 2 คอลัมน์ ใช้พื้นที่คุ้ม ไม่ยืดเป็นแถบยาว ── */
+/* ส่วนหัว (ทีม/สถิติ/ตัวกรอง) กินเต็มความกว้าง — ส่วนรายการงานคุมความกว้างให้อ่านสบายตรงกลาง */
+.mid{max-width:760px;margin:0 auto}
 @media(min-width:900px){
-  .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
-  .cards .cd{margin-bottom:0}
   .hd h1{font-size:1.35rem}
   .st .n{font-size:1.75rem}
 }
@@ -230,11 +229,14 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 <div class="stats" id="stats"></div>
 <div class="chips" id="chips"></div>
 <div class="upd" id="upd"></div>
-<div id="projects"></div>
-<div id="cards"></div>
-<div class="empty" id="empty" style="display:none">ไม่มีงานในหมวดนี้ ✨</div>
+<div class="mid">
+  <div id="projects"></div>
+  <div id="cards"></div>
+  <div class="empty" id="empty" style="display:none">ไม่มีงานในหมวดนี้ ✨</div>
+</div>
 
 <button class="fab" id="fab" style="display:none">＋</button>
+<button class="chat-fab" id="execFab" style="display:none;bottom:92px" title="แอปผู้บริหาร">🏭</button>
 <button class="chat-fab" id="chatFab" style="display:none">🗓️</button>
 
 <div class="chat-mask" id="chatMask">
@@ -264,7 +266,7 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
     <div class="row2">
       <div><label>ใครทำ</label><select id="f_who"><option value="ทีมAI">🤖 ทีม AI</option><option value="คน">👤 คน</option></select></div>
       <div><label>แผนก (ทีม AI)</label><select id="f_dept">
-        <option value="">— ให้เลือกให้ —</option><option value="content">🎨 ดีไซน์</option><option value="writer">✍️ นักเขียน</option>
+        <option value="">— ให้เลือกให้ —</option><option value="plant">🏭 ผจก.โรงงาน</option><option value="content">🎨 ดีไซน์</option><option value="writer">✍️ นักเขียน</option>
         <option value="analyst">📈 วิเคราะห์</option><option value="researcher">🔍 วิจัย</option><option value="procurement">🛒 จัดซื้อ</option>
         <option value="finance">💰 การเงิน</option><option value="data">🗄️ ข้อมูล</option><option value="coder">💻 โค้ด</option>
       </select></div>
@@ -317,7 +319,7 @@ const ST = {
   'ยกเลิก':        { i:'🗑️', p:'p-gray',  l:'ยกเลิก' },
 };
 const stOf = t => ST[t.status] || { i:'·', p:'p-gray', l: t.status || '-' };
-const DEPT_EM = { content:'🎨', writer:'✍️', analyst:'📈', researcher:'🔍', procurement:'🛒', finance:'💰', data:'🗄️', coder:'💻' };
+const DEPT_EM = { plant:'🏭', content:'🎨', writer:'✍️', analyst:'📈', researcher:'🔍', procurement:'🛒', finance:'💰', data:'🗄️', coder:'💻' };
 const done = t => /เสร็จ|ปิด|ยกเลิก/.test(t.status || '');
 const canc = t => /ยกเลิก/.test(t.status || '');
 
@@ -392,7 +394,7 @@ function stMatch(t) {
 
 // ── แถบทีม AI: ใครว่าง ใครกำลังทำอะไร คิวกี่งาน — แตะเพื่อดูงานของแผนกนั้น ──
 const TEAM = [
-  { k:'_sec', e:'🗓️', n:'คุณเลขา' }, { k:'content', e:'🎨', n:'ดีไซน์' }, { k:'writer', e:'✍️', n:'นักเขียน' },
+  { k:'_sec', e:'🗓️', n:'คุณเลขา' }, { k:'plant', e:'🏭', n:'ผจก.โรงงาน' }, { k:'content', e:'🎨', n:'ดีไซน์' }, { k:'writer', e:'✍️', n:'นักเขียน' },
   { k:'analyst', e:'📈', n:'วิเคราะห์' }, { k:'researcher', e:'🔍', n:'นักวิจัย' }, { k:'procurement', e:'🛒', n:'จัดซื้อ' },
   { k:'finance', e:'💰', n:'การเงิน' }, { k:'data', e:'🗄️', n:'ฝ่ายข้อมูล' }, { k:'coder', e:'💻', n:'ทีม DEV' },
 ];
@@ -482,6 +484,7 @@ function render() {
   bindCards();
   $('fab').style.display = (MODE === 'owner') ? 'grid' : 'none';
   $('chatFab').style.display = (MODE === 'owner') ? 'grid' : 'none';
+  $('execFab').style.display = (MODE === 'owner') ? 'grid' : 'none';
 }
 
 function nodeDetail(s) {
@@ -694,6 +697,9 @@ async function chatSend() {
 }
 $('chatSend').onclick = chatSend;
 $('chatT').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); } });
+
+// 🏭 เปิดแอปผู้บริหาร — CEO ใช้รหัสบอร์ดตัวเองเข้าได้เลย (ผู้บริหารคนอื่นใช้ EXEC_KEY แยก)
+$('execFab').onclick = () => window.open('../exec/?key=' + encodeURIComponent(KEY), '_blank');
 
 $('btnRf').onclick = () => load();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true); });

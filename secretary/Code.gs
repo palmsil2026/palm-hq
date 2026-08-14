@@ -66,7 +66,9 @@ const SYSTEM_PROMPT = [
   '"ขอเสนอคุณปาล์มพิจารณาก่อนนะคะ" อย่ารับปากว่าจะทำเลย',
   'ช่อง dept (ใส่เฉพาะเมื่อ assignee="ทีมAI"): finance=การเงิน/ต้นทุน, analyst=วิเคราะห์ข้อมูล/รายงาน,',
   'content=คอนเทนต์/ดีไซน์/โพสต์, writer=เขียนเอกสาร/ข้อความยาว, researcher=หาข้อมูล/เทียบราคา, coder=แอป/โค้ด/ระบบ,',
-  'data=สร้าง/ดูแลฐานข้อมูล รวบรวม-ทำความสะอาดข้อมูล, procurement=ฝากซื้อของ/หาอะไหล่/เทียบราคาร้าน',
+  'data=สร้าง/ดูแลฐานข้อมูล รวบรวม-ทำความสะอาดข้อมูล, procurement=ฝากซื้อของ/หาอะไหล่/เทียบราคาร้าน,',
+  'plant=ผู้จัดการโรงงาน (เรื่องโรงน้ำโดยตรง: แผนผลิต คุณภาพน้ำ/อย./GMP เครื่องจักร-ไส้กรอง สต๊อกขวด-ฝา-ฉลาก',
+  '      กะ/กำลังคนหน้างาน ต้นทุนต่อหน่วย ประเมินว่างาน OEM/สกรีนคุ้มไหม) — งานโรงน้ำเชิงปฏิบัติการให้ plant ก่อนเสมอ',
   '',
   'งานใหญ่ = ชี้ว่าเป็นงานหลายขั้น (สำคัญมาก): ถ้างานต้องทำหลายขั้นตอนหรือใช้หลายแผนกกว่าจะเสร็จ',
   '(เช่น "ทำนามบัตรทีมขาย" = รวบรวมรายชื่อ→ออกแบบ→เลือกแบบ→พิมพ์, "เปิดเมนูใหม่", "จัดโปรโมชั่น", "ทำระบบ...")',
@@ -263,6 +265,13 @@ function doGet(e) {
     if (!p.title || !p.url) return jsonOut({ ok: false, error: 'ต้องมี title และ url' });
     libRegister(p.cat || 'การตลาด-งานดีไซน์', p.title, p.desc || '', p.url, 'ทีมAI', p.source || 'งานไฟนอล');
     return jsonOut({ ok: true, msg: 'ลงทะเบียนเข้าคลังแล้ว' });
+  }
+
+  // 🏭 แอปผู้บริหาร — ภาพรวมบริษัท (รับทั้ง EXEC_KEY และ QUEUE_KEY ของ CEO)
+  if (p.action === 'exec') return jsonOut(execDashboard(p.key));
+  if (p.action === 'execSave') {
+    return jsonOut(execSavePlan(p.key, { row: p.row, level: p.level, title: p.title, detail: p.detail,
+                                         period: p.period, kpi: p.kpi, status: p.status, del: p.del }));
   }
 
   // 💬 คุยกับคุณเลขาจากแอปบอร์ด (เฉพาะ key เจ้าของ — สมอง/ความจำเดียวกับไลน์)
@@ -709,6 +718,16 @@ function handleEvent(ev) {
   const ideaR = handleIdeaBoard(text, senderId, replyToken, owner);
   if (ideaR === true) return;
   if (typeof ideaR === 'string') text = ideaR;   // "ทำไอเดีย N" → แปลงเป็นคำสั่งงานเต็ม ปล่อยเข้าท่อ TASK/PLAN ปกติ
+
+  // 1.47) ขอลิงก์แอปผู้บริหาร (เฉพาะคุณปาล์ม — มีรหัสแยกสำหรับผู้บริหารไม่กี่คน)
+  if (/(แอป|app)[^\n]{0,10}(ผู้บริหาร|ผจก|บริหาร)|(ผู้บริหาร|บริหาร)[^\n]{0,10}(แอป|app|ลิงก์|ลิ้ง)/i.test(text)) {
+    if (!owner) { lineReply(replyToken, 'แอปผู้บริหารขอสิทธิ์เข้าใช้จากคุณปาล์มโดยตรงนะคะ 🙏'); return; }
+    lineReply(replyToken, '🏭 แอปผู้บริหาร ออริจิ้น แล็บส์ ค่ะ\n' + execBoardUrl()
+      + '\n\n(ลิงก์นี้มีรหัสผู้บริหารในตัว — แชร์ให้เฉพาะผู้บริหารที่ไว้ใจนะคะ'
+      + '\nคุณปาล์มเปิดจากปุ่ม 🏭 บนบอร์ดงานได้เลย ใช้รหัส CEO ของตัวเอง แก้แผนธุรกิจได้ด้วยค่ะ)');
+    logRow(['เปิดแอปผู้บริหาร', senderId, text, '']);
+    return;
+  }
 
   // 1.48) ขอลิงก์บอร์ดทีม (สำหรับแชร์ให้พนักงาน — เห็นเฉพาะงานที่เปิด 👥 ทีม)
   if (/(บอร์ด|board)[^\n]{0,10}(ทีม|พนักงาน)|(ทีม|พนักงาน)[^\n]{0,10}(บอร์ด|board)/i.test(text)) {
@@ -2416,6 +2435,164 @@ function readBoard(senderId, owner) {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+//  🏭 แอปผู้บริหาร (Executive) — ภาพรวมบริษัท ออริจิ้น แล็บส์
+//  รหัสแยกจากบอร์ด: EXEC_KEY (ผู้บริหารไม่กี่คน) | QUEUE_KEY ของ CEO ก็เข้าได้
+// ════════════════════════════════════════════════════════════
+function execKey() {
+  let k = cfg('EXEC_KEY');
+  if (!k) {
+    k = 'E' + Utilities.getUuid().replace(/-/g, '').slice(0, 11);
+    PropertiesService.getScriptProperties().setProperty('EXEC_KEY', k);
+  }
+  return k;
+}
+function execAuth(key) {
+  if (key === cfg('QUEUE_KEY')) return 'ceo';
+  if (key === execKey()) return 'exec';
+  return '';
+}
+function execBoardUrl() {
+  return 'https://palmsil2026.github.io/lakon-liff/exec/?key=' + encodeURIComponent(execKey());
+}
+
+// แท็บข้อมูลผู้บริหาร — สร้างอัตโนมัติพร้อมหัวตาราง ถ้ายังไม่มี
+const EXEC_TABS = {
+  ExecSales:      ['วันที่', 'สายผลิตภัณฑ์', 'สินค้า', 'จำนวน(ลัง)', 'ยอดขาย(บาท)', 'ลูกค้า', 'ผู้ขาย', 'หมายเหตุ'],
+  ExecProduction: ['วันที่', 'สายผลิตภัณฑ์', 'ผลิตได้(ลัง)', 'ของเสีย(ลัง)', 'ชั่วโมงเดินเครื่อง', 'กะ', 'หมายเหตุ'],
+  ExecStaff:      ['ชื่อ', 'ตำแหน่ง', 'แผนก', 'เริ่มงาน', 'สถานะ', 'ติดต่อ', 'หมายเหตุ'],
+  ExecPlans:      ['ระดับ', 'หัวข้อ', 'รายละเอียด', 'ช่วงเวลา', 'ตัวชี้วัด', 'สถานะ', 'อัปเดตเมื่อ'],
+};
+function execSheet(name) {
+  const id = boardSheetId(); if (!id) return null;
+  const ss = ssById(id);
+  let s = ss.getSheetByName(name);
+  if (!s && EXEC_TABS[name]) {
+    s = ss.insertSheet(name);
+    s.appendRow(EXEC_TABS[name]);
+    s.setFrozenRows(1);
+    if (name === 'ExecPlans') {
+      s.appendRow(['วิสัยทัศน์', 'เป็นบริษัทผลิตเครื่องดื่มหลากหลาย', 'เฟส 1 = น้ำดื่ม สร้างฐานให้มั่นคงก่อนขยายชนิดเครื่องดื่ม', 'ระยะยาว', '', 'กำลังทำ', new Date()]);
+      s.appendRow(['กลยุทธ์', 'ดันแบรนด์ละกอนเป็นหลัก', 'ละกอน(สวมฉลาก)=เน้นสุด | OEM=รับไว้ไม่ผลักดัน | เพียวซ่า(สกรีน)=มาร์จิ้นต่ำ กันช่องว่างตลาด', 'ปีนี้', 'สัดส่วนยอดขายละกอน', 'กำลังทำ', new Date()]);
+    }
+  }
+  return s;
+}
+function execRows(name) {
+  try {
+    const s = execSheet(name); if (!s || s.getLastRow() < 2) return [];
+    const vals = s.getRange(1, 1, s.getLastRow(), s.getLastColumn()).getValues();
+    const head = vals[0].map(String);
+    return vals.slice(1).map(function (r, i) {
+      const o = { _row: i + 2 };
+      head.forEach(function (h, j) { o[h] = r[j]; });
+      return o;
+    }).filter(function (o) { return String(o[head[0]] || '').trim() !== ''; });
+  } catch (e) { console.error('execRows ' + name + ': ' + e); return []; }
+}
+function execNum(v) { const n = Number(String(v).replace(/,/g, '')); return isNaN(n) ? 0 : n; }
+function execDateKey(v) {
+  try { const d = (v instanceof Date) ? v : new Date(v); return isNaN(d) ? '' : Utilities.formatDate(d, 'GMT+7', 'yyyy-MM-dd'); }
+  catch (e) { return ''; }
+}
+
+// รวมข้อมูลให้แอปผู้บริหารในครั้งเดียว (ประหยัดรอบเรียก GAS)
+function execDashboard(key) {
+  const role = execAuth(key);
+  if (!role) return { ok: false, error: 'unauthorized' };
+  try {
+    const now = new Date();
+    const monthPrefix = Utilities.formatDate(now, 'GMT+7', 'yyyy-MM');
+    const sales = execRows('ExecSales'), prod = execRows('ExecProduction');
+    const staff = execRows('ExecStaff'), plans = execRows('ExecPlans');
+
+    // ยอดขาย: เดือนนี้ + แยกสายผลิตภัณฑ์ + เทรนด์ 14 วัน
+    let mAmt = 0, mQty = 0;
+    const byLine = {}, trend = {};
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(now.getTime() - (13 - i) * 86400000);
+      trend[Utilities.formatDate(d, 'GMT+7', 'yyyy-MM-dd')] = 0;
+    }
+    sales.forEach(function (r) {
+      const dk = execDateKey(r['วันที่']); if (!dk) return;
+      const amt = execNum(r['ยอดขาย(บาท)']), qty = execNum(r['จำนวน(ลัง)']);
+      const line = String(r['สายผลิตภัณฑ์'] || 'อื่นๆ').trim() || 'อื่นๆ';
+      if (dk.indexOf(monthPrefix) === 0) {
+        mAmt += amt; mQty += qty;
+        if (!byLine[line]) byLine[line] = { amount: 0, qty: 0 };
+        byLine[line].amount += amt; byLine[line].qty += qty;
+      }
+      if (trend[dk] !== undefined) trend[dk] += amt;
+    });
+
+    // การผลิต: เดือนนี้ + ของเสีย %
+    let pMade = 0, pWaste = 0;
+    const prodByLine = {};
+    prod.forEach(function (r) {
+      const dk = execDateKey(r['วันที่']); if (!dk || dk.indexOf(monthPrefix) !== 0) return;
+      const made = execNum(r['ผลิตได้(ลัง)']), waste = execNum(r['ของเสีย(ลัง)']);
+      pMade += made; pWaste += waste;
+      const line = String(r['สายผลิตภัณฑ์'] || 'อื่นๆ').trim() || 'อื่นๆ';
+      if (!prodByLine[line]) prodByLine[line] = { made: 0, waste: 0 };
+      prodByLine[line].made += made; prodByLine[line].waste += waste;
+    });
+
+    const staffActive = staff.filter(function (s) { return String(s['สถานะ'] || 'ทำงาน').indexOf('ลาออก') === -1; });
+
+    // งานโรงน้ำที่ยังไม่ปิดบนบอร์ด (ให้ผู้บริหารเห็นว่าอะไรค้างอยู่)
+    let tasks = [];
+    try {
+      tasks = readBoardAll().filter(function (t) {
+        return String(t.biz || '').indexOf('โรงน้ำ') !== -1 && !/เสร็จ|ปิด|ยกเลิก/.test(t.status || '');
+      }).slice(0, 12).map(function (t) {
+        return { ref: t.ref, detail: String(t.detail || '').slice(0, 140), status: t.status, urgency: t.urgency, dept: t.dept };
+      });
+    } catch (e) {}
+
+    return {
+      ok: true, role: role, month: Utilities.formatDate(now, 'GMT+7', 'MM/yyyy'),
+      kpi: {
+        salesAmount: mAmt, salesQty: mQty,
+        produced: pMade, waste: pWaste,
+        wastePct: pMade ? Math.round(pWaste / (pMade + pWaste) * 1000) / 10 : 0,
+        staff: staffActive.length, openTasks: tasks.length,
+      },
+      byLine: byLine, prodByLine: prodByLine,
+      trend: Object.keys(trend).map(function (k) { return { date: k, amount: trend[k] }; }),
+      staff: staffActive.map(function (s) {
+        return { name: String(s['ชื่อ'] || ''), role: String(s['ตำแหน่ง'] || ''), dept: String(s['แผนก'] || ''),
+                 since: execDateKey(s['เริ่มงาน']), status: String(s['สถานะ'] || 'ทำงาน'), contact: String(s['ติดต่อ'] || '') };
+      }),
+      plans: plans.map(function (p) {
+        return { row: p._row, level: String(p['ระดับ'] || ''), title: String(p['หัวข้อ'] || ''),
+                 detail: String(p['รายละเอียด'] || ''), period: String(p['ช่วงเวลา'] || ''),
+                 kpi: String(p['ตัวชี้วัด'] || ''), status: String(p['สถานะ'] || '') };
+      }),
+      tasks: tasks,
+      hasData: (sales.length + prod.length + staff.length) > 0,
+    };
+  } catch (e) { console.error('execDashboard: ' + e); return { ok: false, error: String(e) }; }
+}
+
+// เพิ่ม/แก้/ลบแผนธุรกิจจากแอปผู้บริหาร (CEO เท่านั้น — ผู้บริหารคนอื่นดูได้อย่างเดียว)
+function execSavePlan(key, p) {
+  if (execAuth(key) !== 'ceo') return { ok: false, msg: 'เฉพาะ CEO เท่านั้นที่แก้แผนได้ค่ะ' };
+  try {
+    const s = execSheet('ExecPlans'); if (!s) return { ok: false, msg: 'ยังตั้งค่าชีตไม่เรียบร้อย' };
+    const row = [String(p.level || 'กลยุทธ์'), String(p.title || ''), String(p.detail || ''),
+                 String(p.period || ''), String(p.kpi || ''), String(p.status || 'กำลังทำ'), new Date()];
+    if (!row[1]) return { ok: false, msg: 'ต้องมีหัวข้อแผน' };
+    const r = parseInt(p.row, 10);
+    if (r && r >= 2 && r <= s.getLastRow()) {
+      if (String(p.del) === '1') { s.deleteRow(r); return { ok: true, msg: 'ลบแผนแล้ว' }; }
+      s.getRange(r, 1, 1, 7).setValues([row]);
+      return { ok: true, msg: 'อัปเดตแผนแล้ว' };
+    }
+    s.appendRow(row);
+    return { ok: true, msg: 'เพิ่มแผนใหม่แล้ว' };
+  } catch (e) { return { ok: false, msg: String(e) }; }
+}
+
 // 💬 แชทกับเลขาจากแอปบอร์ด — ใช้สมอง+คลังความรู้เดียวกับไลน์ มีความจำต่อเนื่องของตัวเอง
 // รับบล็อกที่ปลอดภัย: TASK (งานเดี่ยว), IDEA, REMEMBER/FORGET, ADDNOTE, SENDGROUP
 function boardChat(q) {
@@ -2985,7 +3162,7 @@ function boardScript(json, key, notice, prj, teamView) {
     'var PRJ=' + JSON.stringify(String(prj || '')) + ';',   // เปิดแบบเจาะโปรเจกต์เดียว (โหมด Workflow)
     'var NEXT=' + JSON.stringify(nextRoundText()) + ';',
     'var F="open";var FD="";',
-    'var TEAM=[{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"procurement",e:"🛒",n:"จัดซื้อ"},{k:"coder",e:"💻",n:"โค้ด"}];',
+    'var TEAM=[{k:"plant",e:"🏭",n:"ผจก.โรงงาน"},{k:"data",e:"🗄️",n:"ฝ่ายข้อมูล"},{k:"finance",e:"💰",n:"การเงิน"},{k:"analyst",e:"📈",n:"นักวิเคราะห์"},{k:"content",e:"🎨",n:"ดีไซน์"},{k:"writer",e:"✍️",n:"นักเขียน"},{k:"researcher",e:"🔍",n:"นักวิจัย"},{k:"procurement",e:"🛒",n:"จัดซื้อ"},{k:"coder",e:"💻",n:"โค้ด"}];',
     'var FS=[["open","ค้างอยู่"],["urgent","🔴 ด่วนมาก"],["wait","⏳ รออนุมัติ"],["ai","🤖 รอทีม AI"],["doing","⚙️ กำลังทำ"],["blocked","⏸️ รอข้อมูล"],["human","👤 งานคน"],["prj","📁 Workflow"],["done","✅ เสร็จแล้ว"],["cancelled","🗑️ ที่ยกเลิก"],["all","ทั้งหมด"]];',
     'function E(s){return String(s==null?"":s).replace(/[&<>"]/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[m]})}',
     'function done(t){return /เสร็จ|ปิด|ยกเลิก/.test(t.status||"")}',
@@ -3115,7 +3292,7 @@ function boardScript(json, key, notice, prj, teamView) {
     + 'if(j.ok){ALL.forEach(function(t){if(t.ref==r){if(a=="cancel")t.status="ยกเลิก";if(a=="runnow")t.status="รอทีม AI";if(a=="vis")t.vis=(t.vis=="ทีม"?"ส่วนตัว":"ทีม")}});render()}})}',
 
     // ── ฟอร์มฝากงาน (เขียนลงชีตตรง ๆ ไม่เรียก Claude) ──
-    'var DEPTS=[["","— ให้เลือกให้ —"],["content","🎨 ดีไซน์/คอนเทนต์"],["writer","✍️ นักเขียน"],["analyst","📈 นักวิเคราะห์"],'
+    'var DEPTS=[["","— ให้เลือกให้ —"],["plant","🏭 ผจก.โรงงาน"],["content","🎨 ดีไซน์/คอนเทนต์"],["writer","✍️ นักเขียน"],["analyst","📈 นักวิเคราะห์"],'
     + '["researcher","🔍 นักวิจัย"],["procurement","🛒 จัดซื้อ"],["finance","💰 การเงิน"],["data","🗄️ ฝ่ายข้อมูล"],["coder","💻 โค้ด/ระบบ"]];',
     'function initForm(){'
     + 'document.getElementById("f_dept").innerHTML=DEPTS.map(function(d){return \'<option value="\'+d[0]+\'">\'+d[1]+"</option>"}).join("");'

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ORIGIN LABS — ห้องผู้บริหาร</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#F4F1EA; --card:#FFFFFF; --raise:#EEF1F6; --line:#E0D9CC;
+  --ink:#1B2B3B; --sub:#66788F; --faint:#9AA6B6;
+  --gold:#C8912E; --teal:#1F9484; --red:#D64B3F; --green:#2E9C5E; --navy:#1B3558;
+  /* สายผลิตภัณฑ์ — ชุดสีผ่านการตรวจ CVD/contrast ทั้งสองโหมด ห้ามสลับลำดับ */
+  --c-lakon:#3568CE; --c-oem:#B07818; --c-pure:#0F8C7A;
+  --shadow:rgba(27,43,59,.10); --grid:#E7E2D8;
+  --r:16px;
+}
+body[data-theme="dark"]{
+  --bg:#0E1726; --card:#172335; --raise:#1F2F4A; --line:#26364F;
+  --ink:#EAF1FB; --sub:#8FA3BC; --faint:#5C7089;
+  --gold:#F0B84C; --teal:#45C4AE; --red:#FF6B5E; --green:#57C97B; --navy:#9FC0F0;
+  --shadow:rgba(0,0,0,.4); --grid:#26364F;
+}
+body{font-family:Prompt,system-ui,sans-serif;background:var(--bg);color:var(--ink);
+  padding:16px 20px 60px;max-width:1400px;margin:0 auto;font-size:15px}
+button{font-family:inherit;border:none;cursor:pointer;background:none;color:inherit}
+
+.hd{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.hd .logo{width:44px;height:44px;border-radius:13px;background:linear-gradient(140deg,var(--navy),var(--c-lakon));
+  display:grid;place-items:center;font-size:22px;color:#fff;flex:0 0 44px}
+.hd h1{font-size:1.15rem;font-weight:800;line-height:1.25}
+.hd h1 small{display:block;font-size:.66rem;font-weight:500;color:var(--sub);letter-spacing:.5px;margin-top:1px}
+.hd .sp{flex:1}
+.rf{width:38px;height:38px;border-radius:12px;background:var(--card);border:1px solid var(--line);
+  font-size:17px;display:grid;place-items:center;transition:transform .15s}
+.rf:active{transform:scale(.9)}
+.role{font-size:11px;font-weight:700;padding:5px 11px;border-radius:99px;background:var(--raise);color:var(--sub)}
+.role.ceo{background:rgba(200,145,46,.16);color:var(--gold)}
+
+/* ── KPI ── */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:16px}
+.k{background:var(--card);border:1.5px solid var(--line);border-radius:var(--r);padding:14px}
+.k .lb{font-size:.7rem;color:var(--sub);font-weight:600}
+.k .v{font-size:1.7rem;font-weight:800;line-height:1.15;margin-top:5px}
+.k .u{font-size:.72rem;color:var(--faint);font-weight:500;margin-left:3px}
+.k .sub{font-size:.68rem;color:var(--sub);margin-top:3px}
+.k.gold .v{color:var(--gold)}.k.teal .v{color:var(--teal)}.k.green .v{color:var(--green)}.k.red .v{color:var(--red)}
+
+/* ── การ์ดส่วน ── */
+.sec{background:var(--card);border:1.5px solid var(--line);border-radius:var(--r);padding:16px;margin-bottom:14px}
+.sec h2{font-size:.95rem;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:7px}
+.sec .hint{font-size:.7rem;color:var(--sub);margin-bottom:12px}
+.grid2{display:grid;grid-template-columns:1fr;gap:14px}
+@media(min-width:900px){.grid2{grid-template-columns:1fr 1fr}}
+
+/* ── กราฟแท่ง (สายผลิตภัณฑ์) ── */
+.bars{display:flex;flex-direction:column;gap:11px;margin-top:4px}
+.brow .top{display:flex;justify-content:space-between;align-items:baseline;font-size:.78rem;margin-bottom:4px}
+.brow .nm{font-weight:600;display:flex;align-items:center;gap:6px}
+.brow .sw{width:11px;height:11px;border-radius:3px;flex:0 0 11px}
+.brow .val{font-weight:700;font-variant-numeric:tabular-nums}
+.brow .track{height:9px;background:var(--raise);border-radius:99px;overflow:hidden}
+.brow .fill{height:100%;border-radius:99px;transition:width .6s cubic-bezier(.3,0,.2,1)}
+.brow .pct{font-size:.68rem;color:var(--sub);margin-top:3px}
+
+/* ── กราฟเส้น 14 วัน (SVG) ── */
+.spark{width:100%;height:132px;display:block;overflow:visible}
+.spark .gl{stroke:var(--grid);stroke-width:1}
+.spark .ln{fill:none;stroke:var(--c-lakon);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.spark .ar{fill:var(--c-lakon);opacity:.10}
+.spark .pt{fill:var(--c-lakon);stroke:var(--card);stroke-width:2}
+.spark text{font-size:9.5px;fill:var(--sub);font-family:inherit}
+
+/* ── ตาราง ── */
+.tb{width:100%;border-collapse:collapse;font-size:.8rem}
+.tb th{text-align:left;font-size:.68rem;color:var(--sub);font-weight:700;padding:7px 8px;border-bottom:1.5px solid var(--line);white-space:nowrap}
+.tb td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.tb tr:last-child td{border-bottom:none}
+.tb .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.scroll{overflow-x:auto}
+.pill{font-size:10.5px;font-weight:700;padding:2.5px 8px;border-radius:99px;display:inline-block;white-space:nowrap}
+.p-gold{background:rgba(200,145,46,.15);color:var(--gold)}
+.p-green{background:rgba(46,156,94,.15);color:var(--green)}
+.p-gray{background:rgba(102,120,143,.13);color:var(--sub)}
+.p-red{background:rgba(214,75,63,.13);color:var(--red)}
+
+/* ── แผนธุรกิจ ── */
+.plan{border:1.5px solid var(--line);border-radius:13px;padding:12px;margin-bottom:9px;background:var(--bg)}
+.plan .ph{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.plan .lv{font-size:10px;font-weight:700;padding:2.5px 9px;border-radius:99px;background:var(--raise);color:var(--sub)}
+.plan .lv.vision{background:rgba(53,104,206,.14);color:var(--c-lakon)}
+.plan .lv.strat{background:rgba(200,145,46,.15);color:var(--gold)}
+.plan .tt{font-weight:700;font-size:.88rem;flex:1;min-width:150px}
+.plan .dt{font-size:.79rem;color:var(--sub);margin-top:6px;line-height:1.55;white-space:pre-wrap}
+.plan .mt{display:flex;gap:12px;flex-wrap:wrap;font-size:.68rem;color:var(--faint);margin-top:7px}
+.bt{padding:9px 14px;border-radius:11px;font-size:.8rem;font-weight:700;transition:transform .12s;
+  border:1.5px solid transparent;display:inline-flex;align-items:center;gap:5px}
+.bt:active{transform:scale(.94)}
+.bt-main{background:linear-gradient(135deg,var(--navy),var(--c-lakon));color:#fff}
+.bt-gray{background:var(--raise);color:var(--sub);border-color:var(--line)}
+.bt-red{background:rgba(214,75,63,.12);color:var(--red);border-color:rgba(214,75,63,.35)}
+.empty{text-align:center;color:var(--faint);padding:26px 10px;font-size:.85rem;line-height:1.7}
+
+/* ── ฟอร์ม/มาสก์ ── */
+.mask{position:fixed;inset:0;background:rgba(10,16,28,.6);z-index:80;display:none;align-items:flex-end;justify-content:center}
+.mask.on{display:flex}
+.sheet{background:var(--card);border-radius:22px 22px 0 0;padding:20px 18px 30px;width:100%;max-width:640px;
+  border-top:2px solid var(--line);max-height:88vh;overflow-y:auto}
+.sheet h3{font-size:1rem;margin-bottom:10px}
+.sheet label{font-size:11.5px;color:var(--sub);display:block;margin:10px 0 4px;font-weight:600}
+.sheet input,.sheet select,.sheet textarea{width:100%;background:var(--bg);border:1.5px solid var(--line);
+  border-radius:11px;color:var(--ink);padding:10px;font-family:inherit;font-size:.88rem}
+.sheet textarea{min-height:76px;resize:vertical}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--card);color:var(--ink);
+  padding:11px 18px;border-radius:14px;font-size:.85rem;font-weight:600;box-shadow:0 8px 30px var(--shadow);
+  z-index:99;transition:opacity .4s;max-width:88vw;text-align:center;border:1px solid var(--line)}
+.spin{display:inline-block;width:14px;height:14px;border:2.5px solid rgba(255,255,255,.35);
+  border-top-color:currentColor;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="hd">
+  <div class="logo">🏭</div>
+  <h1>ORIGIN LABS<small>ห้องผู้บริหาร · บริษัท ออริจิ้น แล็บส์ จำกัด</small></h1>
+  <div class="sp"></div>
+  <span class="role" id="role">—</span>
+  <button class="rf" id="btnTheme">🌙</button>
+  <button class="rf" id="btnRf">🔄</button>
+</div>
+
+<div id="app"><div class="empty">กำลังโหลดข้อมูล...</div></div>
+
+<div class="mask" id="keyMask">
+  <div class="sheet">
+    <h3>🔑 รหัสเข้าห้องผู้บริหาร</h3>
+    <p style="font-size:.82rem;color:var(--sub);line-height:1.6">แอปนี้เปิดได้เฉพาะผู้บริหารที่คุณปาล์มให้รหัสไว้ค่ะ<br>(ขอรหัสได้จากคุณปาล์มโดยตรง — ใส่ครั้งเดียว เครื่องจะจำไว้)</p>
+    <label>รหัส</label>
+    <input id="keyInput" placeholder="วางรหัสที่ได้รับ">
+    <div style="margin-top:14px"><button class="bt bt-main" id="keySave" style="width:100%;justify-content:center">เข้าใช้งาน</button></div>
+  </div>
+</div>
+
+<div class="mask" id="planMask">
+  <div class="sheet">
+    <h3 id="planTitle">แผนธุรกิจ</h3>
+    <div class="row2">
+      <div><label>ระดับ</label><select id="p_level">
+        <option>วิสัยทัศน์</option><option>กลยุทธ์</option><option>เป้าหมาย</option><option>โครงการ</option>
+      </select></div>
+      <div><label>ช่วงเวลา</label><input id="p_period" placeholder="เช่น ปีนี้ / Q4 / ระยะยาว"></div>
+    </div>
+    <label>หัวข้อ</label><input id="p_title" placeholder="เช่น ดันสัดส่วนละกอนเป็น 70% ของยอดขาย">
+    <label>รายละเอียด</label><textarea id="p_detail" placeholder="อธิบายแผน เหตุผล และสิ่งที่ต้องทำ"></textarea>
+    <div class="row2">
+      <div><label>ตัวชี้วัด</label><input id="p_kpi" placeholder="เช่น สัดส่วนยอดขายละกอน"></div>
+      <div><label>สถานะ</label><select id="p_status">
+        <option>กำลังทำ</option><option>วางแผนไว้</option><option>สำเร็จ</option><option>พับไว้</option>
+      </select></div>
+    </div>
+    <div style="display:flex;gap:9px;margin-top:16px;flex-wrap:wrap">
+      <button class="bt bt-main" id="p_save" style="flex:1;justify-content:center">บันทึก</button>
+      <button class="bt bt-red" id="p_del" style="display:none">ลบ</button>
+      <button class="bt bt-gray" id="p_close">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const GAS = 'https://script.google.com/macros/s/AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J/exec';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const money = n => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
+
+let KEY = new URLSearchParams(location.search).get('key') || localStorage.getItem('EX_KEY') || '';
+let D = null;         // ข้อมูลล่าสุด
+let editRow = 0;      // แถวแผนที่กำลังแก้ (0 = เพิ่มใหม่)
+
+// ── สายผลิตภัณฑ์: ลำดับสีคงที่เสมอ ไม่ขึ้นกับยอดขาย (สีติดกับตัวสินค้า ไม่ใช่อันดับ) ──
+const LINES = [
+  { key:'ละกอน',  match:/ละกอน|lakon/i,        color:'var(--c-lakon)' },
+  { key:'OEM',    match:/oem|สวมฉลาก.*ลูกค้า/i, color:'var(--c-oem)' },
+  { key:'เพียวซ่า', match:/เพียวซ่า|pure/i,      color:'var(--c-pure)' },
+];
+function lineOf(name) {
+  const hit = LINES.find(l => l.match.test(String(name)));
+  return hit || { key: String(name || 'อื่นๆ'), color: 'var(--sub)' };
+}
+
+async function api(params, retries = 1) {
+  const qs = new URLSearchParams(Object.assign({ key: KEY }, params)).toString();
+  for (let i = 0; ; i++) {
+    try {
+      const ctl = new AbortController();
+      const tm = setTimeout(() => ctl.abort(), 25000);
+      const res = await fetch(GAS + '?' + qs, { signal: ctl.signal, redirect: 'follow' });
+      clearTimeout(tm);
+      return await res.json();
+    } catch (e) {
+      if (i >= retries) throw new Error('เชื่อมต่อไม่สำเร็จ ลองใหม่อีกครั้งนะคะ');
+      await new Promise(r => setTimeout(r, 1200 * (i + 1)));
+    }
+  }
+}
+
+async function load() {
+  if (!KEY) { $('keyMask').classList.add('on'); return; }
+  try {
+    const j = await api({ action: 'exec' }, 2);
+    if (!j.ok) throw new Error(j.error === 'unauthorized' ? 'รหัสไม่ถูกต้อง' : (j.error || 'โหลดไม่สำเร็จ'));
+    D = j;
+    localStorage.setItem('EX_KEY', KEY);
+    localStorage.setItem('EX_CACHE', JSON.stringify({ t: Date.now(), d: j }));
+    render();
+  } catch (e) {
+    if (String(e.message).indexOf('รหัส') !== -1) { localStorage.removeItem('EX_KEY'); KEY = ''; $('keyMask').classList.add('on'); return; }
+    // ออฟไลน์ → ใช้ของแคชไปก่อน ไม่ให้จอว่างเปล่า
+    try { const c = JSON.parse(localStorage.getItem('EX_CACHE') || 'null'); if (c) { D = c.d; render(); toast('ออฟไลน์ — แสดงข้อมูลล่าสุดที่โหลดไว้'); return; } } catch (x) {}
+    $('app').innerHTML = '<div class="empty">⚠️ ' + esc(e.message) + '</div>';
+  }
+}
+
+function render() {
+  $('role').textContent = D.role === 'ceo' ? '👑 CEO' : '👔 ผู้บริหาร';
+  $('role').className = 'role' + (D.role === 'ceo' ? ' ceo' : '');
+  const k = D.kpi;
+  let h = '';
+
+  // ── KPI ──
+  h += `<div class="kpis">
+    <div class="k gold"><div class="lb">ยอดขายเดือน ${esc(D.month)}</div><div class="v">${money(k.salesAmount)}<span class="u">บาท</span></div><div class="sub">${money(k.salesQty)} ลัง</div></div>
+    <div class="k teal"><div class="lb">ผลิตเดือนนี้</div><div class="v">${money(k.produced)}<span class="u">ลัง</span></div><div class="sub">ของเสีย ${k.wastePct}% (${money(k.waste)} ลัง)</div></div>
+    <div class="k green"><div class="lb">พนักงานปฏิบัติงาน</div><div class="v">${money(k.staff)}<span class="u">คน</span></div><div class="sub">จากทะเบียนพนักงาน</div></div>
+    <div class="k${k.openTasks ? ' red' : ''}"><div class="lb">งานโรงน้ำค้างอยู่</div><div class="v">${money(k.openTasks)}<span class="u">งาน</span></div><div class="sub">บนบอร์ดทีม AI</div></div>
+  </div>`;
+
+  if (!D.hasData) {
+    h += `<div class="sec"><div class="empty">📋 ยังไม่มีข้อมูลขาย/ผลิต/พนักงานในระบบ<br><br>
+      ดิฉันสร้างแท็บรอไว้ให้แล้วใน Google Sheet ของคุณเลขา:<br>
+      <b>ExecSales</b> (ยอดขาย) · <b>ExecProduction</b> (การผลิต) · <b>ExecStaff</b> (พนักงาน)<br>
+      กรอกข้อมูลลงไป แล้วกดรีเฟรช ตัวเลขและกราฟจะขึ้นเองค่ะ</div></div>`;
+  }
+
+  // ── ยอดขายแยกสายผลิตภัณฑ์ + เทรนด์ ──
+  h += '<div class="grid2">';
+  h += `<div class="sec"><h2>💰 ยอดขายแยกสายผลิตภัณฑ์</h2>
+    <div class="hint">เดือน ${esc(D.month)} — แยกเสมอเพราะแต่ละสายมาร์จิ้นต่างกันมาก</div>${barsHtml(D.byLine, 'amount', 'บาท')}</div>`;
+  h += `<div class="sec"><h2>📈 ยอดขาย 14 วันล่าสุด</h2><div class="hint">รวมทุกสายผลิตภัณฑ์ (บาท/วัน)</div>${sparkHtml(D.trend)}</div>`;
+  h += '</div>';
+
+  // ── การผลิต ──
+  h += `<div class="sec"><h2>🏭 การผลิตเดือนนี้</h2><div class="hint">ผลิตได้ / ของเสีย แยกตามสายผลิตภัณฑ์</div>${prodHtml(D.prodByLine)}</div>`;
+
+  // ── แผนธุรกิจ ──
+  h += `<div class="sec"><h2>🧭 แผนธุรกิจ &amp; Business Model</h2>
+    <div class="hint">${D.role === 'ceo' ? 'แตะการ์ดเพื่อแก้ไข — เฉพาะ CEO เท่านั้นที่แก้ได้' : 'ดูอย่างเดียว (แก้ได้เฉพาะ CEO)'}</div>`;
+  h += (D.plans || []).map(planHtml).join('') || '<div class="empty">ยังไม่มีแผนบันทึกไว้</div>';
+  if (D.role === 'ceo') h += `<button class="bt bt-main" id="addPlan" style="margin-top:8px">＋ เพิ่มแผนใหม่</button>`;
+  h += '</div>';
+
+  // ── พนักงาน ──
+  h += `<div class="sec"><h2>👥 พนักงาน (${(D.staff || []).length} คน)</h2><div class="hint">ทะเบียนพนักงานบริษัท</div>`;
+  h += (D.staff || []).length ? `<div class="scroll"><table class="tb">
+      <tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>แผนก</th><th>เริ่มงาน</th><th>สถานะ</th></tr>` +
+      D.staff.map(s => `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.role)}</td><td>${esc(s.dept)}</td>
+        <td class="num">${esc(s.since)}</td><td><span class="pill p-green">${esc(s.status)}</span></td></tr>`).join('') +
+      '</table></div>' : '<div class="empty">ยังไม่มีข้อมูลพนักงาน (กรอกในแท็บ ExecStaff)</div>';
+  h += '</div>';
+
+  // ── งานโรงน้ำค้าง ──
+  if ((D.tasks || []).length) {
+    h += `<div class="sec"><h2>📋 งานโรงน้ำที่ยังไม่ปิด</h2><div class="hint">ดึงสดจากบอร์ดทีม AI</div><div class="scroll"><table class="tb">
+      <tr><th>งาน</th><th>รายละเอียด</th><th>สถานะ</th></tr>` +
+      D.tasks.map(t => `<tr><td>#${esc(t.ref)}</td><td>${esc(t.detail)}</td>
+        <td><span class="pill ${t.urgency === 'ด่วนมาก' ? 'p-red' : 'p-gray'}">${esc(t.status)}</span></td></tr>`).join('') +
+      '</table></div></div>';
+  }
+
+  $('app').innerHTML = h;
+  if ($('addPlan')) $('addPlan').onclick = () => openPlan(null);
+  if (D.role === 'ceo') document.querySelectorAll('[data-plan]').forEach(el => {
+    el.onclick = () => openPlan(D.plans.find(p => String(p.row) === el.dataset.plan));
+  });
+}
+
+// แท่งเทียบสัดส่วน + ป้ายตัวเลขบนทุกแท่ง (secondary encoding — ไม่พึ่งสีอย่างเดียว)
+function barsHtml(obj, field, unit) {
+  const keys = Object.keys(obj || {});
+  if (!keys.length) return '<div class="empty">ยังไม่มีข้อมูลยอดขายเดือนนี้</div>';
+  const total = keys.reduce((s, k) => s + (obj[k][field] || 0), 0) || 1;
+  const max = Math.max(...keys.map(k => obj[k][field] || 0)) || 1;
+  // เรียงตามลำดับสายผลิตภัณฑ์คงที่ก่อน แล้วค่อยตามด้วยสายอื่นๆ
+  const ordered = LINES.map(l => keys.find(k => l.match.test(k))).filter(Boolean)
+    .concat(keys.filter(k => !LINES.some(l => l.match.test(k))));
+  return '<div class="bars">' + ordered.map(k => {
+    const v = obj[k][field] || 0, L = lineOf(k);
+    return `<div class="brow">
+      <div class="top"><span class="nm"><span class="sw" style="background:${L.color}"></span>${esc(k)}</span>
+      <span class="val">${money(v)} <span style="font-weight:500;color:var(--sub);font-size:.72rem">${unit}</span></span></div>
+      <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(v / max * 100))}%;background:${L.color}"></div></div>
+      <div class="pct">${Math.round(v / total * 100)}% ของยอดเดือนนี้ · ${money(obj[k].qty || 0)} ลัง</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function prodHtml(obj) {
+  const keys = Object.keys(obj || {});
+  if (!keys.length) return '<div class="empty">ยังไม่มีข้อมูลการผลิตเดือนนี้</div>';
+  const max = Math.max(...keys.map(k => obj[k].made || 0)) || 1;
+  return '<div class="bars">' + keys.map(k => {
+    const made = obj[k].made || 0, waste = obj[k].waste || 0, L = lineOf(k);
+    const wp = made + waste ? Math.round(waste / (made + waste) * 1000) / 10 : 0;
+    return `<div class="brow">
+      <div class="top"><span class="nm"><span class="sw" style="background:${L.color}"></span>${esc(k)}</span>
+      <span class="val">${money(made)} <span style="font-weight:500;color:var(--sub);font-size:.72rem">ลัง</span></span></div>
+      <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(made / max * 100))}%;background:${L.color}"></div></div>
+      <div class="pct">ของเสีย ${money(waste)} ลัง (${wp}%)</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+// เส้นแนวโน้ม 14 วัน — ป้ายค่าเฉพาะจุดสูงสุด/ล่าสุด (ไม่ใส่ทุกจุด)
+function sparkHtml(trend) {
+  const d = trend || [];
+  if (!d.length || d.every(x => !x.amount)) return '<div class="empty">ยังไม่มียอดขายในช่วง 14 วันนี้</div>';
+  const W = 560, H = 132, PL = 8, PR = 8, PT = 16, PB = 22;
+  const max = Math.max(...d.map(x => x.amount)) || 1;
+  const x = i => PL + i * ((W - PL - PR) / Math.max(1, d.length - 1));
+  const y = v => PT + (1 - v / max) * (H - PT - PB);
+  const pts = d.map((p, i) => [x(i), y(p.amount)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const area = line + ` L${x(d.length - 1).toFixed(1)} ${(H - PB)} L${PL} ${(H - PB)} Z`;
+  const maxI = d.findIndex(p => p.amount === max), lastI = d.length - 1;
+  const lbl = (i, anchor) => {
+    const p = d[i]; if (!p || !p.amount) return '';
+    return `<text x="${x(i)}" y="${y(p.amount) - 7}" text-anchor="${anchor}" style="font-weight:700;fill:var(--ink)">${money(p.amount)}</text>`;
+  };
+  const dayLbl = i => `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${esc(d[i].date.slice(8) + '/' + d[i].date.slice(5,7))}</text>`;
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+      aria-label="ยอดขายรายวัน 14 วันล่าสุด สูงสุด ${money(max)} บาท">
+    <line class="gl" x1="${PL}" y1="${H - PB}" x2="${W - PR}" y2="${H - PB}"/>
+    <path class="ar" d="${area}"/><path class="ln" d="${line}"/>
+    <circle class="pt" cx="${x(lastI)}" cy="${y(d[lastI].amount)}" r="4"/>
+    ${maxI !== lastI ? `<circle class="pt" cx="${x(maxI)}" cy="${y(max)}" r="3.5"/>` : ''}
+    ${lbl(maxI, maxI === 0 ? 'start' : 'middle')}${maxI !== lastI ? lbl(lastI, 'end') : ''}
+    ${dayLbl(0)}${dayLbl(Math.floor(d.length / 2))}${dayLbl(lastI)}
+  </svg>`;
+}
+
+function planHtml(p) {
+  const lv = /วิสัยทัศน์/.test(p.level) ? 'vision' : (/กลยุทธ์/.test(p.level) ? 'strat' : '');
+  return `<div class="plan" ${D.role === 'ceo' ? `data-plan="${p.row}" style="cursor:pointer"` : ''}>
+    <div class="ph"><span class="lv ${lv}">${esc(p.level)}</span><span class="tt">${esc(p.title)}</span>
+      <span class="pill ${/สำเร็จ/.test(p.status) ? 'p-green' : (/พับ/.test(p.status) ? 'p-gray' : 'p-gold')}">${esc(p.status)}</span></div>
+    ${p.detail ? `<div class="dt">${esc(p.detail)}</div>` : ''}
+    <div class="mt">${p.period ? `<span>🗓️ ${esc(p.period)}</span>` : ''}${p.kpi ? `<span>🎯 ${esc(p.kpi)}</span>` : ''}</div>
+  </div>`;
+}
+
+// ── ฟอร์มแผน ──
+function openPlan(p) {
+  editRow = p ? p.row : 0;
+  $('planTitle').textContent = p ? 'แก้ไขแผน' : 'เพิ่มแผนใหม่';
+  $('p_level').value = p ? p.level : 'กลยุทธ์';
+  $('p_title').value = p ? p.title : '';
+  $('p_detail').value = p ? p.detail : '';
+  $('p_period').value = p ? p.period : '';
+  $('p_kpi').value = p ? p.kpi : '';
+  $('p_status').value = p ? p.status : 'กำลังทำ';
+  $('p_del').style.display = p ? 'inline-flex' : 'none';
+  $('planMask').classList.add('on');
+}
+$('p_close').onclick = () => $('planMask').classList.remove('on');
+$('planMask').onclick = e => { if (e.target === $('planMask')) $('planMask').classList.remove('on'); };
+async function savePlan(del) {
+  const btn = del ? $('p_del') : $('p_save');
+  const t = $('p_title').value.trim();
+  if (!del && !t) { toast('ใส่หัวข้อแผนก่อนนะคะ'); return; }
+  btn.disabled = true; const old = btn.innerHTML; btn.innerHTML = '<span class="spin"></span>';
+  try {
+    const j = await api({ action: 'execSave', row: editRow, del: del ? '1' : '', level: $('p_level').value,
+      title: t, detail: $('p_detail').value, period: $('p_period').value, kpi: $('p_kpi').value, status: $('p_status').value }, 1);
+    toast(j.msg || (j.ok ? 'บันทึกแล้ว' : 'ไม่สำเร็จ'));
+    if (j.ok) { $('planMask').classList.remove('on'); load(); }
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.innerHTML = old;
+}
+$('p_save').onclick = () => savePlan(false);
+$('p_del').onclick = function () {
+  if (this.dataset.arm !== '1') { this.dataset.arm = '1'; this.textContent = 'แตะย้ำเพื่อลบ';
+    setTimeout(() => { this.dataset.arm = ''; this.textContent = 'ลบ'; }, 3500); return; }
+  this.dataset.arm = ''; this.textContent = 'ลบ'; savePlan(true);
+};
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.style.opacity = '0', 3000); setTimeout(() => t.remove(), 3500);
+}
+
+function applyTheme(t) {
+  if (t === 'dark') document.body.setAttribute('data-theme', 'dark'); else document.body.removeAttribute('data-theme');
+  $('btnTheme').textContent = t === 'dark' ? '☀️' : '🌙';
+  localStorage.setItem('EX_THEME', t);
+}
+$('btnTheme').onclick = () => applyTheme(document.body.hasAttribute('data-theme') ? 'light' : 'dark');
+applyTheme(localStorage.getItem('EX_THEME') || 'light');
+
+$('keySave').onclick = () => {
+  const k = $('keyInput').value.trim(); if (!k) return;
+  KEY = k; localStorage.setItem('EX_KEY', k); $('keyMask').classList.remove('on'); load();
+};
+$('btnRf').onclick = () => load();
+document.addEventListener('visibilitychange', () => { if (!document.hidden && KEY) load(); });
+if (KEY) localStorage.setItem('EX_KEY', KEY);
+load();
+</script>
+</body>
+</html>
