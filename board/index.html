@@ -134,36 +134,28 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
   color:var(--ink);padding:10px;font-family:inherit;font-size:.85rem;min-height:64px;display:none}
 .cmt-box.show{display:block}
 
-/* ── 🏢 ออฟฟิศทีม AI — เห็นตัวตน ใครนั่งโต๊ะไหน ใครเดินเล่นอยู่ ── */
-.office{position:relative;height:238px;background:
-    radial-gradient(circle at 15% 85%,rgba(69,196,174,.10),transparent 45%),
-    radial-gradient(circle at 85% 15%,rgba(200,145,46,.10),transparent 45%),
-    var(--card);
-  border:1.5px solid var(--line);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
-.office::before{content:"";position:absolute;inset:0;pointer-events:none;
-  background-image:radial-gradient(circle,var(--line) 1px,transparent 1px);background-size:24px 24px;opacity:.4}
-.office-tt{position:absolute;top:8px;left:12px;font-size:10px;font-weight:700;color:var(--faint);
-  letter-spacing:.4px;z-index:1}
-.zone{position:absolute;border-radius:50%;background:var(--raise);opacity:.55}
-.desk{position:absolute;transform:translate(-50%,-50%);font-size:9px;color:var(--faint);
-  display:flex;flex-direction:column;align-items:center;gap:2px;font-weight:600;white-space:nowrap}
-.desk i{width:22px;height:16px;border-radius:4px;background:var(--bg);border:1px solid var(--line);display:block}
-.emp{position:absolute;width:36px;transform:translate(-50%,-50%);cursor:pointer;z-index:2;
-  transition:left 2.8s cubic-bezier(.45,0,.55,1),top 2.8s cubic-bezier(.45,0,.55,1)}
-.emp .bub{width:36px;height:36px;border-radius:50%;background:var(--card);border:2.5px solid var(--line);
-  display:grid;place-items:center;font-size:17px;box-shadow:0 3px 10px var(--shadow);
-  animation:bob 2.2s ease-in-out infinite;position:relative}
-.emp.sec .bub{width:42px;height:42px;font-size:19px;border-color:var(--gold);background:linear-gradient(160deg,var(--card),rgba(200,145,46,.12))}
-.emp.busy .bub{border-color:var(--gold);box-shadow:0 0 0 4px rgba(200,145,46,.22),0 3px 10px var(--shadow)}
-.emp.idle .bub{border-color:var(--green)}
-.emp.queue .bub{border-color:var(--teal)}
-.emp .spark{position:absolute;top:-5px;right:-5px;font-size:11px;animation:pulse 1.2s infinite}
-.emp .nm{position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);font-size:8.5px;
-  color:var(--ink);background:var(--card);border:1px solid var(--line);padding:2px 6px;border-radius:8px;
-  white-space:nowrap;font-weight:700;opacity:0;transition:opacity .15s;pointer-events:none;box-shadow:0 2px 6px var(--shadow)}
-.emp:active .nm,.emp.sel .nm{opacity:1}
-.emp.sel .bub{box-shadow:0 0 0 3px var(--gold)}
-@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+/* ── 🏢 โต๊ะทีม AI — แถวเรียงหน้ากระดาน นั่งนิ่งๆ ไม่มีอนิเมชันเดิน (กันจอค้าง) ── */
+.office{display:flex;gap:9px;overflow-x:auto;padding:10px 2px 12px;margin-bottom:10px;scrollbar-width:none}
+.office::-webkit-scrollbar{display:none}
+.desk{flex:0 0 auto;width:104px;background:var(--card);border:1.5px solid var(--line);border-radius:15px;
+  padding:12px 8px 9px;text-align:center;transition:transform .12s,border-color .15s}
+.desk:active{transform:scale(.94)}
+.desk.sel{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
+.desk .mon{width:38px;height:26px;margin:0 auto 3px;border-radius:6px 6px 2px 2px;background:var(--bg);
+  border:1.5px solid var(--line);display:grid;place-items:center;font-size:12px}
+.desk.busy .mon{border-color:var(--gold);background:rgba(200,145,46,.08)}
+.desk .bub{width:38px;height:38px;margin:-19px auto 0;border-radius:50%;background:var(--card);
+  border:2.5px solid var(--line);display:grid;place-items:center;font-size:17px;position:relative;
+  animation:bob 2.6s ease-in-out infinite;box-shadow:0 3px 8px var(--shadow)}
+.desk.sec .bub{width:44px;height:44px;margin-top:-22px;font-size:19px;border-color:var(--gold);
+  background:linear-gradient(160deg,var(--card),rgba(200,145,46,.12))}
+.desk.busy .bub{border-color:var(--gold);box-shadow:0 0 0 4px rgba(200,145,46,.2),0 3px 8px var(--shadow)}
+.desk.idle .bub{border-color:var(--green)}
+.desk.queue .bub{border-color:var(--teal)}
+.desk .spark{position:absolute;top:-5px;right:-5px;font-size:11px;animation:pulse 1.2s infinite}
+.desk .nm{font-size:.72rem;font-weight:700;margin-top:6px}
+.desk .lb{font-size:.6rem;color:var(--sub);margin-top:2px;min-height:2em;line-height:1.35}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
 .dot2{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:3px;vertical-align:1px}
 .dot2.g{background:var(--green)}.dot2.o{background:var(--gold);animation:pulse 1.2s infinite}.dot2.q{background:var(--teal)}
 
@@ -226,7 +218,7 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
   <button class="rf" id="btnRf" title="รีเฟรช">🔄</button>
 </div>
 
-<div class="office" id="office"><div class="office-tt">🏢 ออฟฟิศทีม AI ของคุณปาล์ม</div></div>
+<div class="office" id="office"></div>
 <div class="stats" id="stats"></div>
 <div class="chips" id="chips"></div>
 <div class="upd" id="upd"></div>
@@ -396,16 +388,6 @@ const TEAM = [
   { k:'analyst', e:'📈', n:'วิเคราะห์' }, { k:'researcher', e:'🔍', n:'นักวิจัย' }, { k:'procurement', e:'🛒', n:'จัดซื้อ' },
   { k:'finance', e:'💰', n:'การเงิน' }, { k:'data', e:'🗄️', n:'ฝ่ายข้อมูล' }, { k:'coder', e:'💻', n:'ทีม DEV' },
 ];
-// ── ผังโต๊ะ (% ของพื้นห้อง) — โต๊ะเลขาอยู่หน้าห้องใกล้ประตู แผนกอื่นนั่งเป็นแถว ──
-const DESK_POS = {
-  _sec:{x:13,y:64}, content:{x:30,y:30}, writer:{x:50,y:24}, analyst:{x:70,y:30}, researcher:{x:88,y:38},
-  procurement:{x:30,y:78}, finance:{x:50,y:84}, data:{x:70,y:78}, coder:{x:88,y:70},
-};
-// จุดพักผ่อน/มุมกาแฟ — คนว่างจะเดินไปแถวนี้เป็นระยะ ดูมีชีวิตชีวา
-const COMMON_SPOTS = [ {x:50,y:52}, {x:15,y:20}, {x:85,y:88} ];
-let OFFICE_POS = {};
-TEAM.forEach(m => OFFICE_POS[m.k] = Object.assign({}, DESK_POS[m.k]));
-
 function memberStatus(k) {
   if (k === '_sec') {
     const nw = TASKS.filter(t => t.status === 'ใหม่' || t.status === 'รออนุมัติ').length;
@@ -419,45 +401,25 @@ function memberStatus(k) {
   return { state:'idle', label: d ? 'ว่าง · เสร็จ ' + d : 'ว่าง' };
 }
 
-// วาดห้อง — โต๊ะพื้นหลัง + ตัวละครตามตำแหน่งปัจจุบันใน OFFICE_POS (งานยุ่ง = สแนปกลับโต๊ะตัวเองเสมอ)
+// แถวโต๊ะเรียงหน้ากระดาน นั่งนิ่งๆ (ไม่มีอนิเมชันเปลี่ยนตำแหน่ง — ลอยเด้งเบาๆ ด้วย CSS ล้วน ไม่กิน CPU)
 function officeRender() {
-  let deskH = '<div class="zone" style="left:44%;top:52%;width:26%;height:24%"></div>' +
-              '<div class="zone" style="left:10%;top:14%;width:14%;height:12%"></div>';
-  TEAM.forEach(m => { const p = DESK_POS[m.k];
-    deskH += `<div class="desk" style="left:${p.x}%;top:${p.y+11}%"><i></i>${esc(m.n)}</div>`;
-  });
-  let empH = '';
+  let h = '';
   TEAM.forEach(m => {
     const st = memberStatus(m.k);
-    if (st.state === 'busy') OFFICE_POS[m.k] = Object.assign({}, DESK_POS[m.k]);
-    const p = OFFICE_POS[m.k];
-    empH += `<div class="emp ${st.state}${m.k==='_sec'?' sec':''}${FD===m.k?' sel':''}" data-k="${m.k}"
-      style="left:${p.x}%;top:${p.y}%">
+    h += `<div class="desk ${st.state}${m.k==='_sec'?' sec':''}${FD===m.k?' sel':''}" data-k="${m.k}">
+      <div class="mon">🖥️</div>
       <div class="bub">${m.e}${st.state==='busy'?'<span class="spark">✨</span>':''}</div>
-      <div class="nm">${esc(m.n)} · ${esc(st.label)}</div>
+      <div class="nm">${esc(m.n)}</div>
+      <div class="lb">${esc(st.label)}</div>
     </div>`;
   });
-  $('office').innerHTML = '<div class="office-tt">🏢 ออฟฟิศทีม AI ของคุณปาล์ม</div>' + deskH + empH;
-  document.querySelectorAll('.emp').forEach(el => el.onclick = () => {
+  $('office').innerHTML = h;
+  document.querySelectorAll('.desk').forEach(el => el.onclick = () => {
     const k = el.dataset.k;
     if (FD === k) { FD = ''; F = 'open'; } else { FD = k; F = 'all'; }
     render(); window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 }
-// ทุก ~5-6 วิ: คนว่าง/รอคิว เดินไปมุมพักหรือกลับโต๊ะสุ่มๆ ให้ห้องดูมีชีวิต (คนกำลังทำงานไม่ขยับ อยู่โต๊ะตัวเองเสมอ)
-function officeTick() {
-  TEAM.forEach(m => {
-    if (memberStatus(m.k).state === 'busy') return;
-    if (Math.random() < 0.55) {
-      const c = COMMON_SPOTS[Math.floor(Math.random() * COMMON_SPOTS.length)];
-      OFFICE_POS[m.k] = { x: c.x + (Math.random() * 12 - 6), y: c.y + (Math.random() * 10 - 5) };
-    } else {
-      OFFICE_POS[m.k] = Object.assign({}, DESK_POS[m.k]);
-    }
-  });
-  officeRender();
-}
-setInterval(officeTick, 5000 + Math.random() * 1500);
 
 function render() {
   officeRender();
@@ -561,12 +523,17 @@ function actionBar(t) {
   if (MODE !== 'owner' || canc(t)) return '';
   let main = '';
   const b = ref => busy[ref] ? 'disabled' : '';
-  if (t.status === 'รอทีม AI') {
+  const isAI = t.assignee === 'ทีมAI';
+  // แยกปุ่มตามสถานะจริง — "รออนุมัติ" ต้องกดอนุมัติ ไม่ใช่ "เริ่มทันที" (คนละความหมาย)
+  // และงานของ "คน" ไม่มีคิวทีม AI ให้เข้า เลยไม่มีปุ่มคิว/เริ่มเลย
+  if (isAI && t.status === 'รออนุมัติ') {
+    main = `<button class="bt bt-run" data-act="approve" data-ref="${esc(t.ref)}" ${b(t.ref)}>✅ อนุมัติงานนี้</button>`;
+  } else if (t.status === 'รอทีม AI') {
     main = `<button class="bt bt-stop" data-act="unqueue" data-ref="${esc(t.ref)}" ${b(t.ref)}>↩️ ถอนออกจากคิว</button>`;
   } else if (t.status === 'กำลังทำ (AI)') {
     main = `<button class="bt bt-gray" disabled><span class="spin"></span> ทีมกำลังทำอยู่...</button>`;
-  } else if (!done(t)) {
-    main = `<button class="bt bt-run" data-act="runnow" data-ref="${esc(t.ref)}" ${b(t.ref)}>⚡ เริ่มทันที</button>`;
+  } else if (isAI && !done(t) && t.status !== 'รอข้อมูล') {
+    main = `<button class="bt bt-run" data-act="runnow" data-ref="${esc(t.ref)}" ${b(t.ref)}>⚡ ปลุกทีม AI ทันที</button>`;
   }
   return `<div class="acts">${main}
     <button class="bt bt-gray" data-cmt="${esc(t.ref)}">💬</button>
@@ -624,10 +591,11 @@ async function doAction(act, ref, el) {
     const j = await api({ action: 'boardDo', 'do': act, ref: ref }, 1);
     toast(j.msg || (j.ok ? 'สำเร็จ' : 'ไม่สำเร็จ'), j.ok);
     if (j.ok) {
+      const APPROVE_DEPTS = ['coder', 'data'];
       TASKS.forEach(t => { if (t.ref === ref) {
         if (act === 'cancel') t.status = 'ยกเลิก';
-        if (act === 'runnow') t.status = 'รอทีม AI';
-        if (act === 'unqueue') t.status = 'ใหม่';
+        if (act === 'runnow' || act === 'approve') t.status = 'รอทีม AI';
+        if (act === 'unqueue') t.status = APPROVE_DEPTS.includes(t.dept) ? 'รออนุมัติ' : 'ใหม่';
         if (act === 'vis') t.vis = (t.vis === 'ทีม' ? 'ส่วนตัว' : 'ทีม');
       }});
       render();
