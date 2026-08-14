@@ -2496,6 +2496,113 @@ function execDateKey(v) {
   catch (e) { return ''; }
 }
 
+// ════════════════════════════════════════════════════════════
+//  🔌 ตัวเชื่อมระบบขาย-โรงงานจริง (ชีตเดียวกันของ Sale System + Lakon Factory)
+//  ตั้ง PLANT_SHEET_ID ใน Script Properties = ID สเปรดชีตของระบบโรงงาน
+//  อ่านอย่างเดียว ไม่เขียนกลับ — ระบบโรงงานยังเป็นเจ้าของข้อมูลเหมือนเดิม
+// ════════════════════════════════════════════════════════════
+function plantSS() {
+  const id = cfg('PLANT_SHEET_ID');
+  if (!id) return null;
+  try { return ssById(sheetIdFrom(id)); } catch (e) { console.error('plantSS: ' + e); return null; }
+}
+// อ่านทั้งแท็บเป็น array (แคช 10 นาที กันยิงซ้ำถี่ๆ ตอนหลายคนเปิดแอปพร้อมกัน)
+function plantRows(tab, maxRows) {
+  const ss = plantSS(); if (!ss) return [];
+  try {
+    const sh = ss.getSheetByName(tab); if (!sh || sh.getLastRow() < 2) return [];
+    const last = sh.getLastRow();
+    const start = maxRows ? Math.max(2, last - maxRows + 1) : 2;
+    return sh.getRange(start, 1, last - start + 1, sh.getLastColumn()).getValues();
+  } catch (e) { console.error('plantRows ' + tab + ': ' + e); return []; }
+}
+// จัดสายผลิตภัณฑ์จากชื่อสินค้า/แบรนด์ — ยึดตามที่ CEO แบ่งไว้ 3 ขา
+function lineOfProduct(name, orderType) {
+  const s = String(name || '');
+  if (String(orderType || '').indexOf('OEM') !== -1) return 'OEM';
+  if (/เพียวซ่า|pure/i.test(s)) return 'เพียวซ่า';
+  if (/ละกอน|lakon/i.test(s)) return 'ละกอน';
+  return 'อื่นๆ';
+}
+
+// ดึงยอดขาย+ผลิตจากระบบจริง คืนรูปแบบเดียวกับแท็บ Exec* (แอปไม่ต้องรู้ว่ามาจากไหน)
+function plantFeed(monthPrefix) {
+  const ss = plantSS();
+  if (!ss) return null;
+  const out = { sales: [], prod: [], staff: [], source: 'ระบบขาย-โรงงาน (สด)' };
+  try {
+    // ── ชื่อสินค้า → ใช้จัดสายผลิตภัณฑ์ ──
+    const prodName = {};
+    plantRows('Products').forEach(function (r) {
+      const id = String(r[0] || '').trim(); if (!id) return;
+      prodName[id] = String(r[11] || '').trim() || (String(r[1] || '') + ' ' + String(r[2] || '')).trim();
+    });
+
+    // ── ออเดอร์จากทุกช่องทาง (โรงงาน/LINE/เซลส์/OEM) ──
+    // คอลัมน์ Orders & Orders_LINE: A=Order_ID B=Date C=Customer D=Product_ID E=Qty F=UnitPrice ... I=TotalPrice ... M=หมวด
+    [['Orders', 3, 4, 8, 12], ['Orders_LINE', 3, 4, 8, 12]].forEach(function (cfgx) {
+      plantRows(cfgx[0], 4000).forEach(function (r) {
+        const d = r[1]; if (!d) return;
+        const dk = execDateKey(d); if (!dk) return;
+        const st = String(r[7] || '');
+        if (/ยกเลิก/.test(st)) return;
+        const pid = String(r[cfgx[1]] || '');
+        out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, r[cfgx[4]]),
+                         qty: execNum(r[cfgx[2]]), amount: execNum(r[8]) });
+      });
+    });
+    // Orders_Sales: H=Product_ID(7) J=Qty(9) P=Status(15) — ยอดเงินหาแบบยืดหยุ่นจากคอลัมน์ราคารวม
+    plantRows('Orders_Sales', 4000).forEach(function (r) {
+      const dk = execDateKey(r[1]); if (!dk) return;
+      if (/ยกเลิก/.test(String(r[15] || ''))) return;
+      const pid = String(r[7] || ''), qty = execNum(r[9]);
+      let amt = execNum(r[11]) || execNum(r[10]) || (qty * execNum(r[8]));
+      out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, ''), qty: qty, amount: amt });
+    });
+    // Orders_OEM — ผลิตตามสั่ง จัดเป็นสาย OEM เสมอ
+    plantRows('Orders_OEM', 2000).forEach(function (r) {
+      const dk = execDateKey(r[1]); if (!dk) return;
+      if (/ยกเลิก/.test(String(r[16] || ''))) return;
+      out.sales.push({ date: dk, line: 'OEM', qty: execNum(r[9]) || execNum(r[4]), amount: execNum(r[11]) || execNum(r[8]) });
+    });
+
+    // ── การผลิตจาก ProductionLog: C=วันที่ E=สินค้า F=จำนวนผลิต H=ประเภท ──
+    plantRows('ProductionLog', 4000).forEach(function (r) {
+      const dk = execDateKey(r[2] || r[1]); if (!dk) return;
+      const typ = String(r[7] || 'ผลิต');
+      const qty = execNum(r[5]);
+      const line = lineOfProduct(r[4]);
+      out.prod.push({ date: dk, line: line, made: /เสีย|waste/i.test(typ) ? 0 : qty, waste: /เสีย|waste/i.test(typ) ? qty : 0 });
+    });
+    // ของเสียจากรอบผลิต (ProductionRuns) ถ้ามีคอลัมน์ waste
+    try {
+      const runSh = ss.getSheetByName('ProductionRuns');
+      if (runSh && runSh.getLastRow() > 1) {
+        const head = runSh.getRange(1, 1, 1, runSh.getLastColumn()).getValues()[0].map(String);
+        const iDate = head.findIndex(function (h) { return /วันที่/.test(h); });
+        const iProd = head.findIndex(function (h) { return /สินค้า/.test(h); });
+        const iWaste = head.findIndex(function (h) { return /เสีย/.test(h); });
+        if (iDate >= 0 && iWaste >= 0) {
+          plantRows('ProductionRuns', 2000).forEach(function (r) {
+            const dk = execDateKey(r[iDate]); if (!dk) return;
+            const w = execNum(r[iWaste]); if (!w) return;
+            out.prod.push({ date: dk, line: lineOfProduct(iProd >= 0 ? r[iProd] : ''), made: 0, waste: w });
+          });
+        }
+      }
+    } catch (e) {}
+
+    // ── พนักงานจากชีต Staff: A=Staff_ID B=ชื่อ C=Role E=Active (ไม่ดึงคอลัมน์ PIN เด็ดขาด) ──
+    plantRows('Staff').forEach(function (r) {
+      const name = String(r[1] || '').trim(); if (!name) return;
+      const active = String(r[4]);
+      if (active === 'false' || active === 'FALSE' || /ลาออก|ไม่ทำงาน/.test(active)) return;
+      out.staff.push({ name: name, role: String(r[2] || ''), dept: 'โรงงาน', since: '', status: 'ทำงาน', contact: '' });
+    });
+  } catch (e) { console.error('plantFeed: ' + e); }
+  return out;
+}
+
 // รวมข้อมูลให้แอปผู้บริหารในครั้งเดียว (ประหยัดรอบเรียก GAS)
 function execDashboard(key) {
   const role = execAuth(key);
@@ -2503,8 +2610,25 @@ function execDashboard(key) {
   try {
     const now = new Date();
     const monthPrefix = Utilities.formatDate(now, 'GMT+7', 'yyyy-MM');
-    const sales = execRows('ExecSales'), prod = execRows('ExecProduction');
-    const staff = execRows('ExecStaff'), plans = execRows('ExecPlans');
+    let sales = execRows('ExecSales'), prod = execRows('ExecProduction');
+    let staff = execRows('ExecStaff');
+    const plans = execRows('ExecPlans');
+
+    // 🔌 ถ้าเชื่อมระบบโรงงานไว้ → ใช้ข้อมูลสดจากระบบจริงแทนการกรอกมือ
+    const feed = plantFeed(monthPrefix);
+    let liveSource = '';
+    if (feed && (feed.sales.length || feed.prod.length || feed.staff.length)) {
+      liveSource = feed.source;
+      if (feed.sales.length) sales = feed.sales.map(function (s) {
+        return { 'วันที่': s.date, 'สายผลิตภัณฑ์': s.line, 'จำนวน(ลัง)': s.qty, 'ยอดขาย(บาท)': s.amount };
+      });
+      if (feed.prod.length) prod = feed.prod.map(function (p) {
+        return { 'วันที่': p.date, 'สายผลิตภัณฑ์': p.line, 'ผลิตได้(ลัง)': p.made, 'ของเสีย(ลัง)': p.waste };
+      });
+      if (feed.staff.length) staff = feed.staff.map(function (s) {
+        return { 'ชื่อ': s.name, 'ตำแหน่ง': s.role, 'แผนก': s.dept, 'เริ่มงาน': '', 'สถานะ': s.status, 'ติดต่อ': '' };
+      });
+    }
 
     // ยอดขาย: เดือนนี้ + แยกสายผลิตภัณฑ์ + เทรนด์ 14 วัน
     let mAmt = 0, mQty = 0;
@@ -2570,6 +2694,7 @@ function execDashboard(key) {
       }),
       tasks: tasks,
       hasData: (sales.length + prod.length + staff.length) > 0,
+      source: liveSource,   // ว่าง = กรอกมือในแท็บ Exec* | มีค่า = ดึงสดจากระบบขาย-โรงงาน
     };
   } catch (e) { console.error('execDashboard: ' + e); return { ok: false, error: String(e) }; }
 }

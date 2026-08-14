@@ -238,6 +238,10 @@ function render() {
     <div class="k${k.openTasks ? ' red' : ''}"><div class="lb">งานโรงน้ำค้างอยู่</div><div class="v">${money(k.openTasks)}<span class="u">งาน</span></div><div class="sub">บนบอร์ดทีม AI</div></div>
   </div>`;
 
+  if (D.source) {
+    h += `<div class="sec" style="padding:11px 14px;margin-bottom:12px"><div style="font-size:.78rem;color:var(--teal);font-weight:600">🔌 ข้อมูลสดจาก${esc(D.source)} — อัปเดตอัตโนมัติ ไม่ต้องกรอกมือ</div></div>`;
+  }
+
   if (!D.hasData) {
     h += `<div class="sec"><div class="empty">📋 ยังไม่มีข้อมูลขาย/ผลิต/พนักงานในระบบ<br><br>
       ดิฉันสร้างแท็บรอไว้ให้แล้วใน Google Sheet ของคุณเลขา:<br>
