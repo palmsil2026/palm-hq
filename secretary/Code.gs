@@ -265,6 +265,12 @@ function doGet(e) {
     return jsonOut({ ok: true, msg: 'ลงทะเบียนเข้าคลังแล้ว' });
   }
 
+  // 💬 คุยกับคุณเลขาจากแอปบอร์ด (เฉพาะ key เจ้าของ — สมอง/ความจำเดียวกับไลน์)
+  if (p.action === 'chat') {
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    return jsonOut(boardChat(String(p.q || '')));
+  }
+
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
   // ลิงก์บอร์ดมี 2 แบบ: key เจ้าของ = เห็นทุกงาน+ปุ่มครบ | key ทีม = เห็นเฉพาะงานที่เปิดแชร์ (👥 ทีม)
   if (p.page === 'board') {
@@ -2393,6 +2399,56 @@ function readBoard(senderId, owner) {
     console.error('readBoard error: ' + err);
     return [];
   }
+}
+
+// 💬 แชทกับเลขาจากแอปบอร์ด — ใช้สมอง+คลังความรู้เดียวกับไลน์ มีความจำต่อเนื่องของตัวเอง
+// รับบล็อกที่ปลอดภัย: TASK (งานเดี่ยว), IDEA, REMEMBER/FORGET, ADDNOTE, SENDGROUP
+function boardChat(q) {
+  try {
+    if (!String(q).trim()) return { ok: false, error: 'ข้อความว่างค่ะ' };
+    const chatId = 'boardchat-owner';
+    const history = memGet(chatId);
+    let ctx = '';
+    try { ctx = 'ข้อมูลงานจากบอร์ด ณ ตอนนี้ (ทั้งทีม):\n' + buildBoardContext(readBoard('', true), true) + '\n\n'; } catch (e) {}
+    try { const pend = listPendingPosts(400); if (pend.length) ctx += '(ประกาศตั้งเวลาค้างอยู่:\n' + pend.join('\n') + ')\n\n'; } catch (e) {}
+    const p = parseBlocks(askClaude(ctx + 'คุณปาล์ม (เจ้าของ) พิมพ์มาจากแอปบอร์ดงาน: ' + q, history));
+    let reply = p.reply;
+    const OWNER = cfg('OWNER_LINE_USER_ID') || 'board-owner';
+
+    if (p.blocks.TASK) {
+      if (p.blocks.TASK.multiStep === true) {
+        reply += '\n\n📁 งานนี้เป็นงานหลายขั้นค่ะ — รบกวนสั่งทางไลน์ดิฉันแทนนะคะ จะได้ร่างแผนเสนอให้ครบขั้นตอน';
+      } else {
+        const ref = logTaskToBoard(p.blocks.TASK, OWNER);
+        if (ref) {
+          const dept = (p.blocks.TASK.assignee === 'ทีมAI') ? String(p.blocks.TASK.dept || '') : '';
+          if (p.blocks.TASK.assignee === 'ทีมAI' && !needsApproval(dept)) maybeFireRoutine('งานใหม่จากแชทบอร์ด #' + ref);
+          reply += '\n\n📋 บันทึกงาน #' + ref + ' แล้วค่ะ' + (needsApproval(dept) ? ' (รออนุมัติ — กดอนุมัติบนบอร์ดได้เลย)' : '');
+        }
+      }
+    }
+    if (p.all.IDEA) p.all.IDEA.forEach(function (g) {
+      const n = addIdea(g.idea || '', OWNER, g.biz || '', g.take || '');
+      if (n) reply += '\n\n💡 แปะบอร์ดไอเดีย #' + n + ' แล้วค่ะ';
+    });
+    if (p.all.REMEMBER) p.all.REMEMBER.forEach(function (r) {
+      if (saveKBFact(r.topic, r.value)) reply += '\n\n🧠 จำลงคลังถาวรแล้วค่ะ: ' + String(r.topic || '');
+    });
+    if (p.all.FORGET) p.all.FORGET.forEach(function (f) {
+      reply += forgetKBFact(f.topic) ? ('\n\n🗑️ ลบ "' + String(f.topic || '') + '" ออกจากความจำแล้วค่ะ') : '';
+    });
+    if (p.all.ADDNOTE) p.all.ADDNOTE.forEach(function (a) {
+      const rr = String(a.ref || '').replace(/^#/, '').trim();
+      reply += appendNoteToTask(rr, a.note) ? ('\n\n➕ แนบข้อมูลเข้างาน #' + rr + ' แล้วค่ะ') : ('\n\n⚠️ หางาน #' + rr + ' ไม่เจอค่ะ');
+    });
+    if (p.all.SENDGROUP) p.all.SENDGROUP.forEach(function (sg) {
+      reply += sendToGroupByTarget(sg) ? '\n\n📤 ส่งข้อความเข้ากลุ่มให้แล้วค่ะ' : ('\n\n⚠️ หากลุ่ม "' + String(sg.target || '') + '" ไม่เจอค่ะ');
+    });
+
+    memAppend(chatId, q, reply);
+    logRow(['แชทบอร์ด', 'board', q.slice(0, 200), reply.slice(0, 200)]);
+    return { ok: true, reply: reply };
+  } catch (e) { console.error('boardChat: ' + e); return { ok: false, error: 'ระบบขัดข้องชั่วคราว ลองอีกครั้งนะคะ' }; }
 }
 
 function buildBoardContext(rows, owner) {
