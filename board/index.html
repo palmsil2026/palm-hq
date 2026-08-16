@@ -239,8 +239,9 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 </div>
 
 <button class="fab" id="fab" style="display:none">＋</button>
+<button class="chat-fab" id="cafeFab" style="display:none;bottom:160px" title="แอปร้าน Old Days">☕</button>
 <button class="chat-fab" id="execFab" style="display:none;bottom:92px" title="แอปผู้บริหาร">🏭</button>
-<button class="chat-fab" id="chatFab" style="display:none">🗓️</button>
+<button class="chat-fab" id="chatFab" style="display:none" title="คุยกับคุณเลขา">🗓️</button>
 
 <div class="chat-mask" id="chatMask">
   <div class="chat-sh">
@@ -488,6 +489,7 @@ function render() {
   $('fab').style.display = (MODE === 'owner') ? 'grid' : 'none';
   $('chatFab').style.display = (MODE === 'owner') ? 'grid' : 'none';
   $('execFab').style.display = (MODE === 'owner') ? 'grid' : 'none';
+  $('cafeFab').style.display = (MODE === 'owner') ? 'grid' : 'none';
 }
 
 function nodeDetail(s) {
@@ -713,6 +715,8 @@ $('chatT').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftK
 
 // 🏭 เปิดแอปผู้บริหาร — CEO ใช้รหัสบอร์ดตัวเองเข้าได้เลย (ผู้บริหารคนอื่นใช้ EXEC_KEY แยก)
 $('execFab').onclick = () => window.open('../exec/?key=' + encodeURIComponent(KEY), '_blank');
+// ☕ แอปหลังร้าน Old Days — ระบบของตัวเอง (login ด้วย LINE ในแอปนั้น) ไม่ใช้ key ของบอร์ด
+$('cafeFab').onclick = () => window.open('../olddays/', '_blank');
 
 $('btnRf').onclick = () => load();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true); });
