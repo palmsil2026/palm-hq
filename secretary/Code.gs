@@ -1937,17 +1937,52 @@ function oldDaysSummaryText(which) {
     const dp = dkey(row[0]).split('-');
     const thDate = Number(dp[2]) + '/' + Number(dp[1]) + '/' + (Number(dp[0]) + 543);
     const fm = function (n) { return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 }); };
+
+    // รายหมวดจากระบบร้าน (แบบเดียวกับหน้าแอป — โชว์เฉพาะที่ขายได้)
+    let catLines = '';
+    try {
+      const catsSh = ssById(id).getSheetByName('Categories');
+      const cmap = {};
+      if (catsSh && catsSh.getLastRow() > 1) {
+        catsSh.getRange(2, 1, catsSh.getLastRow() - 1, 4).getValues().forEach(function (r2) {
+          cmap[String(r2[0])] = { name: String(r2[1] || r2[0]), emoji: String(r2[2] || ''), unit: String(r2[3] || '') };
+        });
+      }
+      const counts = JSON.parse(String(row[11] || '{}'));
+      const ls = [];
+      Object.keys(counts).forEach(function (k) {
+        const c2 = Number(counts[k] || 0); if (!c2) return;
+        const m = cmap[k] || { name: k, emoji: '', unit: '' };
+        ls.push('• ' + (m.emoji ? m.emoji + ' ' : '') + m.name + ' ' + c2 + (m.unit ? ' ' + m.unit : ''));
+      });
+      if (ls.length) catLines = ls.join('\n') + '\n';
+    } catch (e3) {}
+
+    // ชื่อเล่นคนบันทึก (จากแท็บ Staff ของระบบร้าน)
+    let by = String(row[18] || '-');
+    try {
+      const stSh = ssById(id).getSheetByName('Staff');
+      if (stSh && stSh.getLastRow() > 1) {
+        stSh.getRange(2, 1, stSh.getLastRow() - 1, 3).getValues().forEach(function (r3) {
+          if (String(r3[1]) === by && r3[2]) by = String(r3[2]);
+        });
+      }
+    } catch (e4) {}
+
     return '☕ สรุปยอด Old Days ' + thDate + ' ค่ะ\n'
       + '━━━━━━━━━━━━━━\n'
       + '💰 ยอดขายรวม ' + fm(row[1]) + ' บาท\n'
       + '• 💵 เงินสด ' + fm(row[2]) + '\n'
       + '• 🇹🇭 ไทยช่วยไทย ' + fm(row[3]) + '\n'
       + '• 📲 เงินโอน ' + fm(row[4]) + '\n'
+      + (catLines ? '━━━━━━━━━━━━━━\n' + catLines : '')
+      + '🥤 เครื่องดื่มรวม ' + Number(row[13] || 0) + ' แก้ว\n'
+      + '━━━━━━━━━━━━━━\n'
       + '• ส่วนลด ' + fm(row[8]) + ' บาท (' + Number(row[7] || 0) + ' รายการ) · Void ' + Number(row[9] || 0) + ' บิล\n'
       + (row[16] ? '👥 ' + row[16] + '\n' : '')
       + (row[17] ? '📝 ' + String(row[17]).replace(/^📩 ดึงจากอีเมล POS \| /, '') + '\n' : '')
       + '━━━━━━━━━━━━━━\n'
-      + 'บันทึกล่าสุดโดย ' + (row[18] || '-') + ' ค่ะ';
+      + 'บันทึกล่าสุดโดย ' + by + ' ค่ะ';
   } catch (err) { return ''; }
 }
 
