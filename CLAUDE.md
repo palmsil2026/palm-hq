@@ -31,6 +31,8 @@
 5. หน้าเว็บ (`index.html` / `board/` / `exec/`) เสิร์ฟจาก Pages ของ repo นี้ → push `main` = ขึ้นจริง
    ส่วน `secretary/Code.gs` ต้องวางใน Apps Script เอง → **วางจากไฟล์ใน `main` เท่านั้น** แล้ว Manage deployments → New version
    (ห้าม New deployment — URL เปลี่ยน webhook LINE/ลิงก์บอร์ดพัง)
+6. **แก้ `secretary/Code.gs` เมื่อไหร่ ต้อง bump `CODE_VERSION`** (บรรทัดบน `healthCheck`) — พิมพ์ "เช็คระบบ" ในไลน์
+   จะโชว์เวอร์ชันที่ GAS รันอยู่จริง เทียบกับ repo ได้ทันที ไม่ต้องเดาว่าวางแล้วหรือยัง
 
 ## 🏢 ธุรกิจที่ดูแล
 

@@ -1784,8 +1784,12 @@ function attachMediaToLatestTask(senderId, url, desc) {
 // ════════════════════════════════════════════════════════════
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
+// เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
+const CODE_VERSION = '2026-08-17b สรุปยอดภาษาพูด+โรงน้ำ';
+
 function healthCheck() {
   const L = [];
+  L.push('🧾 โค้ดเวอร์ชัน: ' + CODE_VERSION);
   function ok(t) { L.push('✅ ' + t); }
   function bad(t, fix) { L.push('❌ ' + t + (fix ? ('\n     → ' + fix) : '')); }
   function warn(t, fix) { L.push('⚠️ ' + t + (fix ? ('\n     → ' + fix) : '')); }
