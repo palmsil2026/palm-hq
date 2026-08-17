@@ -170,6 +170,108 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
   </div>
 </div>
 
+<!-- 👥 HR: รายละเอียดพนักงาน -->
+<div class="mask" id="hrMask">
+  <div class="sheet" style="max-width:720px">
+    <div style="display:flex;align-items:center;gap:8px"><h3 id="hrTitle" style="flex:1;margin:0"></h3><button class="bt bt-gray" id="hrClose">ปิด</button></div>
+    <div id="hrBody" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- 👥 HR: เพิ่ม/แก้พนักงาน (CEO) -->
+<div class="mask" id="sfMask">
+  <div class="sheet" style="max-width:720px">
+    <h3 id="sfTitle">พนักงาน</h3>
+    <p style="font-size:.76rem;color:var(--sub);line-height:1.5">ชื่อ/ตำแหน่ง/PIN/สถานะ เขียนลงชีต <b>Staff</b> ตัวจริงของโรงงาน — แอปโรงงาน คลัง เซลส์ เห็นทันที ส่วนข้อมูล HR อื่น ๆ เก็บชีต <b>HR_Staff</b></p>
+    <input type="hidden" id="sf_id">
+    <div class="row2">
+      <div><label>ชื่อ *</label><input id="sf_name" placeholder="ชื่อที่ใช้ login แอป"></div>
+      <div><label>ชื่อเล่น</label><input id="sf_nick"></div>
+    </div>
+    <div class="row2">
+      <div><label>ตำแหน่ง</label><input id="sf_role" placeholder="เช่น ผลิต / แพ็ค / ขนส่ง / เซลส์ / RO"></div>
+      <div><label>แผนก</label><select id="sf_dept"><option>โรงงาน</option><option>คลัง</option><option>ขนส่ง</option><option>เซลส์</option><option>สำนักงาน</option><option>คาเฟ่</option></select></div>
+    </div>
+    <div class="row2">
+      <div><label>เริ่มงาน</label><input id="sf_since" type="date"></div>
+      <div><label>ประเภทจ้าง</label><select id="sf_emp"><option>รายเดือน</option><option>รายวัน</option><option>พาร์ทไทม์</option><option>เหมา/ฟรีแลนซ์</option><option>ทดลองงาน</option></select></div>
+    </div>
+    <div class="row2">
+      <div><label>เงินเดือน / ค่าจ้าง (บาท) 🔒</label><input id="sf_salary" type="number" inputmode="decimal" placeholder="เช่น 12000"></div>
+      <div><label>วิธีจ่าย</label><select id="sf_paytype"><option>รายเดือน</option><option>รายวัน</option><option>รายสัปดาห์</option><option>ตามชิ้นงาน</option></select></div>
+    </div>
+    <div class="row2">
+      <div><label>โทร</label><input id="sf_phone" type="tel"></div>
+      <div><label>LINE</label><input id="sf_line"></div>
+    </div>
+    <label>ที่อยู่</label><input id="sf_addr">
+    <div class="row2">
+      <div><label>ผู้ติดต่อฉุกเฉิน</label><input id="sf_emerg" placeholder="ชื่อ · ความสัมพันธ์ · เบอร์"></div>
+      <div><label>เลขบัตร / บัญชีธนาคาร 🔒</label><input id="sf_bank"></div>
+    </div>
+    <div class="row2">
+      <div><label>โควตาลาพักร้อน (วัน/ปี)</label><input id="sf_quota" type="number" inputmode="numeric" placeholder="เช่น 6"></div>
+      <div><label>สถานะ</label><select id="sf_active"><option value="true">ทำงาน (login ได้)</option><option value="false">พักงาน/ลาออก (ปิด login แต่เก็บประวัติ)</option></select></div>
+    </div>
+    <label>PIN เข้าแอป <span id="sf_pinHint" style="color:var(--faint);font-weight:400"></span></label><input id="sf_pin" type="tel" inputmode="numeric" maxlength="6" placeholder="เว้นว่าง = ไม่เปลี่ยน">
+    <label>หมายเหตุ</label><textarea id="sf_note" style="min-height:56px"></textarea>
+    <div style="display:flex;gap:9px;margin-top:14px">
+      <button class="bt bt-main" id="sf_save" style="flex:1;justify-content:center">บันทึก</button>
+      <button class="bt bt-gray" id="sf_close">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- 👥 HR: บุ๊ควันลา -->
+<div class="mask" id="lvMask">
+  <div class="sheet">
+    <h3 id="lvTitle">🏖️ บุ๊ควันลา</h3>
+    <input type="hidden" id="lv_staff">
+    <div class="row2">
+      <div><label>ตั้งแต่</label><input id="lv_from" type="date"></div>
+      <div><label>ถึง</label><input id="lv_to" type="date"></div>
+    </div>
+    <label>ประเภท</label><select id="lv_type"><option>ลากิจ</option><option>ลาป่วย</option><option>พักร้อน</option><option>ลาไม่รับค่าจ้าง</option><option>อื่นๆ</option></select>
+    <label>หมายเหตุ</label><input id="lv_note">
+    <p style="font-size:.74rem;color:var(--sub);margin-top:8px">ลงชีต <b>Leaves</b> เดียวกับแอปโรงงาน — ปฏิทินแผนงานเห็นด้วยว่าใครไม่อยู่</p>
+    <div style="display:flex;gap:9px;margin-top:14px">
+      <button class="bt bt-main" id="lv_save" style="flex:1;justify-content:center">บันทึกวันลา</button>
+      <button class="bt bt-gray" id="lv_close">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- 👥 HR: บันทึกงวดเงินเดือน (CEO) -->
+<div class="mask" id="pyMask">
+  <div class="sheet">
+    <h3 id="pyTitle">💵 เงินเดือน</h3>
+    <input type="hidden" id="py_id"><input type="hidden" id="py_staff"><input type="hidden" id="py_name">
+    <div class="row2">
+      <div><label>งวด (เดือน)</label><input id="py_period" type="month"></div>
+      <div><label>วันทำงาน</label><input id="py_days" type="number" inputmode="numeric"></div>
+    </div>
+    <div class="row2">
+      <div><label>ฐาน (บาท)</label><input id="py_base" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
+      <div><label>โอที (บาท)</label><input id="py_ot" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
+    </div>
+    <div class="row2">
+      <div><label>โบนัส/เบี้ยขยัน (บาท)</label><input id="py_bonus" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
+      <div><label>หัก (ประกันสังคม/เบิกล่วงหน้า/ขาด)</label><input id="py_ded" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;padding-top:10px;border-top:2px dashed var(--line)">
+      <span style="font-weight:700">สุทธิ</span><span id="py_net" style="font-size:1.25rem;font-weight:800;color:var(--gold)">0 บาท</span></div>
+    <div class="row2">
+      <div><label>สถานะ</label><select id="py_status"><option>ค้างจ่าย</option><option>จ่ายแล้ว</option></select></div>
+      <div><label>หมายเหตุ</label><input id="py_note"></div>
+    </div>
+    <div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">
+      <button class="bt bt-main" id="py_paid" style="flex:1;justify-content:center;background:linear-gradient(135deg,var(--green),#1F7A45)">💵 จ่ายแล้ว (บันทึก+ปิดงวด)</button>
+      <button class="bt bt-gray" id="py_save">บันทึกไว้ก่อน</button>
+      <button class="bt bt-gray" id="py_close">ปิด</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const GAS = 'https://script.google.com/macros/s/AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J/exec';
 const $ = id => document.getElementById(id);
@@ -266,14 +368,8 @@ function render() {
   if (D.role === 'ceo') h += `<button class="bt bt-main" id="addPlan" style="margin-top:8px">＋ เพิ่มแผนใหม่</button>`;
   h += '</div>';
 
-  // ── พนักงาน ──
-  h += `<div class="sec"><h2>👥 พนักงาน (${(D.staff || []).length} คน)</h2><div class="hint">ทะเบียนพนักงานบริษัท</div>`;
-  h += (D.staff || []).length ? `<div class="scroll"><table class="tb">
-      <tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>แผนก</th><th>เริ่มงาน</th><th>สถานะ</th></tr>` +
-      D.staff.map(s => `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.role)}</td><td>${esc(s.dept)}</td>
-        <td class="num">${esc(s.since)}</td><td><span class="pill p-green">${esc(s.status)}</span></td></tr>`).join('') +
-      '</table></div>' : '<div class="empty">ยังไม่มีข้อมูลพนักงาน (กรอกในแท็บ ExecStaff)</div>';
-  h += '</div>';
+  // ── พนักงาน (HR) ──
+  h += hrSectionHtml();
 
   // ── งานโรงน้ำค้าง ──
   if ((D.tasks || []).length) {
@@ -289,6 +385,227 @@ function render() {
   if (D.role === 'ceo') document.querySelectorAll('[data-plan]').forEach(el => {
     el.onclick = () => openPlan(D.plans.find(p => String(p.row) === el.dataset.plan));
   });
+  bindHr();
+}
+
+// ════════════════════════════════════════════════════════════
+//  👥 HR — ทะเบียน / รายละเอียดรายคน / วันลา / เงินเดือน
+//  ทะเบียนตัวจริง = ชีต Staff ของโรงงาน (login ทุกแอป) → แก้ที่นี่ ทุกแอปเห็นทันที
+// ════════════════════════════════════════════════════════════
+let hrTab = 'list';      // list | payroll
+let hrShowInactive = false;
+let PAY = null;          // งวดเงินเดือนที่โหลดล่าสุด
+let payPeriod = new Date().toISOString().slice(0, 7);
+const isCeo = () => D && D.role === 'ceo';
+
+function hrSectionHtml() {
+  const all = D.staff || [];
+  const act = all.filter(s => s.active !== false);
+  let h = `<div class="sec" id="hrSec"><h2>👥 พนักงาน (${act.length} คน)</h2>
+    <div class="hint">${D.hrLive ? 'ทะเบียนตัวจริงจากระบบโรงงาน — แก้ที่นี่แล้วทุกแอป (โรงงาน/คลัง/เซลส์) เห็นทันที' : 'ทะเบียนพนักงาน (ExecStaff)'}
+      ${isCeo() ? ' · แตะชื่อเพื่อดูรายละเอียด/แก้ไข' : ' · แตะชื่อเพื่อดูรายละเอียด'}</div>`;
+  if (isCeo()) {
+    h += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="bt ${hrTab === 'list' ? 'bt-main' : 'bt-gray'}" data-hrtab="list">📋 ทะเบียน</button>
+      <button class="bt ${hrTab === 'payroll' ? 'bt-main' : 'bt-gray'}" data-hrtab="payroll">💵 เงินเดือน</button>
+      <span style="flex:1"></span>
+      <button class="bt bt-main" id="hrAdd">＋ เพิ่มพนักงาน</button></div>`;
+  }
+  if (hrTab === 'payroll' && isCeo()) { h += payrollHtml(); h += '</div>'; return h; }
+
+  const rows = hrShowInactive ? all : act;
+  h += rows.length ? `<div class="scroll"><table class="tb">
+      <tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>แผนก</th><th>อายุงาน</th><th class="num">ทำงานเดือนนี้</th><th class="num">ลาปีนี้</th>${isCeo() ? '<th class="num">เงินเดือน</th>' : ''}<th>สถานะ</th></tr>` +
+    rows.map(s => `<tr data-hr="${esc(s.id || s.name)}" style="cursor:pointer">
+      <td><b>${esc(s.name)}</b>${s.nick ? ' <span style="color:var(--faint);font-size:.75rem">(' + esc(s.nick) + ')</span>' : ''}</td>
+      <td>${esc(s.role || '—')}</td><td>${esc(s.dept || '—')}</td>
+      <td>${esc(s.tenure || (s.since || '—'))}</td>
+      <td class="num">${s.workDaysMonth != null ? s.workDaysMonth + ' วัน' : '—'}</td>
+      <td class="num">${s.leaveDaysYear != null ? s.leaveDaysYear + ' วัน' : '—'}${s.upcomingLeaves ? ' <span class="pill p-gray" title="มีวันลาที่ยังมาไม่ถึง">🏖️' + s.upcomingLeaves + '</span>' : ''}</td>
+      ${isCeo() ? '<td class="num">' + (s.salary ? money(s.salary) : '—') + '</td>' : ''}
+      <td><span class="pill ${s.active === false ? 'p-gray' : 'p-green'}">${s.active === false ? 'พักงาน' : (s.status || 'ทำงาน')}</span></td></tr>`).join('') +
+    '</table></div>' : '<div class="empty">ยังไม่มีข้อมูลพนักงาน</div>';
+  if (all.length > act.length) {
+    h += `<button class="bt bt-gray" id="hrToggleInactive" style="margin-top:8px">${hrShowInactive ? 'ซ่อน' : 'แสดง'}คนพักงาน (${all.length - act.length})</button>`;
+  }
+  return h + '</div>';
+}
+
+function bindHr() {
+  document.querySelectorAll('[data-hrtab]').forEach(b => b.onclick = () => { hrTab = b.dataset.hrtab; if (hrTab === 'payroll') loadPayroll(); else render(); });
+  document.querySelectorAll('[data-hr]').forEach(tr => tr.onclick = () => openStaff(tr.dataset.hr));
+  if ($('hrAdd')) $('hrAdd').onclick = () => openStaffForm(null);
+  if ($('hrToggleInactive')) $('hrToggleInactive').onclick = () => { hrShowInactive = !hrShowInactive; render(); };
+  bindPayroll();
+}
+
+// ── รายละเอียดรายคน ──
+async function openStaff(id) {
+  $('hrTitle').textContent = 'กำลังโหลด...'; $('hrBody').innerHTML = '<div class="empty"><span class="spin" style="border-color:var(--line);border-top-color:var(--sub)"></span></div>';
+  $('hrMask').classList.add('on');
+  try {
+    const j = await api({ action: 'hrDetail', id });
+    if (!j.ok) throw new Error(j.error || 'โหลดไม่สำเร็จ');
+    renderStaffDetail(j);
+  } catch (e) { $('hrBody').innerHTML = '<div class="empty">⚠️ ' + esc(e.message) + '</div>'; }
+}
+function renderStaffDetail(j) {
+  const s = j.staff, ceo = j.role === 'ceo';
+  $('hrTitle').innerHTML = `${esc(s.name)} ${s.nick ? '<span style="color:var(--faint);font-weight:500">(' + esc(s.nick) + ')</span>' : ''}
+    <span class="pill ${s.active === false ? 'p-gray' : 'p-green'}" style="margin-left:6px">${s.active === false ? 'พักงาน' : 'ทำงาน'}</span>`;
+  const kv = (k, v) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:.83rem"><span style="color:var(--sub)">${k}</span><span style="text-align:right;font-weight:600">${v || '—'}</span></div>`;
+  let h = '';
+  // KPI แถว
+  h += `<div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:6px 0 12px">
+    <div class="k teal"><div class="lb">ทำงานเดือนนี้</div><div class="v">${s.workDaysMonth || 0}<span class="u">วัน</span></div><div class="sub">นับจากบันทึกงานจริง</div></div>
+    <div class="k gold"><div class="lb">ลาปีนี้</div><div class="v">${s.leaveDaysYear || 0}<span class="u">วัน</span></div><div class="sub">${s.leaveQuota ? 'โควตาพักร้อน ' + s.leaveQuota + ' วัน' : 'ยังไม่ตั้งโควตา'}</div></div>
+    <div class="k green"><div class="lb">อายุงาน</div><div class="v" style="font-size:1.15rem">${esc(s.tenure || '—')}</div><div class="sub">${s.since ? 'เริ่ม ' + esc(s.since) : 'ยังไม่ระบุวันเริ่ม'}</div></div>
+  </div>`;
+  h += `<div class="sec" style="padding:12px 14px"><h2 style="font-size:.85rem">🪪 ข้อมูลทั่วไป</h2>` +
+    kv('รหัส', esc(s.id)) + kv('ตำแหน่ง', esc(s.role)) + kv('แผนก', esc(s.dept)) + kv('ประเภทจ้าง', esc(s.empType)) +
+    kv('โทร', s.phone ? `<a href="tel:${esc(s.phone)}" style="color:var(--c-lakon)">${esc(s.phone)}</a>` : '') +
+    kv('LINE', esc(s.line)) + kv('ที่อยู่', esc(s.address)) + kv('ผู้ติดต่อฉุกเฉิน', esc(s.emergency)) +
+    kv('PIN เข้าแอป', s.hasPin ? 'ตั้งแล้ว' : '<span style="color:var(--red)">ยังไม่ตั้ง</span>') +
+    (s.note ? kv('หมายเหตุ', esc(s.note)) : '') + '</div>';
+  if (ceo) {
+    h += `<div class="sec" style="padding:12px 14px"><h2 style="font-size:.85rem">💵 ค่าตอบแทน <span class="pill p-gray" style="font-size:9px">CEO เท่านั้น</span></h2>` +
+      kv('เงินเดือน/ค่าจ้าง', s.salary ? money(s.salary) + ' บาท' : '') + kv('วิธีจ่าย', esc(s.payType)) + kv('บัญชี/เลขบัตร', esc(s.bankOrId)) + '</div>';
+    if ((j.payroll || []).length) {
+      h += `<div class="sec" style="padding:12px 14px"><h2 style="font-size:.85rem">🧾 ประวัติเงินเดือน</h2><div class="scroll"><table class="tb">
+        <tr><th>งวด</th><th class="num">วันทำงาน</th><th class="num">สุทธิ</th><th>สถานะ</th></tr>` +
+        j.payroll.map(p => `<tr><td>${esc(p.period)}</td><td class="num">${p.days || '—'}</td><td class="num"><b>${money(p.net)}</b></td>
+          <td><span class="pill ${p.status === 'จ่ายแล้ว' ? 'p-green' : 'p-red'}">${esc(p.status)}</span>${p.paidAt ? ' <span style="font-size:.7rem;color:var(--faint)">' + esc(p.paidAt) + '</span>' : ''}</td></tr>`).join('') +
+        '</table></div></div>';
+    }
+  }
+  // วันลา
+  h += `<div class="sec" style="padding:12px 14px"><h2 style="font-size:.85rem">🏖️ วันลา ${ceo ? '<button class="bt bt-gray" style="padding:5px 10px;font-size:.72rem;margin-left:auto" id="hrLeaveAdd">＋ บุ๊ควันลา</button>' : ''}</h2>`;
+  h += (j.leaves || []).length ? '<div class="scroll"><table class="tb"><tr><th>วันที่</th><th class="num">วัน</th><th>ประเภท</th><th>หมายเหตุ</th>' + (ceo ? '<th></th>' : '') + '</tr>' +
+    j.leaves.map(l => `<tr><td>${esc(l.from)}${l.to !== l.from ? ' – ' + esc(l.to) : ''}</td><td class="num">${l.days}</td><td>${esc(l.type)}</td><td>${esc(l.note)}</td>` +
+      (ceo ? `<td><button class="bt bt-red" style="padding:4px 9px;font-size:.7rem" data-lvdel="${esc(l.id)}">ลบ</button></td>` : '') + '</tr>').join('') + '</table></div>'
+    : '<div class="empty" style="padding:12px">ยังไม่มีวันลา</div>';
+  h += '</div>';
+  // ประวัติงาน
+  h += `<div class="sec" style="padding:12px 14px"><h2 style="font-size:.85rem">🗂️ ประวัติงานล่าสุด</h2><div class="hint">รวมจากทุกระบบที่บันทึกชื่อไว้ (ผลิต/ออเดอร์/ส่งของ/ขาย)</div>`;
+  h += (j.history || []).length ? j.history.slice(0, 40).map(x => `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:.8rem">
+      <span style="color:var(--faint);white-space:nowrap">${esc(x.date)}</span><span class="pill p-gray" style="font-size:9px">${esc(x.kind)}</span><span style="flex:1">${esc(x.text)}</span></div>`).join('')
+    : '<div class="empty" style="padding:12px">ยังไม่มีประวัติงานในระบบ</div>';
+  h += '</div>';
+  if (ceo) h += `<div style="display:flex;gap:9px;margin-top:6px;flex-wrap:wrap">
+    <button class="bt bt-main" id="hrEditBtn" style="flex:1;justify-content:center">✏️ แก้ไขข้อมูล</button>
+    <button class="bt bt-gray" id="hrPayBtn">💵 บันทึกงวดเงินเดือน</button></div>`;
+  $('hrBody').innerHTML = h;
+  window._hrCur = j;
+  if ($('hrEditBtn')) $('hrEditBtn').onclick = () => openStaffForm(s);
+  if ($('hrPayBtn')) $('hrPayBtn').onclick = () => openPayForm({ staffId: s.id, name: s.name, salary: s.salary, workDays: s.workDaysMonth });
+  if ($('hrLeaveAdd')) $('hrLeaveAdd').onclick = () => openLeaveForm(s);
+  document.querySelectorAll('[data-lvdel]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const r = await api({ action: 'hrLeaveDel', id: b.dataset.lvdel });
+    toast(r.msg || (r.ok ? 'ลบแล้ว' : 'ไม่สำเร็จ'));
+    if (r.ok) { openStaff(s.id || s.name); load(); }
+  });
+}
+
+// ── ฟอร์มเพิ่ม/แก้พนักงาน (CEO) ──
+function openStaffForm(s) {
+  const f = $('sfMask'); f.classList.add('on');
+  $('sfTitle').textContent = s ? '✏️ แก้ไขพนักงาน — ' + s.name : '＋ เพิ่มพนักงานใหม่';
+  $('sf_id').value = s ? (s.id || '') : '';
+  $('sf_name').value = s ? s.name : ''; $('sf_nick').value = s ? (s.nick || '') : '';
+  $('sf_role').value = s ? (s.role || '') : ''; $('sf_dept').value = s ? (s.dept || 'โรงงาน') : 'โรงงาน';
+  $('sf_since').value = s ? (s.since || '') : ''; $('sf_emp').value = s ? (s.empType || 'รายเดือน') : 'รายเดือน';
+  $('sf_salary').value = s && s.salary ? s.salary : ''; $('sf_paytype').value = s ? (s.payType || 'รายเดือน') : 'รายเดือน';
+  $('sf_phone').value = s ? (s.phone || '') : ''; $('sf_line').value = s ? (s.line || '') : '';
+  $('sf_addr').value = s ? (s.address || '') : ''; $('sf_emerg').value = s ? (s.emergency || '') : '';
+  $('sf_bank').value = s ? (s.bankOrId || '') : ''; $('sf_quota').value = s && s.leaveQuota ? s.leaveQuota : '';
+  $('sf_note').value = s ? (s.note || '') : ''; $('sf_pin').value = '';
+  $('sf_active').value = s && s.active === false ? 'false' : 'true';
+  $('sf_pinHint').textContent = s && s.hasPin ? 'ตั้งไว้แล้ว — เว้นว่างถ้าไม่เปลี่ยน' : 'ยังไม่ตั้ง — ใส่ 4-6 หลักให้เข้าแอปได้';
+}
+async function saveStaffForm() {
+  const name = $('sf_name').value.trim(); if (!name) { toast('ต้องมีชื่อ'); return; }
+  const b = $('sf_save'); b.disabled = true; b.innerHTML = '<span class="spin"></span>';
+  try {
+    const r = await api({ action: 'hrSave', id: $('sf_id').value, name, nick: $('sf_nick').value.trim(), role: $('sf_role').value.trim(),
+      dept: $('sf_dept').value.trim(), since: $('sf_since').value, empType: $('sf_emp').value, salary: $('sf_salary').value,
+      payType: $('sf_paytype').value, phone: $('sf_phone').value.trim(), line: $('sf_line').value.trim(), address: $('sf_addr').value.trim(),
+      emergency: $('sf_emerg').value.trim(), bankOrId: $('sf_bank').value.trim(), leaveQuota: $('sf_quota').value,
+      note: $('sf_note').value.trim(), pin: $('sf_pin').value.trim(), active: $('sf_active').value });
+    toast(r.msg || (r.ok ? 'บันทึกแล้ว' : 'ไม่สำเร็จ'));
+    if (r.ok) { $('sfMask').classList.remove('on'); $('hrMask').classList.remove('on'); await load(); }
+  } catch (e) { toast(e.message); }
+  b.disabled = false; b.textContent = 'บันทึก';
+}
+
+// ── ฟอร์มบุ๊ควันลา ──
+function openLeaveForm(s) {
+  $('lvMask').classList.add('on'); $('lv_staff').value = s.name; $('lvTitle').textContent = '🏖️ บุ๊ควันลา — ' + s.name;
+  const t = new Date().toISOString().slice(0, 10); $('lv_from').value = t; $('lv_to').value = t; $('lv_note').value = '';
+}
+async function saveLeaveForm() {
+  const from = $('lv_from').value, to = $('lv_to').value || from;
+  if (!from) { toast('เลือกวันที่'); return; }
+  if (to < from) { toast('วันสิ้นสุดต้องไม่ก่อนวันเริ่ม'); return; }
+  const r = await api({ action: 'hrLeave', staff: $('lv_staff').value, from, to, type: $('lv_type').value, note: $('lv_note').value.trim() });
+  toast(r.msg || (r.ok ? 'บุ๊คแล้ว' : 'ไม่สำเร็จ'));
+  if (r.ok) { $('lvMask').classList.remove('on'); openStaff(window._hrCur ? (window._hrCur.staff.id || window._hrCur.staff.name) : $('lv_staff').value); load(); }
+}
+
+// ── เงินเดือน: หน้ารวมงวด + ฟอร์มบันทึก ──
+async function loadPayroll() {
+  render(); // วาดโครงก่อน
+  const j = await api({ action: 'hrPayroll', period: payPeriod });
+  if (!j.ok) { toast(j.error || 'โหลดเงินเดือนไม่สำเร็จ'); return; }
+  PAY = j; render();
+}
+function payrollHtml() {
+  let h = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <button class="bt bt-gray" id="payPrev">◀</button><b id="payLabel">${esc(payLabel(payPeriod))}</b><button class="bt bt-gray" id="payNext">▶</button>
+    <span style="flex:1"></span>${PAY && PAY.period === payPeriod ? `<span style="font-size:.8rem;color:var(--sub)">รวม <b>${money(PAY.total)}</b> บาท · จ่ายแล้ว <b style="color:var(--green)">${money(PAY.paid)}</b> · ค้าง <b style="color:var(--red)">${money(PAY.total - PAY.paid)}</b></span>` : ''}</div>`;
+  if (!PAY || PAY.period !== payPeriod) return h + '<div class="empty">กำลังโหลด...</div>';
+  h += `<div class="scroll"><table class="tb"><tr><th>ชื่อ</th><th>ตำแหน่ง</th><th class="num">ฐาน</th><th class="num">ทำงาน</th><th class="num">สุทธิ</th><th>สถานะ</th><th></th></tr>` +
+    PAY.list.map(p => `<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.role || '')}</td>
+      <td class="num">${money(p.base != null ? p.base : p.salary)}${p.payType ? ' <span style="font-size:.68rem;color:var(--faint)">' + esc(p.payType) + '</span>' : ''}</td>
+      <td class="num">${p.days != null ? p.days : p.workDays} วัน</td>
+      <td class="num"><b>${p.net != null ? money(p.net) : '—'}</b></td>
+      <td>${p.status ? '<span class="pill ' + (p.status === 'จ่ายแล้ว' ? 'p-green' : 'p-red') + '">' + esc(p.status) + '</span>' : '<span class="pill p-gray">ยังไม่บันทึก</span>'}</td>
+      <td><button class="bt ${p.status === 'จ่ายแล้ว' ? 'bt-gray' : 'bt-main'}" style="padding:5px 10px;font-size:.72rem" data-pay="${esc(p.staffId)}">${p.status === 'จ่ายแล้ว' ? 'ดู/แก้' : (p.status ? '💵 จ่าย' : '＋ บันทึก')}</button></td></tr>`).join('') + '</table></div>';
+  h += `<div class="hint" style="margin-top:8px">ฐานเริ่มจากเงินเดือนในทะเบียน · วันทำงานนับจากบันทึกงานจริงในระบบ (แก้ได้ตอนบันทึก) · สุทธิ = ฐาน + โอที + โบนัส − หัก</div>`;
+  return h;
+}
+function payLabel(p) { const [y, m] = p.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }); }
+function payShift(n) { const [y, m] = payPeriod.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); payPeriod = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); loadPayroll(); }
+function bindPayroll() {
+  if ($('payPrev')) $('payPrev').onclick = () => payShift(-1);
+  if ($('payNext')) $('payNext').onclick = () => payShift(1);
+  document.querySelectorAll('[data-pay]').forEach(b => b.onclick = () => {
+    const p = PAY.list.find(x => x.staffId === b.dataset.pay); if (p) openPayForm(p);
+  });
+}
+function openPayForm(p) {
+  $('pyMask').classList.add('on');
+  $('pyTitle').textContent = '💵 เงินเดือน — ' + p.name;
+  $('py_id').value = p.payId || ''; $('py_staff').value = p.staffId || ''; $('py_name').value = p.name;
+  $('py_period').value = p.period || payPeriod;
+  $('py_days').value = p.days != null ? p.days : (p.workDays || '');
+  $('py_base').value = p.base != null ? p.base : (p.salary || '');
+  $('py_ot').value = p.ot || ''; $('py_bonus').value = p.bonus || ''; $('py_ded').value = p.deduct || '';
+  $('py_status').value = p.status || 'ค้างจ่าย'; $('py_note').value = p.note || '';
+  pyRecalc();
+}
+function pyRecalc() {
+  const n = id => Number(String($(id).value).replace(/,/g, '')) || 0;
+  $('py_net').textContent = money(n('py_base') + n('py_ot') + n('py_bonus') - n('py_ded')) + ' บาท';
+}
+async function savePayForm(markPaid) {
+  const b = $('py_save'); b.disabled = true;
+  const r = await api({ action: 'hrPay', id: $('py_id').value, staffId: $('py_staff').value, name: $('py_name').value,
+    period: $('py_period').value, days: $('py_days').value, base: $('py_base').value, ot: $('py_ot').value,
+    bonus: $('py_bonus').value, deduct: $('py_ded').value, status: markPaid ? 'จ่ายแล้ว' : $('py_status').value, note: $('py_note').value.trim() });
+  b.disabled = false;
+  toast(r.msg || (r.ok ? 'บันทึกแล้ว' : 'ไม่สำเร็จ'));
+  if (r.ok) { $('pyMask').classList.remove('on'); if (hrTab === 'payroll') loadPayroll(); if ($('hrMask').classList.contains('on') && window._hrCur) openStaff(window._hrCur.staff.id || window._hrCur.staff.name); }
 }
 
 // แท่งเทียบสัดส่วน + ป้ายตัวเลขบนทุกแท่ง (secondary encoding — ไม่พึ่งสีอย่างเดียว)
@@ -379,6 +696,17 @@ function openPlan(p) {
   $('planMask').classList.add('on');
 }
 $('p_close').onclick = () => $('planMask').classList.remove('on');
+// 👥 HR modals
+$('hrClose').onclick = () => $('hrMask').classList.remove('on');
+$('sf_close').onclick = () => $('sfMask').classList.remove('on');
+$('sf_save').onclick = saveStaffForm;
+$('lv_close').onclick = () => $('lvMask').classList.remove('on');
+$('lv_save').onclick = saveLeaveForm;
+$('py_close').onclick = () => $('pyMask').classList.remove('on');
+$('py_save').onclick = () => savePayForm(false);
+$('py_paid').onclick = () => savePayForm(true);
+// แตะพื้นหลังมืดเพื่อปิด (เฉพาะ modal HR — ฟอร์มแผนเดิมคงพฤติกรรมเดิม)
+['hrMask', 'sfMask', 'lvMask', 'pyMask'].forEach(id => $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).classList.remove('on'); }));
 $('planMask').onclick = e => { if (e.target === $('planMask')) $('planMask').classList.remove('on'); };
 async function savePlan(del) {
   const btn = del ? $('p_del') : $('p_save');

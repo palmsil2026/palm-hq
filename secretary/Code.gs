@@ -274,6 +274,13 @@ function doGet(e) {
     return jsonOut(execSavePlan(p.key, { row: p.row, level: p.level, title: p.title, detail: p.detail,
                                          period: p.period, kpi: p.kpi, status: p.status, del: p.del }));
   }
+  // 👥 HR — พนักงาน (แก้ชีต Staff ตัวจริงของโรงงาน → ทุกแอปเห็นทันที)
+  if (p.action === 'hrDetail')  return jsonOut(hrStaffDetail(p.key, p.id));
+  if (p.action === 'hrSave')    return jsonOut(hrSaveStaff(p.key, p));
+  if (p.action === 'hrLeave')   return jsonOut(hrAddLeave(p.key, p));
+  if (p.action === 'hrLeaveDel') return jsonOut(hrDeleteLeave(p.key, p.id));
+  if (p.action === 'hrPay')     return jsonOut(hrSavePayroll(p.key, p));
+  if (p.action === 'hrPayroll') return jsonOut(hrPayrollMonth(p.key, p.period));
 
   // 💬 คุยกับคุณเลขาจากแอปบอร์ด (เฉพาะ key เจ้าของ — สมอง/ความจำเดียวกับไลน์)
   if (p.action === 'chat') {
@@ -2777,10 +2784,20 @@ function execDashboard(key) {
       },
       byLine: byLine, prodByLine: prodByLine,
       trend: Object.keys(trend).map(function (k) { return { date: k, amount: trend[k] }; }),
-      staff: staffActive.map(function (s) {
-        return { name: String(s['ชื่อ'] || ''), role: String(s['ตำแหน่ง'] || ''), dept: String(s['แผนก'] || ''),
-                 since: execDateKey(s['เริ่มงาน']), status: String(s['สถานะ'] || 'ทำงาน'), contact: String(s['ติดต่อ'] || '') };
-      }),
+      // พนักงาน: ถ้าเชื่อมชีตโรงงาน → ใช้ทะเบียน HR (Staff+HR_Staff รวมสถิติ) ไม่งั้น fallback ExecStaff
+      staff: (function () {
+        if (liveSource) {
+          try {
+            const hl = hrStaffList(role);
+            if (hl.length) return hl;
+          } catch (e) { console.error('hrStaffList: ' + e); }
+        }
+        return staffActive.map(function (s) {
+          return { name: String(s['ชื่อ'] || ''), role: String(s['ตำแหน่ง'] || ''), dept: String(s['แผนก'] || ''),
+                   since: execDateKey(s['เริ่มงาน']), status: String(s['สถานะ'] || 'ทำงาน'), contact: String(s['ติดต่อ'] || ''), active: true };
+        });
+      })(),
+      hrLive: !!liveSource,
       plans: plans.map(function (p) {
         return { row: p._row, level: String(p['ระดับ'] || ''), title: String(p['หัวข้อ'] || ''),
                  detail: String(p['รายละเอียด'] || ''), period: String(p['ช่วงเวลา'] || ''),
@@ -2810,6 +2827,289 @@ function execSavePlan(key, p) {
     s.appendRow(row);
     return { ok: true, msg: 'เพิ่มแผนใหม่แล้ว' };
   } catch (e) { return { ok: false, msg: String(e) }; }
+}
+
+// ════════════════════════════════════════════════════════════
+//  👥 HR — พนักงาน (ทะเบียน / รายละเอียด / วันลา / เงินเดือน)
+//  หลักการ: "ทะเบียนตัวจริง" = ชีต Staff ในสเปรดชีตโรงงาน (PLANT_SHEET_ID)
+//  ชีตเดียวกับที่แอปโรงงาน/คลัง/เซลส์ใช้ login → HQ เพิ่ม/แก้ที่นั่นตรง ๆ
+//  ทุกแอปเห็นทันที ไม่มีสำเนา  ส่วนข้อมูล HR ที่ละเอียดกว่า (เงินเดือน วันลา
+//  จ่ายเงิน) เก็บชีตใหม่ในไฟล์เดียวกัน ผูกด้วย Staff_ID
+//  สิทธิ์: ceo = อ่าน+แก้ทุกอย่าง (รวมเงินเดือน) | exec = อ่านทะเบียน/สถิติ ไม่เห็นเงิน
+// ════════════════════════════════════════════════════════════
+const HR_TABS = {
+  HR_Staff:   ['Staff_ID', 'ชื่อ', 'ชื่อเล่น', 'ตำแหน่ง', 'แผนก', 'เริ่มงาน', 'ประเภทจ้าง',
+               'เงินเดือน', 'วิธีจ่าย', 'โทร', 'LINE', 'ที่อยู่', 'ผู้ติดต่อฉุกเฉิน',
+               'เลขบัตร/บัญชี', 'วันลาพักร้อน/ปี', 'หมายเหตุ', 'อัปเดตเมื่อ'],
+  HR_Payroll: ['Pay_ID', 'งวด', 'Staff_ID', 'ชื่อ', 'วันทำงาน', 'ฐาน', 'โอที', 'โบนัส',
+               'หัก', 'สุทธิ', 'สถานะ', 'วันที่จ่าย', 'ผู้บันทึก', 'หมายเหตุ'],
+};
+// ชีต Leaves ของแอปโรงงาน (มีอยู่แล้ว): Leave_ID | Timestamp | พนักงาน | วันที่เริ่ม | วันที่สิ้นสุด | ประเภท | หมายเหตุ | ผู้บันทึก
+const LEAVES_HEAD = ['Leave_ID', 'Timestamp', 'พนักงาน', 'วันที่เริ่ม', 'วันที่สิ้นสุด', 'ประเภท', 'หมายเหตุ', 'ผู้บันทึก'];
+
+function hrSheet(name) {
+  const ss = plantSS(); if (!ss) return null;
+  let s = ss.getSheetByName(name);
+  if (!s) {
+    const head = HR_TABS[name] || (name === 'Leaves' ? LEAVES_HEAD : null);
+    if (!head) return null;
+    s = ss.insertSheet(name); s.appendRow(head); s.setFrozenRows(1);
+  }
+  return s;
+}
+function hrRowsByHead(name) {
+  try {
+    const s = hrSheet(name); if (!s || s.getLastRow() < 2) return [];
+    const vals = s.getRange(1, 1, s.getLastRow(), s.getLastColumn()).getValues();
+    const head = vals[0].map(String);
+    return vals.slice(1).map(function (r, i) {
+      const o = { _row: i + 2 };
+      head.forEach(function (h, j) { o[h] = r[j]; });
+      return o;
+    });
+  } catch (e) { console.error('hrRowsByHead ' + name + ': ' + e); return []; }
+}
+function hrDays(a, b) { // จำนวนวันรวมปลายทาง (a<=b)
+  const d1 = new Date(a), d2 = new Date(b);
+  if (isNaN(d1) || isNaN(d2)) return 0;
+  return Math.max(0, Math.round((d2 - d1) / 86400000)) + 1;
+}
+function hrTenure(since) {
+  const d = new Date(since); if (!since || isNaN(d)) return '';
+  const now = new Date();
+  let m = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) m--;
+  if (m < 0) m = 0;
+  const y = Math.floor(m / 12), mm = m % 12;
+  return (y ? y + ' ปี ' : '') + mm + ' เดือน';
+}
+
+// ── ทะเบียน: Staff (ตัวจริง) + HR_Staff (ต่อยอด) รวมเป็นรายชื่อเดียว ──
+// Staff จริง: A=Staff_ID B=ชื่อ C=Role D=PIN E=Active — ห้ามส่ง PIN ออกไปเด็ดขาด
+function hrStaffList(role) {
+  const ss = plantSS(); if (!ss) return [];
+  const st = ss.getSheetByName('Staff'); if (!st) return [];
+  const rows = st.getLastRow() > 1 ? st.getRange(2, 1, st.getLastRow() - 1, Math.max(5, st.getLastColumn())).getValues() : [];
+  const hr = {}; hrRowsByHead('HR_Staff').forEach(function (h) { hr[String(h['Staff_ID'] || '').trim()] = h; });
+
+  // วันลาปีนี้ + สถิติงานเดือนนี้ (นับจากที่ระบบบันทึกชื่อคนทำไว้)
+  const yr = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy');
+  const mo = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM');
+  const leaveDays = {}, upcoming = {};
+  const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+  hrRowsByHead('Leaves').forEach(function (l) {
+    const nm = String(l['พนักงาน'] || '').trim(); if (!nm) return;
+    const a = execDateKey(l['วันที่เริ่ม']), b = execDateKey(l['วันที่สิ้นสุด']) || a;
+    if (!a) return;
+    if (a.slice(0, 4) === yr) leaveDays[nm] = (leaveDays[nm] || 0) + hrDays(a, b);
+    if (b >= today) upcoming[nm] = (upcoming[nm] || 0) + 1;
+  });
+  const workDays = {}; // ชุดวันที่ปรากฏชื่อในบันทึกงานเดือนนี้ → ประมาณวันทำงาน
+  function mark(nm, dk) { if (!nm || !dk || dk.indexOf(mo) !== 0) return; (workDays[nm] = workDays[nm] || {})[dk] = 1; }
+  try {
+    plantRows('ProductionRuns', 1500).forEach(function (r) {
+      const dk = execDateKey(r[1]);
+      [r[6], r[7], r[8]].forEach(function (c) { String(c || '').split(',').forEach(function (n) { mark(n.trim(), dk); }); });
+      mark(String(r[19] || '').trim(), dk); mark(String(r[20] || '').trim(), dk);
+    });
+    plantRows('Orders', 3000).forEach(function (r) { mark(String(r[6] || '').trim(), execDateKey(r[1])); });
+    plantRows('Deliveries', 2000).forEach(function (r) { mark(String(r[6] || '').trim(), execDateKey(r[2])); });
+    plantRows('ProductionLog', 2000).forEach(function (r) { mark(String(r[6] || '').trim(), execDateKey(r[2])); });
+    plantRows('Visits', 3000).forEach(function (r) { mark(String(r[4] || '').trim(), execDateKey(r[2])); });
+    plantRows('Orders_Sales', 3000).forEach(function (r) { mark(String(r[4] || '').trim(), execDateKey(r[2])); });
+  } catch (e) {}
+
+  return rows.filter(function (r) { return String(r[1] || '').trim(); }).map(function (r) {
+    const id = String(r[0] || '').trim(), name = String(r[1] || '').trim();
+    const h = hr[id] || hr[name] || {};
+    const active = String(r[4]);
+    const o = {
+      id: id, name: name, nick: String(h['ชื่อเล่น'] || ''),
+      role: String(h['ตำแหน่ง'] || r[2] || ''), dept: String(h['แผนก'] || 'โรงงาน'),
+      since: execDateKey(h['เริ่มงาน']), tenure: hrTenure(h['เริ่มงาน']),
+      empType: String(h['ประเภทจ้าง'] || ''),
+      phone: String(h['โทร'] || ''), line: String(h['LINE'] || ''),
+      address: String(h['ที่อยู่'] || ''), emergency: String(h['ผู้ติดต่อฉุกเฉิน'] || ''),
+      leaveQuota: execNum(h['วันลาพักร้อน/ปี']) || 0,
+      note: String(h['หมายเหตุ'] || ''),
+      hasPin: String(r[3] || '').trim() !== '',
+      active: !(active === 'false' || active === 'FALSE'),
+      leaveDaysYear: leaveDays[name] || 0, upcomingLeaves: upcoming[name] || 0,
+      workDaysMonth: Object.keys(workDays[name] || {}).length,
+    };
+    if (role === 'ceo') { // ข้อมูลเงิน/บัญชี เฉพาะ CEO
+      o.salary = execNum(h['เงินเดือน']); o.payType = String(h['วิธีจ่าย'] || 'รายเดือน');
+      o.bankOrId = String(h['เลขบัตร/บัญชี'] || '');
+    }
+    return o;
+  });
+}
+
+// ── รายละเอียดรายคน: ประวัติงาน + วันลา + เงินเดือน ──
+function hrStaffDetail(key, staffId) {
+  const role = execAuth(key); if (!role) return { ok: false, error: 'unauthorized' };
+  try {
+    const list = hrStaffList(role);
+    const s = list.find(function (x) { return x.id === String(staffId) || x.name === String(staffId); });
+    if (!s) return { ok: false, error: 'ไม่พบพนักงาน' };
+    const nm = s.name;
+    const has = function (v) { return String(v || '').split(',').map(function (x) { return x.trim(); }).indexOf(nm) !== -1; };
+    // ประวัติงาน 60 รายการล่าสุด จากทุกระบบที่บันทึกชื่อไว้
+    const hist = [];
+    plantRows('ProductionRuns', 800).forEach(function (r) {
+      const parts = [];
+      if (has(r[6])) parts.push('ป้อนขวด'); if (has(r[7])) parts.push('แพ็คโหล'); if (has(r[8])) parts.push('QC');
+      if (String(r[19] || '').trim() === nm) parts.push('เปิดรอบ'); if (String(r[20] || '').trim() === nm) parts.push('ปิดรอบ');
+      if (!parts.length) return;
+      hist.push({ date: execDateKey(r[1]), kind: 'ผลิต', text: String(r[5] || '') + ' — ' + parts.join('/') +
+        (r[16] ? ' · ดี ' + execNum(r[16]) + ' แพ็ค' : '') + (r[15] ? ' · เสีย ' + execNum(r[15]) : '') });
+    });
+    plantRows('Orders', 1500).forEach(function (r) {
+      if (String(r[6] || '').trim() !== nm) return;
+      hist.push({ date: execDateKey(r[1]), kind: 'ออเดอร์', text: 'รับออเดอร์ ' + String(r[0] || '') + ' · ' + execNum(r[8]).toLocaleString('th-TH') + ' บาท' });
+    });
+    plantRows('Deliveries', 1000).forEach(function (r) {
+      if (String(r[6] || '').trim() !== nm) return;
+      hist.push({ date: execDateKey(r[2]), kind: 'ส่งของ', text: 'ส่ง ' + String(r[5] || '') + (execNum(r[7]) ? ' · เก็บเงิน ' + execNum(r[7]).toLocaleString('th-TH') : '') });
+    });
+    plantRows('Visits', 1500).forEach(function (r) {
+      if (String(r[4] || '').trim() !== nm) return;
+      hist.push({ date: execDateKey(r[2]), kind: 'เข้าพบ', text: String(r[6] || '') + ' · ' + String(r[7] || '') });
+    });
+    plantRows('Orders_Sales', 1500).forEach(function (r) {
+      if (String(r[4] || '').trim() !== nm) return;
+      hist.push({ date: execDateKey(r[2]), kind: 'ขาย', text: String(r[6] || '') + ' · ' + String(r[8] || '') + ' ×' + execNum(r[9]) });
+    });
+    // ยุบออเดอร์ขายหลายแถวต่อ 1 ออเดอร์
+    const seen = {}; const hist2 = [];
+    hist.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); }).forEach(function (h) {
+      const k = h.date + '|' + h.kind + '|' + h.text; if (seen[k]) return; seen[k] = 1; hist2.push(h);
+    });
+    // วันลาทั้งหมดของคนนี้
+    const leaves = hrRowsByHead('Leaves').filter(function (l) { return String(l['พนักงาน'] || '').trim() === nm; })
+      .map(function (l) {
+        const a = execDateKey(l['วันที่เริ่ม']), b = execDateKey(l['วันที่สิ้นสุด']) || a;
+        return { id: String(l['Leave_ID'] || ''), from: a, to: b, days: hrDays(a, b), type: String(l['ประเภท'] || ''), note: String(l['หมายเหตุ'] || ''), row: l._row };
+      }).sort(function (a, b) { return b.from.localeCompare(a.from); });
+    const out = { ok: true, role: role, staff: s, history: hist2.slice(0, 60), leaves: leaves };
+    if (role === 'ceo') {
+      out.payroll = hrRowsByHead('HR_Payroll').filter(function (p) { return String(p['Staff_ID'] || '').trim() === s.id || String(p['ชื่อ'] || '').trim() === nm; })
+        .map(function (p) {
+          return { id: String(p['Pay_ID'] || ''), period: String(p['งวด'] || ''), days: execNum(p['วันทำงาน']),
+            base: execNum(p['ฐาน']), ot: execNum(p['โอที']), bonus: execNum(p['โบนัส']), deduct: execNum(p['หัก']),
+            net: execNum(p['สุทธิ']), status: String(p['สถานะ'] || ''), paidAt: execDateKey(p['วันที่จ่าย']), note: String(p['หมายเหตุ'] || ''), row: p._row };
+        }).sort(function (a, b) { return b.period.localeCompare(a.period); });
+    }
+    return out;
+  } catch (e) { return { ok: false, error: String(e) }; }
+}
+
+// ── เพิ่ม/แก้พนักงาน (CEO) — เขียนชีต Staff ตัวจริง + HR_Staff ──
+function hrSaveStaff(key, p) {
+  if (execAuth(key) !== 'ceo') return { ok: false, msg: 'เฉพาะ CEO เท่านั้นค่ะ' };
+  const ss = plantSS(); if (!ss) return { ok: false, msg: 'ยังไม่ได้ตั้ง PLANT_SHEET_ID' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const st = ss.getSheetByName('Staff'); if (!st) return { ok: false, msg: 'ไม่พบชีต Staff' };
+    const name = String(p.name || '').trim(); if (!name) return { ok: false, msg: 'ต้องมีชื่อ' };
+    const data = st.getDataRange().getValues();
+    let id = String(p.id || '').trim(), rowIdx = -1;
+    for (let i = 1; i < data.length; i++) {
+      if (id && String(data[i][0]).trim() === id) { rowIdx = i; break; }
+      if (!id && String(data[i][1]).trim() === name) { rowIdx = i; id = String(data[i][0]).trim(); break; }
+    }
+    if (rowIdx < 0) { // ใหม่ → ออกรหัส S## ต่อจากเดิม
+      let maxN = 0;
+      for (let i = 1; i < data.length; i++) { const m = String(data[i][0]).match(/^S(\d+)$/i); if (m) maxN = Math.max(maxN, Number(m[1])); }
+      id = id || ('S' + String(maxN + 1).padStart(2, '0'));
+      const row = [id, name, String(p.role || ''), String(p.pin || ''), p.active === false || String(p.active) === 'false' ? 'FALSE' : 'TRUE'];
+      st.appendRow(row);
+    } else {
+      st.getRange(rowIdx + 1, 2).setValue(name);
+      st.getRange(rowIdx + 1, 3).setValue(String(p.role || data[rowIdx][2] || ''));
+      if (String(p.pin || '') !== '') st.getRange(rowIdx + 1, 4).setValue(String(p.pin)); // ว่าง = ไม่เปลี่ยน PIN
+      st.getRange(rowIdx + 1, 5).setValue(p.active === false || String(p.active) === 'false' ? 'FALSE' : 'TRUE');
+    }
+    // HR_Staff (upsert ตาม Staff_ID)
+    const hs = hrSheet('HR_Staff');
+    const hrRow = [id, name, String(p.nick || ''), String(p.role || ''), String(p.dept || 'โรงงาน'), p.since || '',
+      String(p.empType || ''), execNum(p.salary), String(p.payType || 'รายเดือน'), String(p.phone || ''), String(p.line || ''),
+      String(p.address || ''), String(p.emergency || ''), String(p.bankOrId || ''), execNum(p.leaveQuota), String(p.note || ''), new Date()];
+    const hv = hs.getDataRange().getValues(); let hi = -1;
+    for (let i = 1; i < hv.length; i++) if (String(hv[i][0]).trim() === id) { hi = i; break; }
+    if (hi < 0) hs.appendRow(hrRow); else hs.getRange(hi + 1, 1, 1, hrRow.length).setValues([hrRow]);
+    return { ok: true, id: id, msg: rowIdx < 0 ? 'เพิ่มพนักงาน ' + name + ' แล้ว (ทุกแอปเห็นทันที)' : 'อัปเดตข้อมูล ' + name + ' แล้ว' };
+  } catch (e) { return { ok: false, msg: String(e) }; }
+  finally { lock.releaseLock(); }
+}
+
+// ── วันลา (บุ๊ค/ลบ) — ชีต Leaves เดียวกับแอปโรงงาน ──
+function hrAddLeave(key, p) {
+  if (execAuth(key) !== 'ceo') return { ok: false, msg: 'เฉพาะ CEO เท่านั้นค่ะ' };
+  try {
+    const s = hrSheet('Leaves'); if (!s) return { ok: false, msg: 'ยังไม่ได้ตั้ง PLANT_SHEET_ID' };
+    if (!p.staff || !p.from) return { ok: false, msg: 'ต้องระบุพนักงานและวันที่' };
+    const id = 'LV' + Utilities.formatDate(new Date(), 'GMT+7', 'yyyyMMdd') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+    s.appendRow([id, new Date(), String(p.staff), String(p.from), String(p.to || p.from), String(p.type || 'ลากิจ'), String(p.note || ''), 'HQ']);
+    return { ok: true, msg: 'บุ๊ควันลาแล้ว' };
+  } catch (e) { return { ok: false, msg: String(e) }; }
+}
+function hrDeleteLeave(key, leaveId) {
+  if (execAuth(key) !== 'ceo') return { ok: false, msg: 'เฉพาะ CEO เท่านั้นค่ะ' };
+  try {
+    const s = hrSheet('Leaves'); const v = s.getDataRange().getValues();
+    for (let i = 1; i < v.length; i++) if (String(v[i][0]) === String(leaveId)) { s.deleteRow(i + 1); return { ok: true, msg: 'ลบแล้ว' }; }
+    return { ok: false, msg: 'ไม่พบรายการ' };
+  } catch (e) { return { ok: false, msg: String(e) }; }
+}
+
+// ── เงินเดือน: บันทึกงวด (สร้าง/แก้/ติ๊กจ่ายแล้ว) — CEO เท่านั้น ──
+function hrSavePayroll(key, p) {
+  if (execAuth(key) !== 'ceo') return { ok: false, msg: 'เฉพาะ CEO เท่านั้นค่ะ' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const s = hrSheet('HR_Payroll'); if (!s) return { ok: false, msg: 'ยังไม่ได้ตั้ง PLANT_SHEET_ID' };
+    const base = execNum(p.base), ot = execNum(p.ot), bonus = execNum(p.bonus), ded = execNum(p.deduct);
+    const net = base + ot + bonus - ded;
+    const status = String(p.status || 'ค้างจ่าย');
+    const paidAt = status === 'จ่ายแล้ว' ? (p.paidAt || Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd')) : '';
+    const v = s.getDataRange().getValues();
+    let id = String(p.id || '').trim(), ri = -1;
+    if (id) for (let i = 1; i < v.length; i++) if (String(v[i][0]) === id) { ri = i; break; }
+    if (ri < 0) { // กันงวดซ้ำคนเดียวกัน
+      for (let i = 1; i < v.length; i++) if (String(v[i][1]) === String(p.period) && String(v[i][2]) === String(p.staffId)) { ri = i; id = String(v[i][0]); break; }
+    }
+    if (!id) id = 'PAY' + Utilities.formatDate(new Date(), 'GMT+7', 'yyMMddHHmmss');
+    const row = [id, String(p.period || ''), String(p.staffId || ''), String(p.name || ''), execNum(p.days),
+      base, ot, bonus, ded, net, status, paidAt, 'HQ', String(p.note || '')];
+    if (ri < 0) s.appendRow(row); else s.getRange(ri + 1, 1, 1, row.length).setValues([row]);
+    return { ok: true, id: id, net: net, msg: status === 'จ่ายแล้ว' ? 'บันทึกจ่ายเงินเดือนแล้ว' : 'บันทึกงวดแล้ว (ค้างจ่าย)' };
+  } catch (e) { return { ok: false, msg: String(e) }; }
+  finally { lock.releaseLock(); }
+}
+// สรุปงวดเงินเดือนของเดือนหนึ่ง: ทุกคน + ยอดรวม (CEO)
+function hrPayrollMonth(key, period) {
+  if (execAuth(key) !== 'ceo') return { ok: false, error: 'unauthorized' };
+  try {
+    const per = String(period || Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM'));
+    const staff = hrStaffList('ceo').filter(function (s) { return s.active; });
+    const rows = hrRowsByHead('HR_Payroll').filter(function (p) { return String(p['งวด']) === per; });
+    const byId = {}; rows.forEach(function (p) { byId[String(p['Staff_ID'] || '').trim() || String(p['ชื่อ'] || '')] = p; });
+    let total = 0, paid = 0;
+    const list = staff.map(function (s) {
+      const p = byId[s.id] || byId[s.name];
+      const o = { staffId: s.id, name: s.name, role: s.role, salary: s.salary || 0, payType: s.payType || '',
+        workDays: s.workDaysMonth, leaveDays: s.leaveDaysYear };
+      if (p) {
+        o.payId = String(p['Pay_ID']); o.days = execNum(p['วันทำงาน']); o.base = execNum(p['ฐาน']); o.ot = execNum(p['โอที']);
+        o.bonus = execNum(p['โบนัส']); o.deduct = execNum(p['หัก']); o.net = execNum(p['สุทธิ']); o.status = String(p['สถานะ'] || '');
+        o.paidAt = execDateKey(p['วันที่จ่าย']); o.note = String(p['หมายเหตุ'] || '');
+        total += o.net; if (o.status === 'จ่ายแล้ว') paid += o.net;
+      } else { o.status = ''; total += (s.salary || 0); }
+      return o;
+    });
+    return { ok: true, period: per, list: list, total: total, paid: paid };
+  } catch (e) { return { ok: false, error: String(e) }; }
 }
 
 // 💬 แชทกับเลขาจากแอปบอร์ด — ใช้สมอง+คลังความรู้เดียวกับไลน์ มีความจำต่อเนื่องของตัวเอง
