@@ -716,7 +716,7 @@ $('chatT').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftK
 // 🏭 เปิดแอปผู้บริหาร — CEO ใช้รหัสบอร์ดตัวเองเข้าได้เลย (ผู้บริหารคนอื่นใช้ EXEC_KEY แยก)
 $('execFab').onclick = () => window.open('../exec/?key=' + encodeURIComponent(KEY), '_blank');
 // ☕ แอปหลังร้าน Old Days — ระบบของตัวเอง (login ด้วย LINE ในแอปนั้น) ไม่ใช้ key ของบอร์ด
-$('cafeFab').onclick = () => window.open('../olddays/', '_blank');
+$('cafeFab').onclick = () => window.open('https://palmsil2026.github.io/olddays-hq/', '_blank');
 
 $('btnRf').onclick = () => load();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true); });
