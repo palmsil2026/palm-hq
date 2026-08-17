@@ -626,18 +626,28 @@ function handleEvent(ev) {
     return;
   }
 
-  // ☕ สรุปยอดร้าน Old Days (เฉพาะเจ้าของ) — อ่านสดจาก Sheet ระบบร้าน ตอบทันทีไม่ผ่านสมอง AI
-  if (owner && /(สรุปยอด|ยอดขาย|รายงานการขาย)/.test(text)) {
+  // 💰 สรุปยอดขาย (เฉพาะเจ้าของ) — อ่านสดจากชีตของแต่ละบริษัท ตอบทันทีไม่ผ่านสมอง AI
+  // จับภาษาพูดด้วย: "ยอดร้านวันนี้", "ยอดโรงน้ำเมื่อวาน", "สรุปยอด", "ยอดขาย" ...
+  // ไม่ระบุบริษัท → ตอบทั้งโรงน้ำและร้านกาแฟในข้อความเดียว (ไม่ถามกลับ)
+  if (owner && /(สรุปยอด|ยอดขาย|รายงานการขาย|^ยอด|ยอด(ร้าน|โรงน้ำ|ละกอน|วันนี้|เมื่อวาน|ล่าสุด))/.test(text.trim())) {
     let odG = '';
     try { const og = listKnownGroups().filter(function (x) { return x.id === chatId; })[0]; odG = (og && og.name) || ''; } catch (e2) {}
-    if (/old ?days/i.test(odG) || /old ?days|คาเฟ่|ร้านกาแฟ/i.test(text)) {
-      const which = /เมื่อวาน/.test(text) ? 'yesterday' : (/วันนี้/.test(text) ? 'today' : 'latest');
+    const which = /เมื่อวาน/.test(text) ? 'yesterday' : (/วันนี้/.test(text) ? 'today' : 'latest');
+    const askCafe  = /old ?days|คาเฟ่|ร้านกาแฟ|ยอดร้าน/i.test(text) || /old ?days/i.test(odG);
+    const askPlant = /โรงน้ำ|ละกอน|น้ำดื่ม|โรงงาน/i.test(text);
+    const both = !askCafe && !askPlant;
+    const parts = [];
+    if (askCafe || both) {
       const s = oldDaysSummaryText(which);
-      lineReply(replyToken, s ||
-        'ยังไม่มียอดของวันที่ขอในระบบร้านค่ะ — อีเมลสรุปจาก POS ปกติเข้าราว 17:40 แล้วระบบดึงเข้าภายใน 1 ชั่วโมงนะคะ');
-      logRow(['สรุปยอดOldDays', senderId, text, '']);
-      return;
+      parts.push(s || '☕ Old Days: ยังไม่มียอดของวันที่ขอในระบบร้านค่ะ (อีเมลสรุปจาก POS ปกติเข้าราว 17:40 แล้วระบบดึงเข้าภายใน 1 ชั่วโมง)');
     }
+    if (askPlant || both) {
+      const p = plantSalesSummaryText(which);
+      parts.push(p || '💧 โรงน้ำ: ยังไม่มีออเดอร์ของวันที่ขอในระบบขาย-โรงงานค่ะ');
+    }
+    lineReply(replyToken, parts.join('\n\n'));
+    logRow(['สรุปยอด', senderId, text, both ? 'ทั้งสอง' : (askCafe ? 'ร้าน' : 'โรงน้ำ')]);
+    return;
   }
 
   // ดูรายชื่อกลุ่มที่เลขาอยู่/รู้จัก (เฉพาะเจ้าของ)
@@ -2702,6 +2712,49 @@ function plantFeed(monthPrefix) {
     });
   } catch (e) { console.error('plantFeed: ' + e); }
   return out;
+}
+
+// 💧 สรุปยอดโรงน้ำรายวัน (ตอบใน LINE) — ใช้ plantFeed เดิม: ออเดอร์ทุกช่องทาง + ผลิต
+// which: 'today' | 'yesterday' | 'latest' — คืน '' ถ้าไม่มีข้อมูล/ยังไม่ตั้ง PLANT_SHEET_ID
+function plantSalesSummaryText(which) {
+  try {
+    const feed = plantFeed('');
+    if (!feed || (!feed.sales.length && !feed.prod.length)) return '';
+    const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+    let want = '';
+    if (which === 'today') want = today;
+    if (which === 'yesterday') want = Utilities.formatDate(new Date(Date.now() - 864e5), 'GMT+7', 'yyyy-MM-dd');
+    if (!want) { // ล่าสุด = วันสุดท้ายที่มีออเดอร์
+      feed.sales.forEach(function (s) { if (s.date > want) want = s.date; });
+      if (!want) return '';
+    }
+    let amt = 0, qty = 0, n = 0;
+    const byLine = {};
+    feed.sales.forEach(function (s) {
+      if (s.date !== want) return;
+      n++; amt += s.amount; qty += s.qty;
+      if (!byLine[s.line]) byLine[s.line] = { amount: 0, qty: 0 };
+      byLine[s.line].amount += s.amount; byLine[s.line].qty += s.qty;
+    });
+    let made = 0, waste = 0;
+    feed.prod.forEach(function (p) { if (p.date === want) { made += p.made; waste += p.waste; } });
+    if (!n && !made) return '';
+    const dp = want.split('-');
+    const thDate = Number(dp[2]) + '/' + Number(dp[1]) + '/' + (Number(dp[0]) + 543);
+    const fm = function (x) { return Number(x || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }); };
+    const order = ['ละกอน', 'เพียวซ่า', 'OEM'];
+    const lines = Object.keys(byLine).sort(function (a, b) {
+      const ia = order.indexOf(a), ib = order.indexOf(b);
+      return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib);
+    }).map(function (k) { return '• ' + k + ' ' + fm(byLine[k].amount) + ' บาท (' + fm(byLine[k].qty) + ' แพ็ค)'; });
+    return '💧 สรุปยอดโรงน้ำ ' + thDate + (want === today ? ' (ถึงตอนนี้)' : '') + ' ค่ะ\n'
+      + '━━━━━━━━━━━━━━\n'
+      + '💰 ยอดขายรวม ' + fm(amt) + ' บาท · ' + fm(qty) + ' แพ็ค · ' + n + ' รายการสินค้า\n'
+      + (lines.length ? lines.join('\n') + '\n' : '')
+      + '━━━━━━━━━━━━━━\n'
+      + '🏭 ผลิต ' + fm(made) + ' แพ็ค' + (waste ? ' · เสีย ' + fm(waste) : '') + '\n'
+      + '📊 ดูละเอียดในห้องผู้บริหาร: ' + execBoardUrl().replace(/\?key=.*/, '');
+  } catch (e) { console.error('plantSalesSummaryText: ' + e); return ''; }
 }
 
 // รวมข้อมูลให้แอปผู้บริหารในครั้งเดียว (ประหยัดรอบเรียก GAS)
