@@ -626,16 +626,20 @@ function handleEvent(ev) {
     return;
   }
 
-  // 💰 สรุปยอดขาย (เฉพาะเจ้าของ) — อ่านสดจากชีตของแต่ละบริษัท ตอบทันทีไม่ผ่านสมอง AI
+  // 💰 สรุปยอดขาย — อ่านสดจากชีตของแต่ละบริษัท ตอบทันทีไม่ผ่านสมอง AI
   // จับภาษาพูดด้วย: "ยอดร้านวันนี้", "ยอดโรงน้ำเมื่อวาน", "สรุปยอด", "ยอดขาย" ...
-  // ไม่ระบุบริษัท → ตอบทั้งโรงน้ำและร้านกาแฟในข้อความเดียว (ไม่ถามกลับ)
-  if (owner && /(สรุปยอด|ยอดขาย|รายงานการขาย|^ยอด|ยอด(ร้าน|โรงน้ำ|ละกอน|วันนี้|เมื่อวาน|ล่าสุด))/.test(text.trim())) {
+  // เจ้าของถามได้ทุกที่ (ไม่ระบุบริษัท → ตอบทั้งคู่ ไม่ถามกลับ)
+  // คนอื่นถามได้เฉพาะ "ในกลุ่ม Old Days" และได้เฉพาะยอดร้าน — การ์ดยอดร้านลงกลุ่มนั้น
+  // อยู่แล้วทุกเย็น ข้อความนี้ไม่มีค่าคอม/ต้นทุน จึงไม่ใช่การเงินวงใน (แก้เคสพนักงานโดนปฏิเสธ)
+  if (/(สรุปยอด|ยอดขาย|รายงานการขาย|^ยอด|ยอด(ร้าน|โรงน้ำ|ละกอน|วันนี้|เมื่อวาน|ล่าสุด))/.test(text.trim())) {
     let odG = '';
     try { const og = listKnownGroups().filter(function (x) { return x.id === chatId; })[0]; odG = (og && og.name) || ''; } catch (e2) {}
+    const inOldDaysGroup = /old ?days/i.test(odG);
+    if (owner || inOldDaysGroup) {
     const which = /เมื่อวาน/.test(text) ? 'yesterday' : (/วันนี้/.test(text) ? 'today' : 'latest');
-    const askCafe  = /old ?days|คาเฟ่|ร้านกาแฟ|ยอดร้าน/i.test(text) || /old ?days/i.test(odG);
-    const askPlant = /โรงน้ำ|ละกอน|น้ำดื่ม|โรงงาน/i.test(text);
-    const both = !askCafe && !askPlant;
+    const askCafe  = !owner || /old ?days|คาเฟ่|ร้านกาแฟ|ยอดร้าน/i.test(text) || inOldDaysGroup;
+    const askPlant = owner && /โรงน้ำ|ละกอน|น้ำดื่ม|โรงงาน/i.test(text);
+    const both = owner && !askCafe && !askPlant;
     const parts = [];
     if (askCafe || both) {
       const s = oldDaysSummaryText(which);
@@ -648,6 +652,8 @@ function handleEvent(ev) {
     lineReply(replyToken, parts.join('\n\n'));
     logRow(['สรุปยอด', senderId, text, both ? 'ทั้งสอง' : (askCafe ? 'ร้าน' : 'โรงน้ำ')]);
     return;
+    }
+    // ไม่ใช่เจ้าของและไม่ได้ถามในกลุ่มร้าน → ปล่อยไหลไปตามกติกาการเงินวงในด้านล่าง
   }
 
   // ดูรายชื่อกลุ่มที่เลขาอยู่/รู้จัก (เฉพาะเจ้าของ)
@@ -1785,7 +1791,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-08-17b สรุปยอดภาษาพูด+โรงน้ำ';
+const CODE_VERSION = '2026-08-18a';
 
 function healthCheck() {
   const L = [];
