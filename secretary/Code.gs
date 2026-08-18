@@ -1791,7 +1791,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-08-18c';
+const CODE_VERSION = '2026-08-18d';
 
 function healthCheck() {
   const L = [];
@@ -2571,8 +2571,9 @@ function execKey() {
 function execAuth(key) {
   return execViewer(key).role;
 }
-// รหัสผู้บริหารรายคน: Script Property `EXEC_KEYS` รูปแบบ "ชื่อ:รหัส" คั่นด้วยขึ้นบรรทัด/จุลภาค
-// เช่น  พ่อ:Papa2026, พี่เขียว:Green99  — ลบแถวไหน = ตัดสิทธิ์คนนั้นทันที ไม่กระทบคนอื่น
+// รหัสผู้บริหารรายคน: Script Property `EXEC_KEYS` รูปแบบ "ชื่อ:รหัส" หรือ "ชื่อ:รหัส:กรรมการ" คั่นด้วยขึ้นบรรทัด/จุลภาค
+// เช่น  พ่อ:Papa2026:กรรมการ, พี่เขียว:Green99  — ลบแถวไหน = ตัดสิทธิ์คนนั้นทันที ไม่กระทบคนอื่น
+// บทบาท: (ว่าง)=ผู้บริหารทั่วไป ไม่เห็นเงินเดือน · กรรมการ/board=เห็นทุกอย่างเท่า CEO แต่แก้ไข/จ่ายเงินไม่ได้
 function execViewer(key) {
   if (!key) return { role: '', name: '' };
   if (key === cfg('QUEUE_KEY')) return { role: 'ceo', name: 'คุณปาล์ม' };
@@ -2581,15 +2582,18 @@ function execViewer(key) {
   if (list) {
     const items = list.split(/[\n,]+/);
     for (let i = 0; i < items.length; i++) {
-      const p = items[i].indexOf(':');
-      if (p < 1) continue;
-      if (items[i].slice(p + 1).trim() === String(key).trim()) {
-        return { role: 'exec', name: items[i].slice(0, p).trim() };
+      const seg = items[i].split(':');
+      if (seg.length < 2) continue;
+      if (seg[1].trim() === String(key).trim()) {
+        const tag = (seg[2] || '').trim();
+        return { role: /กรรมการ|board|ceo/i.test(tag) ? 'board' : 'exec', name: seg[0].trim() };
       }
     }
   }
   return { role: '', name: '' };
 }
+// สิทธิ์ "เห็นข้อมูลเงิน" — CEO และกรรมการ (การแก้ไข/จ่ายเงินยังเช็ค === 'ceo' ตรง ๆ เสมอ)
+function execCanMoney(role) { return role === 'ceo' || role === 'board'; }
 function execBoardUrl() {
   return 'https://palmsil2026.github.io/palm-hq/exec/?key=' + encodeURIComponent(execKey());
 }
@@ -2735,8 +2739,8 @@ function plantFeed(monthPrefix) {
       const dk = execDateKey(r[10]) || execDateKey(r[2]) || execDateKey(r[1]); if (!dk) return;
       const typ = String(r[13] || 'ผลิต');
       const qty = execNum(r[4]), w = execNum(r[5]);
-      const line = lineOfProduct(String(r[12] || '') || String(r[3] || ''));
-      out.prod.push({ date: dk, line: line,
+      const pname = String(r[12] || '') || (prodName[String(r[3] || '')] || String(r[3] || ''));
+      out.prod.push({ date: dk, line: lineOfProduct(pname), prod: pname,
                       made: /เสีย|waste/i.test(typ) ? 0 : qty,
                       waste: /เสีย|waste/i.test(typ) ? (qty || w) : w });
     });
@@ -2944,9 +2948,20 @@ function execDashboard(key, month) {
         .sort(function (a, b) { return b.amt - a.amt; }).slice(0, 10);
     }
 
+    // เจาะการผลิต: รายการบันทึกของเดือนที่ดู + วันบันทึกล่าสุด (ไว้เตือนถ้าหน้างานเงียบนาน)
+    let prodLogs = [], lastProd = '';
+    if (liveSource && feed.prod.length) {
+      feed.prod.forEach(function (p) { if (p.date > lastProd) lastProd = p.date; });
+      prodLogs = feed.prod.filter(function (p) { return p.date.indexOf(monthPrefix) === 0; })
+        .sort(function (a, b) { return a.date < b.date ? -1 : 1; })
+        .map(function (p) { return { d: p.date, line: p.line, prod: p.prod || '', made: p.made, waste: p.waste }; });
+    }
+
     return {
       viewer: vw.name,
       prev: prev, ar: ar, lost: lost,
+      prodLogs: prodLogs, lastProd: lastProd,
+      boardLink: role === 'ceo' ? boardUrl() : teamBoardUrl(),
       ok: true, role: role,
       month: monthPrefix.slice(5) + '/' + monthPrefix.slice(0, 4), monthKey: monthPrefix,
       nowMonth: Utilities.formatDate(now, 'GMT+7', 'yyyy-MM'),
@@ -3112,7 +3127,7 @@ function hrStaffList(role) {
       leaveDaysYear: leaveDays[name] || 0, upcomingLeaves: upcoming[name] || 0,
       workDaysMonth: Object.keys(workDays[name] || {}).length,
     };
-    if (role === 'ceo') { // ข้อมูลเงิน/บัญชี เฉพาะ CEO
+    if (execCanMoney(role)) { // ข้อมูลเงิน/บัญชี เฉพาะ CEO/กรรมการ
       o.salary = execNum(h['เงินเดือน']); o.payType = String(h['วิธีจ่าย'] || 'รายเดือน');
       o.bankOrId = String(h['เลขบัตร/บัญชี'] || '');
     }
@@ -3167,7 +3182,7 @@ function hrStaffDetail(key, staffId) {
         return { id: String(l['Leave_ID'] || ''), from: a, to: b, days: hrDays(a, b), type: String(l['ประเภท'] || ''), note: String(l['หมายเหตุ'] || ''), row: l._row };
       }).sort(function (a, b) { return b.from.localeCompare(a.from); });
     const out = { ok: true, role: role, staff: s, history: hist2.slice(0, 60), leaves: leaves };
-    if (role === 'ceo') {
+    if (execCanMoney(role)) {
       out.payroll = hrRowsByHead('HR_Payroll').filter(function (p) { return String(p['Staff_ID'] || '').trim() === s.id || String(p['ชื่อ'] || '').trim() === nm; })
         .map(function (p) {
           return { id: String(p['Pay_ID'] || ''), period: String(p['งวด'] || ''), days: execNum(p['วันทำงาน']),
@@ -3262,9 +3277,9 @@ function hrSavePayroll(key, p) {
   } catch (e) { return { ok: false, msg: String(e) }; }
   finally { lock.releaseLock(); }
 }
-// สรุปงวดเงินเดือนของเดือนหนึ่ง: ทุกคน + ยอดรวม (CEO)
+// สรุปงวดเงินเดือนของเดือนหนึ่ง: ทุกคน + ยอดรวม (CEO/กรรมการดูได้ — บันทึกจ่ายยังเป็น CEO เท่านั้น)
 function hrPayrollMonth(key, period) {
-  if (execAuth(key) !== 'ceo') return { ok: false, error: 'unauthorized' };
+  if (!execCanMoney(execAuth(key))) return { ok: false, error: 'unauthorized' };
   try {
     const per = String(period || Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM'));
     const staff = hrStaffList('ceo').filter(function (s) { return s.active; });

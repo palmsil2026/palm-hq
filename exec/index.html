@@ -363,6 +363,12 @@ function aggr() {   // สรุปยอดฝั่งแอปจากออ
   return { amt, qty, byLine, bySeller, byDay };
 }
 const thMonth = mk => { const [y, m] = mk.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }); };
+// จำนวนวันที่โรงงานเงียบ (ไม่มีบันทึกผลิตใหม่) — คืน 0 ถ้ายังสดอยู่ (<7 วัน) หรือไม่มีข้อมูล
+function prodStale() {
+  if (!D || !D.source || !D.lastProd) return 0;
+  const days = Math.floor((Date.now() - new Date(D.lastProd + 'T00:00:00+07:00').getTime()) / 86400000);
+  return days >= 7 ? days : 0;
+}
 const stPill = st => /ส่งแล้ว|เก็บเงิน/.test(st) ? 'p-green' : (/pending|กำลัง|รอ/i.test(st) ? 'p-gold' : 'p-gray');
 
 // ── สายผลิตภัณฑ์: ลำดับสีคงที่เสมอ ไม่ขึ้นกับยอดขาย (สีติดกับตัวสินค้า ไม่ใช่อันดับ) ──
@@ -438,8 +444,8 @@ async function load() {
 }
 
 function render() {
-  $('role').textContent = D.role === 'ceo' ? '👑 CEO' : '👔 ' + (D.viewer || 'ผู้บริหาร');
-  $('role').className = 'role' + (D.role === 'ceo' ? ' ceo' : '');
+  $('role').textContent = D.role === 'ceo' ? '👑 CEO' : (D.role === 'board' ? '🎖️ ' : '👔 ') + (D.viewer || (D.role === 'board' ? 'กรรมการ' : 'ผู้บริหาร'));
+  $('role').className = 'role' + (D.role === 'ceo' || D.role === 'board' ? ' ceo' : '');
   const k = D.kpi;
   const A = live() ? aggr() : null;   // โหมดสด: คิดยอดจากออเดอร์รายแถวตามสวิตช์
   const salesAmt = A ? A.amt : k.salesAmount, salesQty = A ? A.qty : k.salesQty;
@@ -471,9 +477,9 @@ function render() {
   // ── KPI ──
   h += `<div class="kpis">
     <div class="k gold"><div class="lb">ยอดขายเดือน ${esc(D.month)}</div><div class="v">${money(salesAmt)}<span class="u">บาท</span></div><div class="sub">${money(salesQty)} ลัง${ONLY_DONE && live() ? ' · เฉพาะส่งแล้ว' : ''}${cmp}</div></div>
-    <div class="k teal"><div class="lb">ผลิตเดือน ${esc(D.month)}</div><div class="v">${money(k.produced)}<span class="u">ลัง</span></div><div class="sub">ของเสีย ${k.wastePct}% (${money(k.waste)} ลัง)</div></div>
+    <div class="k teal"><div class="lb">ผลิตเดือน ${esc(D.month)}</div><div class="v">${money(k.produced)}<span class="u">ลัง</span></div><div class="sub">${prodStale() ? '<span style="color:var(--red);font-weight:700">⚠️ ไม่มีบันทึกผลิตมา ' + prodStale() + ' วัน</span>' : 'ของเสีย ' + k.wastePct + '% (' + money(k.waste) + ' ลัง)'}</div></div>
     <div class="k green"><div class="lb">พนักงานปฏิบัติงาน</div><div class="v">${money(k.staff)}<span class="u">คน</span></div><div class="sub">จากทะเบียนพนักงาน</div></div>
-    <div class="k${k.openTasks ? ' red' : ''}"><div class="lb">งานโรงน้ำค้างอยู่</div><div class="v">${money(k.openTasks)}<span class="u">งาน</span></div><div class="sub">บนบอร์ดทีม AI</div></div>
+    <div class="k${k.openTasks ? ' red' : ''}" data-oboard style="cursor:pointer" title="เปิดบอร์ดทีม AI"><div class="lb">งานโรงน้ำค้างอยู่</div><div class="v">${money(k.openTasks)}<span class="u">งาน</span></div><div class="sub">บนบอร์ดทีม AI · แตะเพื่อเปิด ↗</div></div>
   </div>`;
 
   if (D.source) {
@@ -510,7 +516,13 @@ function render() {
   }
 
   // ── การผลิต ──
-  h += `<div class="sec"><h2>🏭 การผลิตเดือนนี้</h2><div class="hint">ผลิตได้ / ของเสีย แยกตามสายผลิตภัณฑ์</div>${prodHtml(D.prodByLine)}</div>`;
+  let prodNote = '';
+  if (live()) {
+    if (prodStale()) prodNote = `<div style="font-size:.78rem;color:var(--red);font-weight:600;margin-top:9px">⚠️ บันทึกผลิตล่าสุด ${D.lastProd ? esc(D.lastProd.slice(8) + '/' + D.lastProd.slice(5, 7)) : '—'} — ผ่านมา ${prodStale()} วันแล้ว ถ้าโรงงานผลิตอยู่จริง หน้างานอาจลืมกดบันทึกในแอปโรงงาน</div>`;
+    else if (!D.lastProd) prodNote = '<div style="font-size:.78rem;color:var(--sub);margin-top:9px">ยังไม่เคยมีบันทึกผลิตในระบบเลย</div>';
+  }
+  const prodClickable = live() && (D.prodLogs || []).length;
+  h += `<div class="sec"><h2>🏭 การผลิตเดือน ${esc(D.month)}${prodClickable ? ' <button class="bt bt-gray" data-dprodcard style="padding:5px 11px;font-size:.72rem;margin-left:auto">📄 ดูรายการบันทึก (' + D.prodLogs.length + ')</button>' : ''}</h2><div class="hint">ผลิตได้ / ของเสีย แยกตามสายผลิตภัณฑ์</div>${prodHtml(D.prodByLine)}${prodNote}</div>`;
 
   // ── แผนธุรกิจ ──
   h += `<div class="sec"><h2>🧭 แผนธุรกิจ &amp; Business Model</h2>
@@ -524,7 +536,7 @@ function render() {
 
   // ── งานโรงน้ำค้าง ──
   if ((D.tasks || []).length) {
-    h += `<div class="sec"><h2>📋 งานโรงน้ำที่ยังไม่ปิด</h2><div class="hint">ดึงสดจากบอร์ดทีม AI</div><div class="scroll"><table class="tb">
+    h += `<div class="sec"><h2>📋 งานโรงน้ำที่ยังไม่ปิด <button class="bt bt-gray" data-oboard style="padding:5px 11px;font-size:.72rem;margin-left:auto">เปิดบอร์ด ↗</button></h2><div class="hint">ดึงสดจากบอร์ดทีม AI</div><div class="scroll"><table class="tb">
       <tr><th>งาน</th><th>รายละเอียด</th><th>สถานะ</th></tr>` +
       D.tasks.map(t => `<tr><td>#${esc(t.ref)}</td><td>${esc(t.detail)}</td>
         <td><span class="pill ${t.urgency === 'ด่วนมาก' ? 'p-red' : 'p-gray'}">${esc(t.status)}</span></td></tr>`).join('') +
@@ -559,6 +571,8 @@ function bindPhase1() {
     const s = el.dataset.dseller;
     openOrders('🧑‍💼 ออเดอร์ของ ' + s + ' — ' + thMonth(MONTH), FO().filter(o => (o.seller || 'ไม่ระบุ') === s), true);
   });
+  document.querySelectorAll('[data-oboard]').forEach(el => el.onclick = () => window.open(D.boardLink || '../board/', '_blank'));
+  document.querySelectorAll('[data-dprodcard]').forEach(el => el.onclick = e => { e.stopPropagation(); prodDrill(); });
   // เลื่อนกราฟรายวันไปหยุดที่วันนี้/วันล่าสุดที่มียอด (ไม่ใช่ท้ายเดือนที่ยังว่าง)
   const dw = document.querySelector('.dwrap');
   if (dw) {
@@ -682,6 +696,20 @@ function lineDrill(line) {
   $('dtAllOrders').onclick = () => openOrders('💰 ออเดอร์สาย' + line + ' — ' + thMonth(MONTH), os, true);
 }
 
+// ── เจาะการผลิต → รายการบันทึกของเดือนที่ดู ──
+function prodDrill() {
+  const ls = D.prodLogs || [];
+  const made = ls.reduce((s, x) => s + x.made, 0), waste = ls.reduce((s, x) => s + x.waste, 0);
+  let h = `<div class="hint" style="margin-bottom:8px">เดือน ${esc(D.month)} · ผลิตรวม <b>${money(made)}</b> ลัง · ของเสีย <b>${money(waste)}</b> ลัง · ${ls.length} รายการ</div>`;
+  h += ls.length ? '<div class="scroll"><table class="tb"><tr><th>วันที่</th><th>สินค้า</th><th class="num">ผลิต (ลัง)</th><th class="num">ของเสีย</th></tr>' +
+    ls.map(x => `<tr><td style="white-space:nowrap">${esc(x.d.slice(8) + '/' + x.d.slice(5, 7))}</td><td>${esc(x.prod || x.line)}</td>
+      <td class="num"><b>${money(x.made)}</b></td><td class="num">${x.waste ? '<span style="color:var(--red)">' + money(x.waste) + '</span>' : '—'}</td></tr>`).join('') +
+    '</table></div>' : '<div class="empty">ไม่มีบันทึกผลิตเดือนนี้</div>';
+  $('dtTitle').textContent = '🏭 บันทึกผลิต — ' + thMonth(MONTH);
+  $('dtBody').innerHTML = h;
+  $('dtMask').classList.add('on');
+}
+
 // ── ตารางออเดอร์ (ใช้ร่วม: รายวัน / รายสาย / รายเซลส์) ──
 function openDay(key) {
   const os = FO().filter(o => o.d === key);
@@ -711,6 +739,8 @@ let hrShowInactive = false;
 let PAY = null;          // งวดเงินเดือนที่โหลดล่าสุด
 let payPeriod = new Date().toISOString().slice(0, 7);
 const isCeo = () => D && D.role === 'ceo';
+// กรรมการ (เช่น คุณพ่อ) เห็นข้อมูลเงินทุกอย่างเท่า CEO — แต่ปุ่มแก้ไข/บันทึกจ่ายยังเป็นของ CEO คนเดียว
+const canMoney = () => D && (D.role === 'ceo' || D.role === 'board');
 
 function hrSectionHtml() {
   const all = D.staff || [];
@@ -718,25 +748,25 @@ function hrSectionHtml() {
   let h = `<div class="sec" id="hrSec"><h2>👥 พนักงาน (${act.length} คน)</h2>
     <div class="hint">${D.hrLive ? 'ทะเบียนตัวจริงจากระบบโรงงาน — แก้ที่นี่แล้วทุกแอป (โรงงาน/คลัง/เซลส์) เห็นทันที' : 'ทะเบียนพนักงาน (ExecStaff)'}
       ${isCeo() ? ' · แตะชื่อเพื่อดูรายละเอียด/แก้ไข' : ' · แตะชื่อเพื่อดูรายละเอียด'}</div>`;
-  if (isCeo()) {
+  if (canMoney()) {
     h += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <button class="bt ${hrTab === 'list' ? 'bt-main' : 'bt-gray'}" data-hrtab="list">📋 ทะเบียน</button>
       <button class="bt ${hrTab === 'payroll' ? 'bt-main' : 'bt-gray'}" data-hrtab="payroll">💵 เงินเดือน</button>
       <span style="flex:1"></span>
-      <button class="bt bt-main" id="hrAdd">＋ เพิ่มพนักงาน</button></div>`;
+      ${isCeo() ? '<button class="bt bt-main" id="hrAdd">＋ เพิ่มพนักงาน</button>' : ''}</div>`;
   }
-  if (hrTab === 'payroll' && isCeo()) { h += payrollHtml(); h += '</div>'; return h; }
+  if (hrTab === 'payroll' && canMoney()) { h += payrollHtml(); h += '</div>'; return h; }
 
   const rows = hrShowInactive ? all : act;
   h += rows.length ? `<div class="scroll"><table class="tb">
-      <tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>แผนก</th><th>อายุงาน</th><th class="num">ทำงานเดือนนี้</th><th class="num">ลาปีนี้</th>${isCeo() ? '<th class="num">เงินเดือน</th>' : ''}<th>สถานะ</th></tr>` +
+      <tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>แผนก</th><th>อายุงาน</th><th class="num">ทำงานเดือนนี้</th><th class="num">ลาปีนี้</th>${canMoney() ? '<th class="num">เงินเดือน</th>' : ''}<th>สถานะ</th></tr>` +
     rows.map(s => `<tr data-hr="${esc(s.id || s.name)}" style="cursor:pointer">
       <td><b>${esc(s.name)}</b>${s.nick ? ' <span style="color:var(--faint);font-size:.75rem">(' + esc(s.nick) + ')</span>' : ''}</td>
       <td>${esc(s.role || '—')}</td><td>${esc(s.dept || '—')}</td>
       <td>${esc(s.tenure || (s.since || '—'))}</td>
       <td class="num">${s.workDaysMonth != null ? s.workDaysMonth + ' วัน' : '—'}</td>
       <td class="num">${s.leaveDaysYear != null ? s.leaveDaysYear + ' วัน' : '—'}${s.upcomingLeaves ? ' <span class="pill p-gray" title="มีวันลาที่ยังมาไม่ถึง">🏖️' + s.upcomingLeaves + '</span>' : ''}</td>
-      ${isCeo() ? '<td class="num">' + (s.salary ? money(s.salary) : '—') + '</td>' : ''}
+      ${canMoney() ? '<td class="num">' + (s.salary ? money(s.salary) : '—') + '</td>' : ''}
       <td><span class="pill ${s.active === false ? 'p-gray' : 'p-green'}">${s.active === false ? 'พักงาน' : (s.status || 'ทำงาน')}</span></td></tr>`).join('') +
     '</table></div>' : '<div class="empty">ยังไม่มีข้อมูลพนักงาน</div>';
   if (all.length > act.length) {
@@ -764,7 +794,7 @@ async function openStaff(id) {
   } catch (e) { $('hrBody').innerHTML = '<div class="empty">⚠️ ' + esc(e.message) + '</div>'; }
 }
 function renderStaffDetail(j) {
-  const s = j.staff, ceo = j.role === 'ceo';
+  const s = j.staff, ceo = j.role === 'ceo', mny = ceo || j.role === 'board';
   $('hrTitle').innerHTML = `${esc(s.name)} ${s.nick ? '<span style="color:var(--faint);font-weight:500">(' + esc(s.nick) + ')</span>' : ''}
     <span class="pill ${s.active === false ? 'p-gray' : 'p-green'}" style="margin-left:6px">${s.active === false ? 'พักงาน' : 'ทำงาน'}</span>`;
   const kv = (k, v) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:.83rem"><span style="color:var(--sub)">${k}</span><span style="text-align:right;font-weight:600">${v || '—'}</span></div>`;
@@ -781,8 +811,8 @@ function renderStaffDetail(j) {
     kv('LINE', esc(s.line)) + kv('ที่อยู่', esc(s.address)) + kv('ผู้ติดต่อฉุกเฉิน', esc(s.emergency)) +
     kv('PIN เข้าแอป', s.hasPin ? 'ตั้งแล้ว' : '<span style="color:var(--red)">ยังไม่ตั้ง</span>') +
     (s.note ? kv('หมายเหตุ', esc(s.note)) : '') + '</div>';
-  if (ceo) {
-    h += `<div class="sec" style="padding:12px 14px"><h2 style="font-size:.85rem">💵 ค่าตอบแทน <span class="pill p-gray" style="font-size:9px">CEO เท่านั้น</span></h2>` +
+  if (mny) {
+    h += `<div class="sec" style="padding:12px 14px"><h2 style="font-size:.85rem">💵 ค่าตอบแทน <span class="pill p-gray" style="font-size:9px">CEO/กรรมการ</span></h2>` +
       kv('เงินเดือน/ค่าจ้าง', s.salary ? money(s.salary) + ' บาท' : '') + kv('วิธีจ่าย', esc(s.payType)) + kv('บัญชี/เลขบัตร', esc(s.bankOrId)) + '</div>';
     if ((j.payroll || []).length) {
       h += `<div class="sec" style="padding:12px 14px"><h2 style="font-size:.85rem">🧾 ประวัติเงินเดือน</h2><div class="scroll"><table class="tb">
@@ -884,7 +914,7 @@ function payrollHtml() {
       <td class="num">${p.days != null ? p.days : p.workDays} วัน</td>
       <td class="num"><b>${p.net != null ? money(p.net) : '—'}</b></td>
       <td>${p.status ? '<span class="pill ' + (p.status === 'จ่ายแล้ว' ? 'p-green' : 'p-red') + '">' + esc(p.status) + '</span>' : '<span class="pill p-gray">ยังไม่บันทึก</span>'}</td>
-      <td><button class="bt ${p.status === 'จ่ายแล้ว' ? 'bt-gray' : 'bt-main'}" style="padding:5px 10px;font-size:.72rem" data-pay="${esc(p.staffId)}">${p.status === 'จ่ายแล้ว' ? 'ดู/แก้' : (p.status ? '💵 จ่าย' : '＋ บันทึก')}</button></td></tr>`).join('') + '</table></div>';
+      <td>${isCeo() ? `<button class="bt ${p.status === 'จ่ายแล้ว' ? 'bt-gray' : 'bt-main'}" style="padding:5px 10px;font-size:.72rem" data-pay="${esc(p.staffId)}">${p.status === 'จ่ายแล้ว' ? 'ดู/แก้' : (p.status ? '💵 จ่าย' : '＋ บันทึก')}</button>` : ''}</td></tr>`).join('') + '</table></div>';
   h += `<div class="hint" style="margin-top:8px">ฐานเริ่มจากเงินเดือนในทะเบียน · วันทำงานนับจากบันทึกงานจริงในระบบ (แก้ได้ตอนบันทึก) · สุทธิ = ฐาน + โอที + โบนัส − หัก</div>`;
   return h;
 }
@@ -976,7 +1006,7 @@ function sparkHtml(trend) {
     return `<text x="${x(i)}" y="${y(p.amount) - 7}" text-anchor="${anchor}" style="font-weight:700;fill:var(--ink)">${money(p.amount)}</text>`;
   };
   const dayLbl = i => `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${esc(d[i].date.slice(8) + '/' + d[i].date.slice(5,7))}</text>`;
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img"
       aria-label="ยอดขายรายวัน 14 วันล่าสุด สูงสุด ${money(max)} บาท">
     <line class="gl" x1="${PL}" y1="${H - PB}" x2="${W - PR}" y2="${H - PB}"/>
     <path class="ar" d="${area}"/><path class="ln" d="${line}"/>
