@@ -2661,39 +2661,45 @@ function plantFeed(monthPrefix) {
 
     // ── ออเดอร์จากทุกช่องทาง (โรงงาน/LINE/เซลส์/OEM) ──
     // คอลัมน์ Orders & Orders_LINE: A=Order_ID B=Date C=Customer D=Product_ID E=Qty F=UnitPrice ... I=TotalPrice ... M=หมวด
-    [['Orders', 3, 4, 8, 12], ['Orders_LINE', 3, 4, 8, 12]].forEach(function (cfgx) {
-      plantRows(cfgx[0], 4000).forEach(function (r) {
-        const d = r[1]; if (!d) return;
-        const dk = execDateKey(d); if (!dk) return;
-        const st = String(r[7] || '');
-        if (/ยกเลิก/.test(st)) return;
-        const pid = String(r[cfgx[1]] || '');
-        out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, r[cfgx[4]]),
-                         qty: execNum(r[cfgx[2]]), amount: execNum(r[8]) });
+    // A=Order_ID B=Date D=Product_ID(3) E=Qty(4) F=Unit_Price(5) H=Status(7) I=TotalPrice(8) M=หมวด(12)
+    ['Orders', 'Orders_LINE'].forEach(function (tab) {
+      plantRows(tab, 4000).forEach(function (r) {
+        const dk = execDateKey(r[1]); if (!dk) return;
+        if (/ยกเลิก|cancel/i.test(String(r[7] || ''))) return;
+        const cat = String(r[12] || '');
+        const qty = execNum(r[4]);
+        const amt = execNum(r[8]) || (qty * execNum(r[5]));
+        // แถวหมวด OEM ที่ยอดเงิน 0 = แถวเงา (เงินจริงบันทึกในแท็บ Orders_OEM) — ข้ามกันนับลังซ้ำ
+        if (/OEM/.test(cat) && !amt) return;
+        const pid = String(r[3] || '');
+        out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, cat), qty: qty, amount: amt });
       });
     });
-    // Orders_Sales: H=Product_ID(7) J=Qty(9) P=Status(15) — ยอดเงินหาแบบยืดหยุ่นจากคอลัมน์ราคารวม
+    // Orders_Sales: C=วันที่(2) H=Product_ID(7) I=สินค้า(8) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) O=สถานะ(14)
     plantRows('Orders_Sales', 4000).forEach(function (r) {
-      const dk = execDateKey(r[1]); if (!dk) return;
-      if (/ยกเลิก/.test(String(r[15] || ''))) return;
+      const dk = execDateKey(r[2]) || execDateKey(r[1]); if (!dk) return;
+      if (/ยกเลิก|cancel/i.test(String(r[14] || ''))) return;
       const pid = String(r[7] || ''), qty = execNum(r[9]);
-      let amt = execNum(r[11]) || execNum(r[10]) || (qty * execNum(r[8]));
-      out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, ''), qty: qty, amount: amt });
+      const amt = execNum(r[12]) || (qty * execNum(r[11]));
+      out.sales.push({ date: dk, line: lineOfProduct(String(r[8] || '') || prodName[pid] || pid, ''), qty: qty, amount: amt });
     });
-    // Orders_OEM — ผลิตตามสั่ง จัดเป็นสาย OEM เสมอ
+    // Orders_OEM: C=วันที่(2) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) P=สถานะ(15) — สาย OEM เสมอ
     plantRows('Orders_OEM', 2000).forEach(function (r) {
-      const dk = execDateKey(r[1]); if (!dk) return;
-      if (/ยกเลิก/.test(String(r[16] || ''))) return;
-      out.sales.push({ date: dk, line: 'OEM', qty: execNum(r[9]) || execNum(r[4]), amount: execNum(r[11]) || execNum(r[8]) });
+      const dk = execDateKey(r[2]) || execDateKey(r[1]); if (!dk) return;
+      if (/ยกเลิก|cancel/i.test(String(r[15] || ''))) return;
+      const qty = execNum(r[9]);
+      out.sales.push({ date: dk, line: 'OEM', qty: qty, amount: execNum(r[12]) || (qty * execNum(r[11])) });
     });
 
-    // ── การผลิตจาก ProductionLog: C=วันที่ E=สินค้า F=จำนวนผลิต H=ประเภท ──
+    // ── การผลิตจาก ProductionLog: K=วันที่(10) E=Qty_Produced(4) F=GradeB/Waste(5) M=สินค้า(12) N=ประเภท(13) ──
     plantRows('ProductionLog', 4000).forEach(function (r) {
-      const dk = execDateKey(r[2] || r[1]); if (!dk) return;
-      const typ = String(r[7] || 'ผลิต');
-      const qty = execNum(r[5]);
-      const line = lineOfProduct(r[4]);
-      out.prod.push({ date: dk, line: line, made: /เสีย|waste/i.test(typ) ? 0 : qty, waste: /เสีย|waste/i.test(typ) ? qty : 0 });
+      const dk = execDateKey(r[10]) || execDateKey(r[2]) || execDateKey(r[1]); if (!dk) return;
+      const typ = String(r[13] || 'ผลิต');
+      const qty = execNum(r[4]), w = execNum(r[5]);
+      const line = lineOfProduct(String(r[12] || '') || String(r[3] || ''));
+      out.prod.push({ date: dk, line: line,
+                      made: /เสีย|waste/i.test(typ) ? 0 : qty,
+                      waste: /เสีย|waste/i.test(typ) ? (qty || w) : w });
     });
     // ของเสียจากรอบผลิต (ProductionRuns) ถ้ามีคอลัมน์ waste
     try {
