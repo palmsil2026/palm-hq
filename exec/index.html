@@ -54,6 +54,7 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 .sec .hint{font-size:.7rem;color:var(--sub);margin-bottom:12px}
 .grid2{display:grid;grid-template-columns:1fr;gap:14px}
 @media(min-width:900px){.grid2{grid-template-columns:1fr 1fr}}
+.grid2>.sec{min-width:0}  /* กันการ์ดกราฟเลื่อนได้ดันเบียดการ์ดข้างกันจนแคบ */
 
 /* ── กราฟแท่ง (สายผลิตภัณฑ์) ── */
 .bars{display:flex;flex-direction:column;gap:11px;margin-top:4px}
@@ -72,6 +73,34 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 .spark .ar{fill:var(--c-lakon);opacity:.10}
 .spark .pt{fill:var(--c-lakon);stroke:var(--card);stroke-width:2}
 .spark text{font-size:9.5px;fill:var(--sub);font-family:inherit}
+
+/* ── แถบเลือกเดือน + สวิตช์นับยอด ── */
+.mnav{display:flex;align-items:center;gap:9px;margin-bottom:13px;flex-wrap:wrap}
+.mnav .mb{width:36px;height:36px;border-radius:11px;background:var(--card);border:1.5px solid var(--line);
+  font-size:.8rem;display:grid;place-items:center;color:var(--sub)}
+.mnav .mb:disabled{opacity:.35;cursor:default}
+.mnav .ml{font-size:.95rem;font-weight:800;min-width:128px;text-align:center}
+.seg{display:flex;background:var(--raise);border:1.5px solid var(--line);border-radius:11px;overflow:hidden}
+.seg button{padding:7px 13px;font-size:.73rem;font-weight:700;color:var(--sub)}
+.seg button.on{background:var(--card);color:var(--c-lakon);box-shadow:0 0 0 1.5px var(--c-lakon) inset;border-radius:9px}
+
+/* ── กราฟแท่งรายวัน (เลื่อนซ้ายขวาได้ ทุกแท่งมีตัวเลข แตะดูออเดอร์วันนั้น) ── */
+.dwrap{overflow-x:auto;padding-bottom:4px}
+.days{display:flex;align-items:flex-end;gap:2px;min-height:158px;padding-top:2px}
+.day{width:44px;flex:0 0 44px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  cursor:pointer;border-radius:9px;padding:3px 1px 4px}
+.day:hover{background:var(--raise)}
+.day .amt{font-size:9.5px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.day .bar{width:26px;border-radius:4px 4px 0 0;background:var(--c-lakon)}
+.day .dl{font-size:9.5px;color:var(--sub);margin-top:4px;white-space:nowrap}
+.day.z .amt{color:var(--faint);font-weight:500}
+.day.today .dl{color:var(--c-lakon);font-weight:800}
+.day.today{box-shadow:0 0 0 1.5px var(--line) inset}
+
+/* ── แถวแท่งที่กดเจาะได้ ── */
+.brow.click{cursor:pointer;border-radius:10px;padding:5px 7px;margin:-2px -7px;transition:background .15s}
+.brow.click:hover{background:var(--raise)}
+.chev{color:var(--faint);font-size:.7rem;font-weight:500;margin-left:5px}
 
 /* ── ตาราง ── */
 .tb{width:100%;border-collapse:collapse;font-size:.8rem}
@@ -272,6 +301,14 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
   </div>
 </div>
 
+<!-- 🔎 เจาะรายละเอียดยอดขาย (รายวัน / รายสาย / รายเซลส์) -->
+<div class="mask" id="dtMask">
+  <div class="sheet" style="max-width:760px">
+    <div style="display:flex;align-items:center;gap:8px"><h3 id="dtTitle" style="flex:1;margin:0"></h3><button class="bt bt-gray" id="dtClose">ปิด</button></div>
+    <div id="dtBody" style="margin-top:10px"></div>
+  </div>
+</div>
+
 <script>
 const GAS = 'https://script.google.com/macros/s/AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J/exec';
 const $ = id => document.getElementById(id);
@@ -281,6 +318,28 @@ const money = n => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigit
 let KEY = new URLSearchParams(location.search).get('key') || localStorage.getItem('EX_KEY') || '';
 let D = null;         // ข้อมูลล่าสุด
 let editRow = 0;      // แถวแผนที่กำลังแก้ (0 = เพิ่มใหม่)
+let MONTH = '';       // เดือนที่กำลังดู (yyyy-MM) — ว่าง = เดือนปัจจุบัน
+let ONLY_DONE = localStorage.getItem('EX_DONE') === '1';  // นับเฉพาะออเดอร์ส่งแล้ว/เก็บเงินแล้ว
+let LOADED_AT = null; // เวลาโหลดข้อมูลล่าสุด (กันดูข้อมูลแคชเก่าโดยไม่รู้ตัว)
+
+// โหมดข้อมูลสด = เซิร์ฟเวอร์ส่งรายละเอียดออเดอร์รายแถวมาให้เจาะดูได้
+const live = () => !!(D && D.source && Array.isArray(D.orders));
+const isDone = o => /ส่งแล้ว|เก็บเงิน|delivered/i.test(o.st || '');
+const FO = () => (D.orders || []).filter(o => !ONLY_DONE || isDone(o));
+function aggr() {   // สรุปยอดฝั่งแอปจากออเดอร์รายแถว (เปลี่ยนสวิตช์ = คิดใหม่ทันที ไม่ต้องโหลด)
+  const byLine = {}, bySeller = {}, byDay = {};
+  let amt = 0, qty = 0;
+  FO().forEach(o => {
+    amt += o.amt; qty += o.qty;
+    const L = byLine[o.line] = byLine[o.line] || { amount: 0, qty: 0 }; L.amount += o.amt; L.qty += o.qty;
+    const sk = o.seller || 'ไม่ระบุ';
+    const S = bySeller[sk] = bySeller[sk] || { amount: 0, qty: 0 }; S.amount += o.amt; S.qty += o.qty;
+    byDay[o.d] = (byDay[o.d] || 0) + o.amt;
+  });
+  return { amt, qty, byLine, bySeller, byDay };
+}
+const thMonth = mk => { const [y, m] = mk.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }); };
+const stPill = st => /ส่งแล้ว|เก็บเงิน/.test(st) ? 'p-green' : (/pending|กำลัง|รอ/i.test(st) ? 'p-gold' : 'p-gray');
 
 // ── สายผลิตภัณฑ์: ลำดับสีคงที่เสมอ ไม่ขึ้นกับยอดขาย (สีติดกับตัวสินค้า ไม่ใช่อันดับ) ──
 const LINES = [
@@ -312,16 +371,20 @@ async function api(params, retries = 1) {
 async function load() {
   if (!KEY) { $('keyMask').classList.add('on'); return; }
   try {
-    const j = await api({ action: 'exec' }, 2);
+    const prm = { action: 'exec' };
+    if (MONTH) prm.month = MONTH;
+    const j = await api(prm, 2);
     if (!j.ok) throw new Error(j.error === 'unauthorized' ? 'รหัสไม่ถูกต้อง' : (j.error || 'โหลดไม่สำเร็จ'));
     D = j;
+    MONTH = j.monthKey || MONTH;
+    LOADED_AT = new Date();
     localStorage.setItem('EX_KEY', KEY);
     localStorage.setItem('EX_CACHE', JSON.stringify({ t: Date.now(), d: j }));
     render();
   } catch (e) {
     if (String(e.message).indexOf('รหัส') !== -1) { localStorage.removeItem('EX_KEY'); KEY = ''; $('keyMask').classList.add('on'); return; }
     // ออฟไลน์ → ใช้ของแคชไปก่อน ไม่ให้จอว่างเปล่า
-    try { const c = JSON.parse(localStorage.getItem('EX_CACHE') || 'null'); if (c) { D = c.d; render(); toast('ออฟไลน์ — แสดงข้อมูลล่าสุดที่โหลดไว้'); return; } } catch (x) {}
+    try { const c = JSON.parse(localStorage.getItem('EX_CACHE') || 'null'); if (c) { D = c.d; MONTH = c.d.monthKey || MONTH; LOADED_AT = new Date(c.t); render(); toast('ออฟไลน์ — แสดงข้อมูลล่าสุดที่โหลดไว้'); return; } } catch (x) {}
     $('app').innerHTML = '<div class="empty">⚠️ ' + esc(e.message) + '</div>';
   }
 }
@@ -330,18 +393,33 @@ function render() {
   $('role').textContent = D.role === 'ceo' ? '👑 CEO' : '👔 ผู้บริหาร';
   $('role').className = 'role' + (D.role === 'ceo' ? ' ceo' : '');
   const k = D.kpi;
+  const A = live() ? aggr() : null;   // โหมดสด: คิดยอดจากออเดอร์รายแถวตามสวิตช์
+  const salesAmt = A ? A.amt : k.salesAmount, salesQty = A ? A.qty : k.salesQty;
+  const atCurMonth = !D.nowMonth || !D.monthKey || D.monthKey >= D.nowMonth;
   let h = '';
+
+  // ── แถบเลือกเดือน + สวิตช์นับยอด ──
+  h += `<div class="mnav">
+    <button class="mb" id="mPrev">◀</button>
+    <span class="ml">${esc(D.monthKey ? thMonth(D.monthKey) : D.month)}</span>
+    <button class="mb" id="mNext" ${atCurMonth ? 'disabled' : ''}>▶</button>
+    <span style="flex:1"></span>
+    ${live() ? `<div class="seg">
+      <button id="segAll" class="${ONLY_DONE ? '' : 'on'}">ทุกออเดอร์</button>
+      <button id="segDone" class="${ONLY_DONE ? 'on' : ''}">เฉพาะส่งแล้ว</button>
+    </div>` : ''}
+  </div>`;
 
   // ── KPI ──
   h += `<div class="kpis">
-    <div class="k gold"><div class="lb">ยอดขายเดือน ${esc(D.month)}</div><div class="v">${money(k.salesAmount)}<span class="u">บาท</span></div><div class="sub">${money(k.salesQty)} ลัง</div></div>
-    <div class="k teal"><div class="lb">ผลิตเดือนนี้</div><div class="v">${money(k.produced)}<span class="u">ลัง</span></div><div class="sub">ของเสีย ${k.wastePct}% (${money(k.waste)} ลัง)</div></div>
+    <div class="k gold"><div class="lb">ยอดขายเดือน ${esc(D.month)}</div><div class="v">${money(salesAmt)}<span class="u">บาท</span></div><div class="sub">${money(salesQty)} ลัง${ONLY_DONE && live() ? ' · เฉพาะส่งแล้ว' : ''}</div></div>
+    <div class="k teal"><div class="lb">ผลิตเดือน ${esc(D.month)}</div><div class="v">${money(k.produced)}<span class="u">ลัง</span></div><div class="sub">ของเสีย ${k.wastePct}% (${money(k.waste)} ลัง)</div></div>
     <div class="k green"><div class="lb">พนักงานปฏิบัติงาน</div><div class="v">${money(k.staff)}<span class="u">คน</span></div><div class="sub">จากทะเบียนพนักงาน</div></div>
     <div class="k${k.openTasks ? ' red' : ''}"><div class="lb">งานโรงน้ำค้างอยู่</div><div class="v">${money(k.openTasks)}<span class="u">งาน</span></div><div class="sub">บนบอร์ดทีม AI</div></div>
   </div>`;
 
   if (D.source) {
-    h += `<div class="sec" style="padding:11px 14px;margin-bottom:12px"><div style="font-size:.78rem;color:var(--teal);font-weight:600">🔌 ข้อมูลสดจาก${esc(D.source)} — อัปเดตอัตโนมัติ ไม่ต้องกรอกมือ</div></div>`;
+    h += `<div class="sec" style="padding:11px 14px;margin-bottom:12px"><div style="font-size:.78rem;color:var(--teal);font-weight:600">🔌 ข้อมูลสดจาก${esc(D.source)} — อัปเดตอัตโนมัติ${LOADED_AT ? ' · โหลดเมื่อ ' + LOADED_AT.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.' : ''}</div></div>`;
   }
 
   if (!D.hasData) {
@@ -351,12 +429,21 @@ function render() {
       กรอกข้อมูลลงไป แล้วกดรีเฟรช ตัวเลขและกราฟจะขึ้นเองค่ะ</div></div>`;
   }
 
-  // ── ยอดขายแยกสายผลิตภัณฑ์ + เทรนด์ ──
+  // ── ยอดขายแยกสายผลิตภัณฑ์ + รายวัน ──
   h += '<div class="grid2">';
   h += `<div class="sec"><h2>💰 ยอดขายแยกสายผลิตภัณฑ์</h2>
-    <div class="hint">เดือน ${esc(D.month)} — แยกเสมอเพราะแต่ละสายมาร์จิ้นต่างกันมาก</div>${barsHtml(D.byLine, 'amount', 'บาท')}</div>`;
-  h += `<div class="sec"><h2>📈 ยอดขาย 14 วันล่าสุด</h2><div class="hint">รวมทุกสายผลิตภัณฑ์ (บาท/วัน)</div>${sparkHtml(D.trend)}</div>`;
+    <div class="hint">เดือน ${esc(D.month)} — แยกเสมอเพราะแต่ละสายมาร์จิ้นต่างกันมาก${live() ? ' · แตะสายเพื่อดูรายสินค้า/ลูกค้า' : ''}</div>${barsHtml(A ? A.byLine : D.byLine, 'amount', 'บาท', live())}</div>`;
+  if (live()) {
+    h += `<div class="sec"><h2>📊 ยอดขายรายวัน</h2><div class="hint">เดือน ${esc(D.month)} รวมทุกสาย (บาท/วัน) — แตะวันไหนเพื่อดูออเดอร์วันนั้น</div>${dailyHtml(A.byDay)}</div>`;
+  } else {
+    h += `<div class="sec"><h2>📈 ยอดขาย 14 วันล่าสุด</h2><div class="hint">รวมทุกสายผลิตภัณฑ์ (บาท/วัน)</div>${sparkHtml(D.trend)}</div>`;
+  }
   h += '</div>';
+
+  // ── ยอดขายรายเซลส์ (โหมดสดเท่านั้น — ต้องมีออเดอร์รายแถว) ──
+  if (live()) {
+    h += `<div class="sec"><h2>🧑‍💼 ยอดขายรายเซลส์</h2><div class="hint">เดือน ${esc(D.month)} — ใครขายเท่าไหร่ กี่เปอร์เซ็นต์ · แตะชื่อเพื่อดูออเดอร์</div>${sellersHtml(A.bySeller)}</div>`;
+  }
 
   // ── การผลิต ──
   h += `<div class="sec"><h2>🏭 การผลิตเดือนนี้</h2><div class="hint">ผลิตได้ / ของเสีย แยกตามสายผลิตภัณฑ์</div>${prodHtml(D.prodByLine)}</div>`;
@@ -386,6 +473,131 @@ function render() {
     el.onclick = () => openPlan(D.plans.find(p => String(p.row) === el.dataset.plan));
   });
   bindHr();
+  bindPhase1();
+}
+
+// ── ผูกอีเวนต์: เลือกเดือน / สวิตช์ / เจาะรายวัน-รายสาย-รายเซลส์ ──
+function monthShift(n) {
+  const [y, m] = (MONTH || new Date().toISOString().slice(0, 7)).split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  MONTH = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  toast('กำลังโหลด ' + thMonth(MONTH) + '...');
+  load();
+}
+function bindPhase1() {
+  if ($('mPrev')) $('mPrev').onclick = () => monthShift(-1);
+  if ($('mNext')) $('mNext').onclick = () => monthShift(1);
+  if ($('segAll')) $('segAll').onclick = () => { ONLY_DONE = false; localStorage.setItem('EX_DONE', ''); render(); };
+  if ($('segDone')) $('segDone').onclick = () => { ONLY_DONE = true; localStorage.setItem('EX_DONE', '1'); render(); };
+  document.querySelectorAll('[data-dday]').forEach(el => el.onclick = () => openDay(el.dataset.dday));
+  document.querySelectorAll('[data-dline]').forEach(el => el.onclick = () => lineDrill(el.dataset.dline));
+  document.querySelectorAll('[data-dseller]').forEach(el => el.onclick = () => {
+    const s = el.dataset.dseller;
+    openOrders('🧑‍💼 ออเดอร์ของ ' + s + ' — ' + thMonth(MONTH), FO().filter(o => (o.seller || 'ไม่ระบุ') === s), true);
+  });
+  // เลื่อนกราฟรายวันไปหยุดที่วันนี้/วันล่าสุดที่มียอด (ไม่ใช่ท้ายเดือนที่ยังว่าง)
+  const dw = document.querySelector('.dwrap');
+  if (dw) {
+    const days = dw.querySelectorAll('.day');
+    let target = dw.querySelector('.day.today');
+    if (!target) for (let i = days.length - 1; i >= 0; i--) if (!days[i].classList.contains('z')) { target = days[i]; break; }
+    if (target) dw.scrollLeft = Math.max(0, target.offsetLeft - dw.clientWidth + 90);
+  }
+}
+
+// ── กราฟแท่งรายวันทั้งเดือน — ทุกแท่งมีตัวเลขอ่านได้จริง แตะ = ออเดอร์วันนั้น ──
+function dailyHtml(byDay) {
+  if (!MONTH) return '<div class="empty">ยังไม่มีข้อมูล</div>';
+  const [y, m] = MONTH.split('-').map(Number);
+  const dim = new Date(y, m, 0).getDate();
+  const today = new Date(); today.setMinutes(today.getMinutes() - today.getTimezoneOffset() + 420);
+  const todayKey = today.toISOString().slice(0, 10);
+  const vals = []; for (let dd = 1; dd <= dim; dd++) vals.push(byDay[MONTH + '-' + String(dd).padStart(2, '0')] || 0);
+  const max = Math.max(...vals);
+  if (!max) return '<div class="empty">ยังไม่มียอดขายในเดือนนี้</div>';
+  let h = '<div class="dwrap"><div class="days">';
+  for (let dd = 1; dd <= dim; dd++) {
+    const key = MONTH + '-' + String(dd).padStart(2, '0');
+    const v = vals[dd - 1];
+    h += `<div class="day${v ? '' : ' z'}${key === todayKey ? ' today' : ''}" data-dday="${key}" role="button" title="แตะดูออเดอร์">
+      <span class="amt">${v ? money(v) : '–'}</span>
+      <div class="bar" style="height:${v ? Math.max(4, Math.round(v / max * 92)) : 2}px${v ? '' : ';opacity:.25'}"></div>
+      <span class="dl">${dd}</span></div>`;
+  }
+  return h + '</div></div>';
+}
+
+// ── ยอดรายเซลส์ — แท่งสีเดียว (ตัวตนอยู่ที่ชื่อ ไม่ใช่สี) เรียงมาก→น้อย ──
+function sellersHtml(bySeller) {
+  const keys = Object.keys(bySeller || {});
+  if (!keys.length) return '<div class="empty">ยังไม่มีข้อมูลยอดขายเดือนนี้</div>';
+  keys.sort((a, b) => bySeller[b].amount - bySeller[a].amount);
+  const total = keys.reduce((s, k) => s + bySeller[k].amount, 0) || 1;
+  const max = bySeller[keys[0]].amount || 1;
+  return '<div class="bars">' + keys.map(k => {
+    const v = bySeller[k];
+    return `<div class="brow click" data-dseller="${esc(k)}">
+      <div class="top"><span class="nm"><span class="sw" style="background:var(--navy)"></span>${esc(k)}<span class="chev">▸ ดูออเดอร์</span></span>
+      <span class="val">${money(v.amount)} <span style="font-weight:500;color:var(--sub);font-size:.72rem">บาท</span></span></div>
+      <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(v.amount / max * 100))}%;background:var(--navy)"></div></div>
+      <div class="pct">${Math.round(v.amount / total * 100)}% ของยอดเดือนนี้ · ${money(v.qty)} ลัง</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+// ── เจาะสายผลิตภัณฑ์ → รายสินค้า + ลูกค้ารายใหญ่ + ออเดอร์ทั้งหมด ──
+function lineDrill(line) {
+  const os = FO().filter(o => o.line === line);
+  if (!os.length) { toast('ไม่มีออเดอร์สาย ' + line + ' ในเดือนนี้'); return; }
+  const L = lineOf(line);
+  const byProd = {}, byCust = {};
+  let tot = 0;
+  os.forEach(o => {
+    tot += o.amt;
+    const P = byProd[o.prod || '(ไม่ระบุสินค้า)'] = byProd[o.prod || '(ไม่ระบุสินค้า)'] || { amount: 0, qty: 0 };
+    P.amount += o.amt; P.qty += o.qty;
+    const C = byCust[o.cust || '(ไม่ระบุลูกค้า)'] = byCust[o.cust || '(ไม่ระบุลูกค้า)'] || { amount: 0, qty: 0 };
+    C.amount += o.amt; C.qty += o.qty;
+  });
+  const pk = Object.keys(byProd).sort((a, b) => byProd[b].amount - byProd[a].amount);
+  const pmax = byProd[pk[0]].amount || 1;
+  let h = `<div class="hint" style="margin-bottom:8px">เดือน ${esc(D.month)} · รวม <b>${money(tot)}</b> บาท · ${os.length} รายการ${ONLY_DONE ? ' (เฉพาะส่งแล้ว)' : ''}</div>`;
+  h += '<h4 style="font-size:.82rem;margin:8px 0 6px">📦 แยกรายสินค้า</h4><div class="bars">';
+  h += pk.map(k => `<div class="brow">
+      <div class="top"><span class="nm"><span class="sw" style="background:${L.color}"></span>${esc(k)}</span>
+      <span class="val">${money(byProd[k].amount)} <span style="font-weight:500;color:var(--sub);font-size:.72rem">บาท</span></span></div>
+      <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(byProd[k].amount / pmax * 100))}%;background:${L.color}"></div></div>
+      <div class="pct">${Math.round(byProd[k].amount / (tot || 1) * 100)}% ของสายนี้ · ${money(byProd[k].qty)} ลัง</div>
+    </div>`).join('') + '</div>';
+  const ck = Object.keys(byCust).sort((a, b) => byCust[b].amount - byCust[a].amount).slice(0, 8);
+  h += '<h4 style="font-size:.82rem;margin:14px 0 4px">🤝 ลูกค้ารายใหญ่</h4><div class="scroll"><table class="tb"><tr><th>ลูกค้า</th><th class="num">ลัง</th><th class="num">ยอด (บาท)</th><th class="num">%</th></tr>';
+  h += ck.map(k => `<tr><td>${esc(k)}</td><td class="num">${money(byCust[k].qty)}</td><td class="num"><b>${money(byCust[k].amount)}</b></td><td class="num">${Math.round(byCust[k].amount / (tot || 1) * 100)}%</td></tr>`).join('');
+  h += '</table></div>';
+  h += `<button class="bt bt-main" id="dtAllOrders" style="margin-top:12px">📄 ดูออเดอร์ทั้งหมด (${os.length})</button>`;
+  $('dtTitle').textContent = '💰 สาย' + line + ' — ' + thMonth(MONTH);
+  $('dtBody').innerHTML = h;
+  $('dtMask').classList.add('on');
+  $('dtAllOrders').onclick = () => openOrders('💰 ออเดอร์สาย' + line + ' — ' + thMonth(MONTH), os, true);
+}
+
+// ── ตารางออเดอร์ (ใช้ร่วม: รายวัน / รายสาย / รายเซลส์) ──
+function openDay(key) {
+  const os = FO().filter(o => o.d === key);
+  const lbl = new Date(key).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  openOrders('📊 ออเดอร์วัน' + lbl, os, false);
+}
+function openOrders(title, os, showDate) {
+  const tot = os.reduce((s, o) => s + o.amt, 0), totQ = os.reduce((s, o) => s + o.qty, 0);
+  let h = `<div class="hint" style="margin-bottom:8px">รวม <b>${money(tot)}</b> บาท · ${money(totQ)} ลัง · ${os.length} รายการ${ONLY_DONE ? ' (เฉพาะส่งแล้ว)' : ''}</div>`;
+  h += os.length ? '<div class="scroll"><table class="tb"><tr>' + (showDate ? '<th>วันที่</th>' : '') + '<th>ลูกค้า</th><th>สินค้า</th><th class="num">ลัง</th><th class="num">ยอด</th><th>สถานะ</th></tr>' +
+    os.map(o => `<tr>${showDate ? '<td style="white-space:nowrap">' + esc(o.d.slice(8) + '/' + o.d.slice(5, 7)) + '</td>' : ''}
+      <td>${esc(o.cust || '—')}</td><td>${esc(o.prod || '—')}${o.seller ? ' <span style="color:var(--faint);font-size:.7rem">· ' + esc(o.seller) + '</span>' : ''}</td>
+      <td class="num">${money(o.qty)}</td><td class="num"><b>${money(o.amt)}</b></td>
+      <td><span class="pill ${stPill(o.st)}">${esc(o.st || '—')}</span>${/unpaid|ค้าง/i.test(o.pay) ? ' <span class="pill p-red">ยังไม่จ่าย</span>' : ''}</td></tr>`).join('') +
+    '</table></div>' : '<div class="empty">ไม่มีออเดอร์</div>';
+  $('dtTitle').textContent = title;
+  $('dtBody').innerHTML = h;
+  $('dtMask').classList.add('on');
 }
 
 // ════════════════════════════════════════════════════════════
@@ -609,7 +821,8 @@ async function savePayForm(markPaid) {
 }
 
 // แท่งเทียบสัดส่วน + ป้ายตัวเลขบนทุกแท่ง (secondary encoding — ไม่พึ่งสีอย่างเดียว)
-function barsHtml(obj, field, unit) {
+// clickable = โหมดสด: แตะสายเพื่อเจาะรายสินค้า/ลูกค้า
+function barsHtml(obj, field, unit, clickable) {
   const keys = Object.keys(obj || {});
   if (!keys.length) return '<div class="empty">ยังไม่มีข้อมูลยอดขายเดือนนี้</div>';
   const total = keys.reduce((s, k) => s + (obj[k][field] || 0), 0) || 1;
@@ -619,8 +832,8 @@ function barsHtml(obj, field, unit) {
     .concat(keys.filter(k => !LINES.some(l => l.match.test(k))));
   return '<div class="bars">' + ordered.map(k => {
     const v = obj[k][field] || 0, L = lineOf(k);
-    return `<div class="brow">
-      <div class="top"><span class="nm"><span class="sw" style="background:${L.color}"></span>${esc(k)}</span>
+    return `<div class="brow${clickable ? ' click" data-dline="' + esc(k) : ''}">
+      <div class="top"><span class="nm"><span class="sw" style="background:${L.color}"></span>${esc(k)}${clickable ? '<span class="chev">▸ เจาะดู</span>' : ''}</span>
       <span class="val">${money(v)} <span style="font-weight:500;color:var(--sub);font-size:.72rem">${unit}</span></span></div>
       <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(v / max * 100))}%;background:${L.color}"></div></div>
       <div class="pct">${Math.round(v / total * 100)}% ของยอดเดือนนี้ · ${money(obj[k].qty || 0)} ลัง</div>
@@ -705,8 +918,9 @@ $('lv_save').onclick = saveLeaveForm;
 $('py_close').onclick = () => $('pyMask').classList.remove('on');
 $('py_save').onclick = () => savePayForm(false);
 $('py_paid').onclick = () => savePayForm(true);
-// แตะพื้นหลังมืดเพื่อปิด (เฉพาะ modal HR — ฟอร์มแผนเดิมคงพฤติกรรมเดิม)
-['hrMask', 'sfMask', 'lvMask', 'pyMask'].forEach(id => $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).classList.remove('on'); }));
+$('dtClose').onclick = () => $('dtMask').classList.remove('on');
+// แตะพื้นหลังมืดเพื่อปิด (เฉพาะ modal HR/เจาะยอด — ฟอร์มแผนเดิมคงพฤติกรรมเดิม)
+['hrMask', 'sfMask', 'lvMask', 'pyMask', 'dtMask'].forEach(id => $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).classList.remove('on'); }));
 $('planMask').onclick = e => { if (e.target === $('planMask')) $('planMask').classList.remove('on'); };
 async function savePlan(del) {
   const btn = del ? $('p_del') : $('p_save');

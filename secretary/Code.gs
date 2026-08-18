@@ -269,7 +269,7 @@ function doGet(e) {
   }
 
   // 🏭 แอปผู้บริหาร — ภาพรวมบริษัท (รับทั้ง EXEC_KEY และ QUEUE_KEY ของ CEO)
-  if (p.action === 'exec') return jsonOut(execDashboard(p.key));
+  if (p.action === 'exec') return jsonOut(execDashboard(p.key, p.month));
   if (p.action === 'execSave') {
     return jsonOut(execSavePlan(p.key, { row: p.row, level: p.level, title: p.title, detail: p.detail,
                                          period: p.period, kpi: p.kpi, status: p.status, del: p.del }));
@@ -2658,6 +2658,16 @@ function plantFeed(monthPrefix) {
       const id = String(r[0] || '').trim(); if (!id) return;
       prodName[id] = String(r[11] || '').trim() || (String(r[1] || '') + ' ' + String(r[2] || '')).trim();
     });
+    // ── ชื่อลูกค้าจากรหัส (แท็บโรงงาน/LINE เก็บแต่ Customer_ID) ──
+    const custName = {};
+    plantRows('Customers').forEach(function (r) {
+      const id = String(r[0] || '').trim(); if (!id) return;
+      custName[id] = String(r[8] || '').trim() || String(r[1] || '').trim();
+    });
+    plantRows('Customers_Sales').forEach(function (r) {
+      const id = String(r[0] || '').trim(); if (!id) return;
+      custName[id] = String(r[1] || '').trim() || custName[id] || '';
+    });
 
     // ── ออเดอร์จากทุกช่องทาง (โรงงาน/LINE/เซลส์/OEM) ──
     // คอลัมน์ Orders & Orders_LINE: A=Order_ID B=Date C=Customer D=Product_ID E=Qty F=UnitPrice ... I=TotalPrice ... M=หมวด
@@ -2671,24 +2681,31 @@ function plantFeed(monthPrefix) {
         const amt = execNum(r[8]) || (qty * execNum(r[5]));
         // แถวหมวด OEM ที่ยอดเงิน 0 = แถวเงา (เงินจริงบันทึกในแท็บ Orders_OEM) — ข้ามกันนับลังซ้ำ
         if (/OEM/.test(cat) && !amt) return;
-        const pid = String(r[3] || '');
-        out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, cat), qty: qty, amount: amt });
+        const pid = String(r[3] || ''), cid = String(r[2] || '');
+        out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, cat), qty: qty, amount: amt,
+                         prod: prodName[pid] || pid, cust: custName[cid] || cid,
+                         seller: String(r[6] || ''), st: String(r[7] || ''), pay: String(r[9] || '') });
       });
     });
-    // Orders_Sales: C=วันที่(2) H=Product_ID(7) I=สินค้า(8) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) O=สถานะ(14)
+    // Orders_Sales: C=วันที่(2) E=เซลส์(4) G=ชื่อลูกค้า(6) H=Product_ID(7) I=สินค้า(8) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) N=การชำระ(13) O=สถานะ(14)
     plantRows('Orders_Sales', 4000).forEach(function (r) {
       const dk = execDateKey(r[2]) || execDateKey(r[1]); if (!dk) return;
       if (/ยกเลิก|cancel/i.test(String(r[14] || ''))) return;
       const pid = String(r[7] || ''), qty = execNum(r[9]);
       const amt = execNum(r[12]) || (qty * execNum(r[11]));
-      out.sales.push({ date: dk, line: lineOfProduct(String(r[8] || '') || prodName[pid] || pid, ''), qty: qty, amount: amt });
+      const pname = String(r[8] || '') || prodName[pid] || pid;
+      out.sales.push({ date: dk, line: lineOfProduct(pname, ''), qty: qty, amount: amt,
+                       prod: pname, cust: String(r[6] || ''),
+                       seller: String(r[4] || ''), st: String(r[14] || ''), pay: String(r[13] || '') });
     });
-    // Orders_OEM: C=วันที่(2) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) P=สถานะ(15) — สาย OEM เสมอ
+    // Orders_OEM: C=วันที่(2) E=เซลส์(4) G=ชื่อลูกค้า(6) H=แบรนด์(7) I=ขนาด(8) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) N=การชำระ(13) P=สถานะ(15) — สาย OEM เสมอ
     plantRows('Orders_OEM', 2000).forEach(function (r) {
       const dk = execDateKey(r[2]) || execDateKey(r[1]); if (!dk) return;
       if (/ยกเลิก|cancel/i.test(String(r[15] || ''))) return;
       const qty = execNum(r[9]);
-      out.sales.push({ date: dk, line: 'OEM', qty: qty, amount: execNum(r[12]) || (qty * execNum(r[11])) });
+      out.sales.push({ date: dk, line: 'OEM', qty: qty, amount: execNum(r[12]) || (qty * execNum(r[11])),
+                       prod: ('OEM ' + String(r[7] || '') + ' ' + String(r[8] || '')).trim(), cust: String(r[6] || ''),
+                       seller: String(r[4] || ''), st: String(r[15] || ''), pay: String(r[13] || '') });
     });
 
     // ── การผลิตจาก ProductionLog: K=วันที่(10) E=Qty_Produced(4) F=GradeB/Waste(5) M=สินค้า(12) N=ประเภท(13) ──
@@ -2774,12 +2791,14 @@ function plantSalesSummaryText(which) {
 }
 
 // รวมข้อมูลให้แอปผู้บริหารในครั้งเดียว (ประหยัดรอบเรียก GAS)
-function execDashboard(key) {
+function execDashboard(key, month) {
   const role = execAuth(key);
   if (!role) return { ok: false, error: 'unauthorized' };
   try {
     const now = new Date();
-    const monthPrefix = Utilities.formatDate(now, 'GMT+7', 'yyyy-MM');
+    // เลือกดูเดือนไหนก็ได้ (yyyy-MM) — ไม่ระบุ/รูปแบบผิด = เดือนปัจจุบัน
+    const monthPrefix = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(month || '')) ? String(month)
+                        : Utilities.formatDate(now, 'GMT+7', 'yyyy-MM');
     let sales = execRows('ExecSales'), prod = execRows('ExecProduction');
     let staff = execRows('ExecStaff');
     const plans = execRows('ExecPlans');
@@ -2843,8 +2862,22 @@ function execDashboard(key) {
       });
     } catch (e) {}
 
+    // รายละเอียดออเดอร์ของเดือนที่ดู (เฉพาะโหมดข้อมูลสด) — ให้แอปเจาะดูรายวัน/รายสินค้า/รายเซลส์ได้เอง
+    let orders = [];
+    if (liveSource && feed.sales.length) {
+      orders = feed.sales.filter(function (s) { return s.date.indexOf(monthPrefix) === 0; })
+        .sort(function (a, b) { return a.date < b.date ? -1 : 1; })
+        .map(function (s) {
+          return { d: s.date, line: s.line, prod: s.prod || '', cust: s.cust || '', seller: s.seller || '',
+                   qty: s.qty, amt: s.amount, st: s.st || '', pay: s.pay || '' };
+        });
+    }
+
     return {
-      ok: true, role: role, month: Utilities.formatDate(now, 'GMT+7', 'MM/yyyy'),
+      ok: true, role: role,
+      month: monthPrefix.slice(5) + '/' + monthPrefix.slice(0, 4), monthKey: monthPrefix,
+      nowMonth: Utilities.formatDate(now, 'GMT+7', 'yyyy-MM'),
+      orders: orders,
       kpi: {
         salesAmount: mAmt, salesQty: mQty,
         produced: pMade, waste: pWaste,
