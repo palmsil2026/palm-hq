@@ -9,7 +9,7 @@
 | ชิ้นส่วน | ที่รันจริง | สถานะเทียบ repo |
 |---|---|---|
 | หน้าเว็บทั้งหมด (`index.html`, `board/`, `exec/`, `request.html`) | GitHub Pages ของ repo นี้ `palmsil2026.github.io/palm-hq/` | ✅ push `main` = ขึ้นจริงใน ~1 นาที |
-| GAS คุณเลขา (`secretary/Code.gs`) — บอท LINE + บอร์ด + exec API + HR | Apps Script deployment `AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J` | ✅ **ตรงกับ `main`** — `CODE_VERSION = 2026-08-17b` (พิมพ์ "เช็คระบบ" ในไลน์เพื่อยืนยันเวอร์ชันได้ตลอด) |
+| GAS คุณเลขา (`secretary/Code.gs`) — บอท LINE + บอร์ด + exec API + HR | Apps Script deployment `AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J` | ⏳ **ตามหลัง main 1 commit** — รอวาง `CODE_VERSION = 2026-08-18a` (พนักงานถามยอดร้านในกลุ่ม Old Days ได้) · พิมพ์ "เช็คระบบ" ในไลน์เพื่อยืนยันเวอร์ชันที่รันจริง |
 
 ### รอ deploy GAS เลขา
 - _(ไม่มี)_
