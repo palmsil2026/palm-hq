@@ -74,6 +74,21 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 .spark .pt{fill:var(--c-lakon);stroke:var(--card);stroke-width:2}
 .spark text{font-size:9.5px;fill:var(--sub);font-family:inherit}
 
+/* ── หน้าโหลดแบบเกม (แถบเปอร์เซ็นต์คร่าว ๆ ให้รู้ว่าระบบกำลังทำงาน) ── */
+#loader{position:fixed;inset:0;background:var(--bg);z-index:200;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:13px;transition:opacity .45s}
+#loader.off{opacity:0;pointer-events:none}
+#loader .lg{width:76px;height:76px;border-radius:22px;background:linear-gradient(140deg,var(--navy),var(--c-lakon));
+  display:grid;place-items:center;font-size:38px;color:#fff;animation:ldpulse 1.6s ease-in-out infinite}
+@keyframes ldpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+#loader .tt{font-weight:800;font-size:1.08rem;letter-spacing:.3px}
+#loader .st{font-size:.78rem;color:var(--sub);min-height:1.3em}
+#loader .track{width:min(340px,74vw);height:11px;border-radius:99px;background:var(--raise);
+  border:1px solid var(--line);overflow:hidden}
+#loader .fill{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,var(--c-lakon),var(--teal));transition:width .25s}
+#loader .pctn{font-size:.74rem;color:var(--faint);font-variant-numeric:tabular-nums;font-weight:600}
+@media(prefers-reduced-motion:reduce){#loader .lg{animation:none}}
+
 /* ── แถบเลือกเดือน + สวิตช์นับยอด ── */
 .mnav{display:flex;align-items:center;gap:9px;margin-bottom:13px;flex-wrap:wrap}
 .mnav .mb{width:36px;height:36px;border-radius:11px;background:var(--card);border:1.5px solid var(--line);
@@ -163,6 +178,15 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 </div>
 
 <div id="app"><div class="empty">กำลังโหลดข้อมูล...</div></div>
+
+<!-- หน้าโหลดแบบเกม -->
+<div id="loader" class="off">
+  <div class="lg">🏭</div>
+  <div class="tt">ORIGIN LABS</div>
+  <div class="track"><div class="fill" id="ldFill"></div></div>
+  <div class="pctn" id="ldPct">0%</div>
+  <div class="st" id="ldStep"></div>
+</div>
 
 <div class="mask" id="keyMask">
   <div class="sheet">
@@ -368,8 +392,30 @@ async function api(params, retries = 1) {
   }
 }
 
+// ── หน้าโหลดแบบเกม: เปอร์เซ็นต์วิ่งเองแบบคร่าว ๆ (ไต่เร็วช่วงแรก ช้าลงใกล้ 92%) จบจริงค่อยดีดไป 100 ──
+const LD_STEPS = ['กำลังเชื่อมต่อเซิร์ฟเวอร์...', 'ดึงออเดอร์จากระบบขาย-โรงงาน...', 'รวมยอดผลิตและทะเบียนพนักงาน...', 'เตรียมกราฟและการ์ดข้อมูล...'];
+let ldTimer = null, ldP = 0;
+function loaderStart() {
+  ldP = 0; $('ldFill').style.width = '0%'; $('ldPct').textContent = '0%'; $('ldStep').textContent = LD_STEPS[0];
+  $('loader').classList.remove('off');
+  clearInterval(ldTimer);
+  ldTimer = setInterval(() => {
+    ldP = Math.min(92, ldP + (92 - ldP) * 0.055 + 0.35);
+    $('ldFill').style.width = ldP + '%';
+    $('ldPct').textContent = Math.round(ldP) + '%';
+    $('ldStep').textContent = LD_STEPS[Math.min(LD_STEPS.length - 1, Math.floor(ldP / 24))];
+  }, 130);
+}
+function loaderDone() {
+  if ($('loader').classList.contains('off')) return;
+  clearInterval(ldTimer);
+  $('ldFill').style.width = '100%'; $('ldPct').textContent = '100%'; $('ldStep').textContent = 'พร้อมใช้งานค่ะ';
+  setTimeout(() => $('loader').classList.add('off'), 380);
+}
+
 async function load() {
   if (!KEY) { $('keyMask').classList.add('on'); return; }
+  if (!D) loaderStart();   // เปิดแอปครั้งแรกยังไม่มีอะไรบนจอ → โชว์หน้าโหลด (เปลี่ยนเดือน/รีเฟรชไม่ต้อง)
   try {
     const prm = { action: 'exec' };
     if (MONTH) prm.month = MONTH;
@@ -381,7 +427,9 @@ async function load() {
     localStorage.setItem('EX_KEY', KEY);
     localStorage.setItem('EX_CACHE', JSON.stringify({ t: Date.now(), d: j }));
     render();
+    loaderDone();
   } catch (e) {
+    loaderDone();
     if (String(e.message).indexOf('รหัส') !== -1) { localStorage.removeItem('EX_KEY'); KEY = ''; $('keyMask').classList.add('on'); return; }
     // ออฟไลน์ → ใช้ของแคชไปก่อน ไม่ให้จอว่างเปล่า
     try { const c = JSON.parse(localStorage.getItem('EX_CACHE') || 'null'); if (c) { D = c.d; MONTH = c.d.monthKey || MONTH; LOADED_AT = new Date(c.t); render(); toast('ออฟไลน์ — แสดงข้อมูลล่าสุดที่โหลดไว้'); return; } } catch (x) {}
@@ -390,7 +438,7 @@ async function load() {
 }
 
 function render() {
-  $('role').textContent = D.role === 'ceo' ? '👑 CEO' : '👔 ผู้บริหาร';
+  $('role').textContent = D.role === 'ceo' ? '👑 CEO' : '👔 ' + (D.viewer || 'ผู้บริหาร');
   $('role').className = 'role' + (D.role === 'ceo' ? ' ceo' : '');
   const k = D.kpi;
   const A = live() ? aggr() : null;   // โหมดสด: คิดยอดจากออเดอร์รายแถวตามสวิตช์
@@ -410,9 +458,19 @@ function render() {
     </div>` : ''}
   </div>`;
 
+  // เทียบเดือนก่อน (ตามสวิตช์นับยอด)
+  let cmp = '';
+  if (live() && D.prev) {
+    const p = ONLY_DONE ? D.prev.done : D.prev.all;
+    if (p && p.amt > 0) {
+      const pct = Math.round((salesAmt - p.amt) / p.amt * 100);
+      cmp = ` · <span style="color:${pct >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:700">${pct >= 0 ? '▲ +' : '▼ '}${pct}%</span> จากเดือนก่อน`;
+    } else if (salesAmt > 0) cmp = ' · เดือนก่อนไม่มียอดในระบบ';
+  }
+
   // ── KPI ──
   h += `<div class="kpis">
-    <div class="k gold"><div class="lb">ยอดขายเดือน ${esc(D.month)}</div><div class="v">${money(salesAmt)}<span class="u">บาท</span></div><div class="sub">${money(salesQty)} ลัง${ONLY_DONE && live() ? ' · เฉพาะส่งแล้ว' : ''}</div></div>
+    <div class="k gold"><div class="lb">ยอดขายเดือน ${esc(D.month)}</div><div class="v">${money(salesAmt)}<span class="u">บาท</span></div><div class="sub">${money(salesQty)} ลัง${ONLY_DONE && live() ? ' · เฉพาะส่งแล้ว' : ''}${cmp}</div></div>
     <div class="k teal"><div class="lb">ผลิตเดือน ${esc(D.month)}</div><div class="v">${money(k.produced)}<span class="u">ลัง</span></div><div class="sub">ของเสีย ${k.wastePct}% (${money(k.waste)} ลัง)</div></div>
     <div class="k green"><div class="lb">พนักงานปฏิบัติงาน</div><div class="v">${money(k.staff)}<span class="u">คน</span></div><div class="sub">จากทะเบียนพนักงาน</div></div>
     <div class="k${k.openTasks ? ' red' : ''}"><div class="lb">งานโรงน้ำค้างอยู่</div><div class="v">${money(k.openTasks)}<span class="u">งาน</span></div><div class="sub">บนบอร์ดทีม AI</div></div>
@@ -443,6 +501,12 @@ function render() {
   // ── ยอดขายรายเซลส์ (โหมดสดเท่านั้น — ต้องมีออเดอร์รายแถว) ──
   if (live()) {
     h += `<div class="sec"><h2>🧑‍💼 ยอดขายรายเซลส์</h2><div class="hint">เดือน ${esc(D.month)} — ใครขายเท่าไหร่ กี่เปอร์เซ็นต์ · แตะชื่อเพื่อดูออเดอร์</div>${sellersHtml(A.bySeller)}</div>`;
+
+    // ── 💳 เงินค้างเก็บ + 🏆 ลูกค้า ──
+    h += '<div class="grid2">';
+    h += `<div class="sec"><h2>💳 เงินค้างเก็บ</h2><div class="hint">ขายเครดิต/ส่งแล้วแต่ยังไม่บันทึกรับเงิน — สะสมทุกเดือน ตามที่บันทึกในระบบ</div>${arHtml(D.ar)}</div>`;
+    h += `<div class="sec"><h2>🏆 ลูกค้าเดือน ${esc(D.month)}</h2><div class="hint">ซื้อเยอะสุด 10 อันดับ · ด้านล่างคือลูกค้าประจำที่เงียบเกิน 30 วัน</div>${custHtml(A)}</div>`;
+    h += '</div>';
   }
 
   // ── การผลิต ──
@@ -543,6 +607,44 @@ function sellersHtml(bySeller) {
       <div class="pct">${Math.round(v.amount / total * 100)}% ของยอดเดือนนี้ · ${money(v.qty)} ลัง</div>
     </div>`;
   }).join('') + '</div>';
+}
+
+// ── 💳 เงินค้างเก็บสะสม (มาจากเซิร์ฟเวอร์ — รวมทุกเดือน ไม่ใช่แค่เดือนที่ดู) ──
+function arHtml(ar) {
+  if (!ar || !ar.list || !ar.list.length) return '<div class="empty">ไม่มียอดค้างเก็บในระบบ 🎉</div>';
+  let h = `<div style="font-size:1.4rem;font-weight:800;color:var(--red);margin-bottom:9px">${money(ar.total)}
+    <span style="font-size:.74rem;color:var(--sub);font-weight:500">บาท · ${ar.list.length} ลูกค้า</span></div>`;
+  h += '<div class="scroll"><table class="tb"><tr><th>ลูกค้า</th><th class="num">บิล</th><th class="num">ลัง</th><th class="num">ยอดค้าง</th><th>ค้างตั้งแต่</th></tr>' +
+    ar.list.map(a => `<tr><td>${esc(a.cust)}</td><td class="num">${a.n}</td><td class="num">${money(a.qty)}</td>
+      <td class="num"><b style="color:var(--red)">${money(a.amt)}</b></td>
+      <td style="white-space:nowrap">${esc(a.since.slice(8) + '/' + a.since.slice(5, 7))}</td></tr>`).join('') +
+    '</table></div>';
+  return h;
+}
+
+// ── 🏆 ลูกค้า Top 10 ของเดือนที่ดู (คิดจากออเดอร์ตามสวิตช์) + ลูกค้าประจำที่เงียบไป ──
+function custHtml(A) {
+  const byCust = {};
+  let tot = 0;
+  FO().forEach(o => {
+    const c = o.cust || '(ไม่ระบุลูกค้า)';
+    const C = byCust[c] = byCust[c] || { amt: 0, qty: 0 };
+    C.amt += o.amt; C.qty += o.qty; tot += o.amt;
+  });
+  const top = Object.keys(byCust).sort((a, b) => byCust[b].amt - byCust[a].amt).slice(0, 10);
+  let h = top.length ? '<div class="scroll"><table class="tb"><tr><th>#</th><th>ลูกค้า</th><th class="num">ลัง</th><th class="num">ยอด (บาท)</th><th class="num">%</th></tr>' +
+    top.map((c, i) => `<tr><td style="color:var(--faint)">${i + 1}</td><td>${esc(c)}</td><td class="num">${money(byCust[c].qty)}</td>
+      <td class="num"><b>${money(byCust[c].amt)}</b></td><td class="num">${Math.round(byCust[c].amt / (tot || 1) * 100)}%</td></tr>`).join('') +
+    '</table></div>' : '<div class="empty">ยังไม่มีออเดอร์เดือนนี้</div>';
+  if ((D.lost || []).length) {
+    h += '<h4 style="font-size:.82rem;margin:13px 0 4px">😴 ลูกค้าประจำที่เงียบไป</h4>';
+    h += '<div class="scroll"><table class="tb"><tr><th>ลูกค้า</th><th class="num">เงียบมา</th><th class="num">เคยซื้อรวม</th><th>ล่าสุด</th></tr>' +
+      D.lost.map(x => `<tr><td>${esc(x.cust)}</td><td class="num"><span class="pill p-red">${x.days} วัน</span></td>
+        <td class="num">${money(x.amt)} บ. (${x.n} บิล)</td><td style="white-space:nowrap">${esc(x.last.slice(8) + '/' + x.last.slice(5, 7))}</td></tr>`).join('') +
+      '</table></div>';
+    h += '<div class="hint" style="margin-top:6px">ฝากทีมเซลส์ทักไปหา หรือส่งโปรฯ กลับมาซื้อซ้ำ</div>';
+  }
+  return h;
 }
 
 // ── เจาะสายผลิตภัณฑ์ → รายสินค้า + ลูกค้ารายใหญ่ + ออเดอร์ทั้งหมด ──

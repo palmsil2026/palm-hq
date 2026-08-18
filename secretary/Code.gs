@@ -1791,7 +1791,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-08-18b';
+const CODE_VERSION = '2026-08-18c';
 
 function healthCheck() {
   const L = [];
@@ -2569,9 +2569,26 @@ function execKey() {
   return k;
 }
 function execAuth(key) {
-  if (key === cfg('QUEUE_KEY')) return 'ceo';
-  if (key === execKey()) return 'exec';
-  return '';
+  return execViewer(key).role;
+}
+// รหัสผู้บริหารรายคน: Script Property `EXEC_KEYS` รูปแบบ "ชื่อ:รหัส" คั่นด้วยขึ้นบรรทัด/จุลภาค
+// เช่น  พ่อ:Papa2026, พี่เขียว:Green99  — ลบแถวไหน = ตัดสิทธิ์คนนั้นทันที ไม่กระทบคนอื่น
+function execViewer(key) {
+  if (!key) return { role: '', name: '' };
+  if (key === cfg('QUEUE_KEY')) return { role: 'ceo', name: 'คุณปาล์ม' };
+  if (key === execKey()) return { role: 'exec', name: '' };
+  const list = String(cfg('EXEC_KEYS') || '');
+  if (list) {
+    const items = list.split(/[\n,]+/);
+    for (let i = 0; i < items.length; i++) {
+      const p = items[i].indexOf(':');
+      if (p < 1) continue;
+      if (items[i].slice(p + 1).trim() === String(key).trim()) {
+        return { role: 'exec', name: items[i].slice(0, p).trim() };
+      }
+    }
+  }
+  return { role: '', name: '' };
 }
 function execBoardUrl() {
   return 'https://palmsil2026.github.io/palm-hq/exec/?key=' + encodeURIComponent(execKey());
@@ -2684,7 +2701,9 @@ function plantFeed(monthPrefix) {
         const pid = String(r[3] || ''), cid = String(r[2] || '');
         out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, cat), qty: qty, amount: amt,
                          prod: prodName[pid] || pid, cust: custName[cid] || cid,
-                         seller: String(r[6] || ''), st: String(r[7] || ''), pay: String(r[9] || '') });
+                         seller: String(r[6] || ''), st: String(r[7] || ''), pay: String(r[9] || ''),
+                         // ค้างเก็บ = ส่งของแล้วแต่สถานะจ่ายยัง Unpaid
+                         ar: /unpaid/i.test(String(r[9] || '')) && /ส่งแล้ว/.test(String(r[7] || '')) });
       });
     });
     // Orders_Sales: C=วันที่(2) E=เซลส์(4) G=ชื่อลูกค้า(6) H=Product_ID(7) I=สินค้า(8) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) N=การชำระ(13) O=สถานะ(14)
@@ -2696,7 +2715,9 @@ function plantFeed(monthPrefix) {
       const pname = String(r[8] || '') || prodName[pid] || pid;
       out.sales.push({ date: dk, line: lineOfProduct(pname, ''), qty: qty, amount: amt,
                        prod: pname, cust: String(r[6] || ''),
-                       seller: String(r[4] || ''), st: String(r[14] || ''), pay: String(r[13] || '') });
+                       seller: String(r[4] || ''), st: String(r[14] || ''), pay: String(r[13] || ''),
+                       // ค้างเก็บ = ขายเครดิต/วางบิล + ส่งแล้ว แต่ยังไม่บันทึกเก็บเงิน
+                       ar: /เครดิต|วางบิล/.test(String(r[13] || '')) && /ส่งแล้ว/.test(String(r[14] || '')) && !/เก็บเงิน/.test(String(r[14] || '')) });
     });
     // Orders_OEM: C=วันที่(2) E=เซลส์(4) G=ชื่อลูกค้า(6) H=แบรนด์(7) I=ขนาด(8) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) N=การชำระ(13) P=สถานะ(15) — สาย OEM เสมอ
     plantRows('Orders_OEM', 2000).forEach(function (r) {
@@ -2705,7 +2726,8 @@ function plantFeed(monthPrefix) {
       const qty = execNum(r[9]);
       out.sales.push({ date: dk, line: 'OEM', qty: qty, amount: execNum(r[12]) || (qty * execNum(r[11])),
                        prod: ('OEM ' + String(r[7] || '') + ' ' + String(r[8] || '')).trim(), cust: String(r[6] || ''),
-                       seller: String(r[4] || ''), st: String(r[15] || ''), pay: String(r[13] || '') });
+                       seller: String(r[4] || ''), st: String(r[15] || ''), pay: String(r[13] || ''),
+                       ar: /เครดิต/.test(String(r[13] || '')) && /ส่งแล้ว/.test(String(r[15] || '')) });
     });
 
     // ── การผลิตจาก ProductionLog: K=วันที่(10) E=Qty_Produced(4) F=GradeB/Waste(5) M=สินค้า(12) N=ประเภท(13) ──
@@ -2792,7 +2814,8 @@ function plantSalesSummaryText(which) {
 
 // รวมข้อมูลให้แอปผู้บริหารในครั้งเดียว (ประหยัดรอบเรียก GAS)
 function execDashboard(key, month) {
-  const role = execAuth(key);
+  const vw = execViewer(key);
+  const role = vw.role;
   if (!role) return { ok: false, error: 'unauthorized' };
   try {
     const now = new Date();
@@ -2873,7 +2896,57 @@ function execDashboard(key, month) {
         });
     }
 
+    // เดือนก่อนหน้า (คิดทั้งแบบทุกออเดอร์และเฉพาะส่งแล้ว ให้สวิตช์ฝั่งแอปเลือกใช้)
+    let prev = null;
+    if (liveSource && feed.sales.length) {
+      const py = Number(monthPrefix.slice(0, 4)), pm = Number(monthPrefix.slice(5));
+      const pd = new Date(py, pm - 2, 1);
+      const prevPrefix = pd.getFullYear() + '-' + ('0' + (pd.getMonth() + 1)).slice(-2);
+      prev = { month: prevPrefix, all: { amt: 0, qty: 0 }, done: { amt: 0, qty: 0 } };
+      feed.sales.forEach(function (s) {
+        if (s.date.indexOf(prevPrefix) !== 0) return;
+        prev.all.amt += s.amount; prev.all.qty += s.qty;
+        if (/ส่งแล้ว|เก็บเงิน|delivered/i.test(s.st || '')) { prev.done.amt += s.amount; prev.done.qty += s.qty; }
+      });
+    }
+
+    // เงินค้างเก็บสะสมทุกเดือน (ธง ar ติดมาจาก plantFeed ตามกติกาแต่ละแท็บ) — เรียงมาก→น้อย
+    let ar = null;
+    if (liveSource && feed.sales.length) {
+      const m = {}; let tot = 0;
+      feed.sales.forEach(function (s) {
+        if (!s.ar || !s.amount) return;
+        const c = s.cust || '(ไม่ระบุลูกค้า)';
+        const A = m[c] = m[c] || { cust: c, amt: 0, qty: 0, n: 0, since: s.date };
+        A.amt += s.amount; A.qty += s.qty; A.n++;
+        if (s.date < A.since) A.since = s.date;
+        tot += s.amount;
+      });
+      ar = { total: tot, list: Object.keys(m).map(function (k) { return m[k]; })
+             .sort(function (a, b) { return b.amt - a.amt; }).slice(0, 20) };
+    }
+
+    // ลูกค้าประจำที่เงียบไป (เคยสั่ง ≥2 ครั้ง แต่ครั้งล่าสุดเกิน 30 วัน) — เรียงตามยอดรวมที่เคยซื้อ
+    let lost = [];
+    if (liveSource && feed.sales.length) {
+      const cs = {};
+      feed.sales.forEach(function (s) {
+        if (!s.cust) return;
+        const t = cs[s.cust] = cs[s.cust] || { n: 0, amt: 0, last: '' };
+        t.n++; t.amt += s.amount;
+        if (s.date > t.last) t.last = s.date;
+      });
+      const todayMs = now.getTime();
+      lost = Object.keys(cs).filter(function (c) { return cs[c].n >= 2; }).map(function (c) {
+        const days = Math.floor((todayMs - new Date(cs[c].last + 'T00:00:00+07:00').getTime()) / 86400000);
+        return { cust: c, last: cs[c].last, days: days, amt: cs[c].amt, n: cs[c].n };
+      }).filter(function (x) { return x.days >= 30; })
+        .sort(function (a, b) { return b.amt - a.amt; }).slice(0, 10);
+    }
+
     return {
+      viewer: vw.name,
+      prev: prev, ar: ar, lost: lost,
       ok: true, role: role,
       month: monthPrefix.slice(5) + '/' + monthPrefix.slice(0, 4), monthKey: monthPrefix,
       nowMonth: Utilities.formatDate(now, 'GMT+7', 'yyyy-MM'),
