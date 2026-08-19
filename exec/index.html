@@ -325,6 +325,29 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
   </div>
 </div>
 
+<!-- 💸 ฟอร์มบันทึกรายจ่าย (CEO) -->
+<div class="mask" id="exMask">
+  <div class="sheet">
+    <h3 id="exTitle">💸 บันทึกรายจ่าย</h3>
+    <input type="hidden" id="ex_row">
+    <div class="row2">
+      <div><label>วันที่</label><input id="ex_date" type="date"></div>
+      <div><label>หมวดค่าใช้จ่าย</label><select id="ex_cat"></select></div>
+    </div>
+    <label>รายการ *</label><input id="ex_item" placeholder="เช่น ค่าอะไหล่ปั๊มลม / น้ำแถมลูกค้าเปิดร้านใหม่">
+    <div class="row2">
+      <div><label>จำนวนเงิน (บาท) *</label><input id="ex_amt" type="number" inputmode="decimal" placeholder="เช่น 1500"></div>
+      <div><label>จ่ายด้วย</label><select id="ex_ptype"><option>เงินสด</option><option>โอน</option><option>เครดิต/ค้างจ่าย</option></select></div>
+    </div>
+    <label>หมายเหตุ</label><input id="ex_note">
+    <div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">
+      <button class="bt bt-main" id="ex_save" style="flex:1;justify-content:center">บันทึก</button>
+      <button class="bt bt-red" id="ex_del" style="display:none">ลบ</button>
+      <button class="bt bt-gray" id="ex_close">ปิด</button>
+    </div>
+  </div>
+</div>
+
 <!-- 🔎 เจาะรายละเอียดยอดขาย (รายวัน / รายสาย / รายเซลส์) -->
 <div class="mask" id="dtMask">
   <div class="sheet" style="max-width:760px">
@@ -363,6 +386,25 @@ function aggr() {   // สรุปยอดฝั่งแอปจากออ
   return { amt, qty, byLine, bySeller, byDay };
 }
 const thMonth = mk => { const [y, m] = mk.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }); };
+// ── 💵 การเงิน: จัดออเดอร์เข้าก้อนเงินตามที่บันทึกจริง ──
+const EXP_CATS = ['พนักงาน', 'วัตถุดิบ/บรรจุภัณฑ์', 'อะไหล่/ซ่อมบำรุง', 'ของแถม/การตลาด', 'ขนส่ง/น้ำมัน', 'ค่าน้ำ-ไฟ-เน็ต', 'อื่นๆ'];
+const BUCKETS = {
+  cash:     { icon: '💵', lbl: 'เก็บแล้ว — เงินสด/หน้างาน', color: 'var(--green)' },
+  transfer: { icon: '🏦', lbl: 'เก็บแล้ว — เงินโอน',        color: 'var(--teal)' },
+  credit:   { icon: '🧾', lbl: 'เครดิต ยังไม่ได้เงิน',       color: 'var(--red)' },
+  wait:     { icon: '🚚', lbl: 'ยังไม่ส่ง / รอเก็บ',         color: 'var(--gold)' },
+};
+function payBucket(o) {
+  const st = o.st || '', pm = o.ptype || o.pay || '';
+  if (/จ่ายเต็ม|มัดจำ/.test(pm)) return /โอน|transfer/i.test(pm) ? 'transfer' : 'cash';  // จ่ายก่อนผลิต = เงินเข้าแล้ว
+  const delivered = /ส่งแล้ว|เก็บเงิน/.test(st) || /^paid$/i.test(o.pay || '');
+  if (!delivered) return 'wait';
+  if (/unpaid/i.test(o.pay || '')) return 'credit';
+  if (/เครดิต|วางบิล/.test(pm) && !/เก็บเงิน/.test(st)) return 'credit';
+  if (/โอน|transfer|พร้อมเพย์/i.test(pm)) return 'transfer';
+  return 'cash';  // เงินสด/เก็บหน้างาน/ไม่ระบุ
+}
+
 // จำนวนวันที่โรงงานเงียบ (ไม่มีบันทึกผลิตใหม่) — คืน 0 ถ้ายังสดอยู่ (<7 วัน) หรือไม่มีข้อมูล
 function prodStale() {
   if (!D || !D.source || !D.lastProd) return 0;
@@ -486,6 +528,9 @@ function render() {
     h += `<div class="sec" style="padding:11px 14px;margin-bottom:12px"><div style="font-size:.78rem;color:var(--teal);font-weight:600">🔌 ข้อมูลสดจาก${esc(D.source)} — อัปเดตอัตโนมัติ${LOADED_AT ? ' · โหลดเมื่อ ' + LOADED_AT.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.' : ''}</div></div>`;
   }
 
+  // ── 💵 เงินเข้า-เงินออก (CEO/กรรมการ — ตอบคำถาม "ขายได้เยอะ แต่เงินจริงอยู่ไหน") ──
+  if (live() && canMoney()) h += finHtml();
+
   if (!D.hasData) {
     h += `<div class="sec"><div class="empty">📋 ยังไม่มีข้อมูลขาย/ผลิต/พนักงานในระบบ<br><br>
       ดิฉันสร้างแท็บรอไว้ให้แล้วใน Google Sheet ของคุณเลขา:<br>
@@ -573,6 +618,15 @@ function bindPhase1() {
   });
   document.querySelectorAll('[data-oboard]').forEach(el => el.onclick = () => window.open(D.boardLink || '../board/', '_blank'));
   document.querySelectorAll('[data-dprodcard]').forEach(el => el.onclick = e => { e.stopPropagation(); prodDrill(); });
+  document.querySelectorAll('[data-bucket]').forEach(el => el.onclick = () => {
+    const id = el.dataset.bucket;
+    openOrders(BUCKETS[id].icon + ' ' + BUCKETS[id].lbl + ' — ' + thMonth(MONTH), FO().filter(o => payBucket(o) === id), true);
+  });
+  if ($('exAdd')) $('exAdd').onclick = () => openExpense(null);
+  document.querySelectorAll('[data-exrow]').forEach(el => el.onclick = () => {
+    const x = ((D.expenses || {}).list || []).find(e => String(e.row) === el.dataset.exrow);
+    if (x) openExpense(x);
+  });
   // เลื่อนกราฟรายวันไปหยุดที่วันนี้/วันล่าสุดที่มียอด (ไม่ใช่ท้ายเดือนที่ยังว่าง)
   const dw = document.querySelector('.dwrap');
   if (dw) {
@@ -621,6 +675,82 @@ function sellersHtml(bySeller) {
       <div class="pct">${Math.round(v.amount / total * 100)}% ของยอดเดือนนี้ · ${money(v.qty)} ลัง</div>
     </div>`;
   }).join('') + '</div>';
+}
+
+// ── 💵 หน้าการเงิน: เงินเข้าแยกก้อนตามที่บันทึกจริง + รายจ่ายแยกหมวด + สรุปสุทธิ ──
+function finHtml() {
+  const B = { cash: { amt: 0, n: 0 }, transfer: { amt: 0, n: 0 }, credit: { amt: 0, n: 0 }, wait: { amt: 0, n: 0 } };
+  FO().forEach(o => { const b = B[payBucket(o)]; b.amt += o.amt; b.n++; });
+  const total = B.cash.amt + B.transfer.amt + B.credit.amt + B.wait.amt;
+  const chip = id => {
+    const c = BUCKETS[id], v = B[id];
+    return `<div class="k" data-bucket="${id}" style="cursor:pointer" title="แตะดูรายการ">
+      <div class="lb">${c.icon} ${c.lbl}</div>
+      <div class="v" style="font-size:1.3rem;color:${c.color}">${money(v.amt)}<span class="u">บาท</span></div>
+      <div class="sub">${v.n} รายการ · แตะดู ▸</div></div>`;
+  };
+  let h = `<div class="sec"><h2>💵 เงินเข้า-เงินออก เดือน ${esc(D.month)}</h2>
+    <div class="hint">ยอดขาย ${money(total)} บาท ไม่ใช่เงินที่ได้จริง — แยกให้เห็นว่าเงินอยู่ก้อนไหน${ONLY_DONE ? ' (เฉพาะส่งแล้ว)' : ''}</div>`;
+  h += `<div class="kpis" style="margin-bottom:6px">${chip('cash')}${B.transfer.n ? chip('transfer') : ''}${chip('credit')}${chip('wait')}</div>`;
+  h += `<div class="hint" style="margin-bottom:0">⚠️ "เงินสด/หน้างาน" = ทีมเก็บจากลูกค้าแล้ว แต่ระบบยังไม่รู้ว่านำฝากเข้าบัญชีหรือยัง — ถ้ายอดบัญชีไม่ตรงก้อนนี้ ให้ตามเงินสดที่หน้างานก่อนเลย</div>`;
+
+  // ── รายจ่าย ──
+  const E = D.expenses || { total: 0, byCat: {}, list: [] };
+  h += `<div style="display:flex;align-items:center;gap:9px;margin-top:16px;flex-wrap:wrap">
+    <h4 style="font-size:.88rem">💸 รายจ่ายเดือนนี้</h4>
+    <span style="font-size:1.05rem;font-weight:800;color:var(--red)">${money(E.total)} <span style="font-size:.7rem;font-weight:500;color:var(--sub)">บาท</span></span>
+    <span style="flex:1"></span>
+    ${isCeo() ? '<button class="bt bt-main" id="exAdd" style="padding:7px 13px;font-size:.76rem">＋ บันทึกรายจ่าย</button>' : ''}</div>`;
+  const cats = Object.keys(E.byCat || {}).sort((a, b) => E.byCat[b] - E.byCat[a]);
+  if (cats.length) {
+    const cmax = E.byCat[cats[0]] || 1;
+    h += '<div class="bars" style="margin-top:10px">' + cats.map(c => `<div class="brow">
+        <div class="top"><span class="nm"><span class="sw" style="background:var(--red);opacity:.75"></span>${esc(c)}</span>
+        <span class="val">${money(E.byCat[c])} <span style="font-weight:500;color:var(--sub);font-size:.72rem">บาท</span></span></div>
+        <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(E.byCat[c] / cmax * 100))}%;background:var(--red);opacity:.75"></div></div>
+        <div class="pct">${Math.round(E.byCat[c] / (E.total || 1) * 100)}% ของรายจ่ายเดือนนี้</div>
+      </div>`).join('') + '</div>';
+    h += '<div class="scroll" style="margin-top:10px"><table class="tb"><tr><th>วันที่</th><th>หมวด</th><th>รายการ</th><th class="num">บาท</th><th>จ่ายด้วย</th></tr>' +
+      E.list.map(x => `<tr ${isCeo() ? 'data-exrow="' + x.row + '" style="cursor:pointer" title="แตะเพื่อแก้ไข/ลบ"' : ''}>
+        <td style="white-space:nowrap">${esc(x.d.slice(8) + '/' + x.d.slice(5, 7))}</td>
+        <td><span class="pill p-gray">${esc(x.cat)}</span></td><td>${esc(x.item)}${x.note ? ' <span style="color:var(--faint);font-size:.72rem">· ' + esc(x.note) + '</span>' : ''}</td>
+        <td class="num"><b>${money(x.amt)}</b></td><td>${esc(x.ptype)}</td></tr>`).join('') + '</table></div>';
+  } else {
+    h += `<div class="empty" style="padding:14px">ยังไม่มีรายจ่ายบันทึกไว้เดือนนี้${isCeo() ? ' — เงินออกเมื่อไหร่ กดบันทึกไว้เลย จะได้เห็นกำไรจริง' : ''}</div>`;
+  }
+
+  // ── สรุปสุทธิ ──
+  const inAmt = B.cash.amt + B.transfer.amt;
+  const net = inAmt - E.total;
+  h += `<div style="margin-top:13px;padding-top:11px;border-top:2px dashed var(--line);font-size:.86rem">
+    สรุปตามบันทึก: เก็บเงินแล้ว <b style="color:var(--green)">${money(inAmt)}</b> − รายจ่าย <b style="color:var(--red)">${money(E.total)}</b>
+    = <b style="font-size:1.05rem;color:${net >= 0 ? 'var(--green)' : 'var(--red)'}">${money(net)} บาท</b>
+    <span style="color:var(--sub)">· เครดิตที่ต้องตามเก็บอีก ${money(B.credit.amt)} บาท</span></div>`;
+  return h + '</div>';
+}
+function openExpense(x) {
+  $('exMask').classList.add('on');
+  $('exTitle').textContent = x ? '✏️ แก้รายจ่าย' : '💸 บันทึกรายจ่าย';
+  $('ex_cat').innerHTML = EXP_CATS.map(c => `<option>${esc(c)}</option>`).join('');
+  $('ex_row').value = x ? x.row : '';
+  $('ex_date').value = x ? x.d : new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+  $('ex_cat').value = x && EXP_CATS.indexOf(x.cat) !== -1 ? x.cat : (x ? 'อื่นๆ' : EXP_CATS[0]);
+  $('ex_item').value = x ? x.item : ''; $('ex_amt').value = x ? x.amt : '';
+  $('ex_ptype').value = x ? (x.ptype || 'เงินสด') : 'เงินสด'; $('ex_note').value = x ? x.note : '';
+  $('ex_del').style.display = x ? 'inline-flex' : 'none';
+}
+async function saveExpense(del) {
+  const b = del ? $('ex_del') : $('ex_save');
+  if (!del && !Number($('ex_amt').value)) { toast('ใส่จำนวนเงินก่อนนะคะ'); return; }
+  b.disabled = true; const old = b.innerHTML; b.innerHTML = '<span class="spin"></span>';
+  try {
+    const r = await api({ action: 'expSave', row: $('ex_row').value, del: del ? '1' : '', date: $('ex_date').value,
+      cat: $('ex_cat').value, item: $('ex_item').value.trim(), amount: $('ex_amt').value,
+      ptype: $('ex_ptype').value, note: $('ex_note').value.trim() });
+    toast(r.msg || (r.ok ? 'บันทึกแล้ว' : 'ไม่สำเร็จ'));
+    if (r.ok) { $('exMask').classList.remove('on'); load(); }
+  } catch (e) { toast(e.message); }
+  b.disabled = false; b.innerHTML = old;
 }
 
 // ── 💳 เงินค้างเก็บสะสม (มาจากเซิร์ฟเวอร์ — รวมทุกเดือน ไม่ใช่แค่เดือนที่ดู) ──
@@ -723,7 +853,7 @@ function openOrders(title, os, showDate) {
     os.map(o => `<tr>${showDate ? '<td style="white-space:nowrap">' + esc(o.d.slice(8) + '/' + o.d.slice(5, 7)) + '</td>' : ''}
       <td>${esc(o.cust || '—')}</td><td>${esc(o.prod || '—')}${o.seller ? ' <span style="color:var(--faint);font-size:.7rem">· ' + esc(o.seller) + '</span>' : ''}</td>
       <td class="num">${money(o.qty)}</td><td class="num"><b>${money(o.amt)}</b></td>
-      <td><span class="pill ${stPill(o.st)}">${esc(o.st || '—')}</span>${/unpaid|ค้าง/i.test(o.pay) ? ' <span class="pill p-red">ยังไม่จ่าย</span>' : ''}</td></tr>`).join('') +
+      <td><span class="pill ${stPill(o.st)}">${esc(o.st || '—')}</span>${/unpaid|ค้าง/i.test(o.pay) ? ' <span class="pill p-red">ยังไม่จ่าย</span>' : ''}${o.ptype ? '<div style="font-size:.66rem;color:var(--faint);margin-top:2px">' + esc(o.ptype) + '</div>' : ''}</td></tr>`).join('') +
     '</table></div>' : '<div class="empty">ไม่มีออเดอร์</div>';
   $('dtTitle').textContent = title;
   $('dtBody').innerHTML = h;
@@ -1051,8 +1181,16 @@ $('py_close').onclick = () => $('pyMask').classList.remove('on');
 $('py_save').onclick = () => savePayForm(false);
 $('py_paid').onclick = () => savePayForm(true);
 $('dtClose').onclick = () => $('dtMask').classList.remove('on');
-// แตะพื้นหลังมืดเพื่อปิด (เฉพาะ modal HR/เจาะยอด — ฟอร์มแผนเดิมคงพฤติกรรมเดิม)
-['hrMask', 'sfMask', 'lvMask', 'pyMask', 'dtMask'].forEach(id => $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).classList.remove('on'); }));
+// 💸 รายจ่าย
+$('ex_close').onclick = () => $('exMask').classList.remove('on');
+$('ex_save').onclick = () => saveExpense(false);
+$('ex_del').onclick = function () {
+  if (this.dataset.arm !== '1') { this.dataset.arm = '1'; this.textContent = 'แตะย้ำเพื่อลบ';
+    setTimeout(() => { this.dataset.arm = ''; this.textContent = 'ลบ'; }, 3500); return; }
+  this.dataset.arm = ''; this.textContent = 'ลบ'; saveExpense(true);
+};
+// แตะพื้นหลังมืดเพื่อปิด (เฉพาะ modal HR/เจาะยอด/รายจ่าย — ฟอร์มแผนเดิมคงพฤติกรรมเดิม)
+['hrMask', 'sfMask', 'lvMask', 'pyMask', 'dtMask', 'exMask'].forEach(id => $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).classList.remove('on'); }));
 $('planMask').onclick = e => { if (e.target === $('planMask')) $('planMask').classList.remove('on'); };
 async function savePlan(del) {
   const btn = del ? $('p_del') : $('p_save');
