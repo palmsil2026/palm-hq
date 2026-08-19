@@ -274,6 +274,8 @@ function doGet(e) {
     return jsonOut(execSavePlan(p.key, { row: p.row, level: p.level, title: p.title, detail: p.detail,
                                          period: p.period, kpi: p.kpi, status: p.status, del: p.del }));
   }
+  // 💵 บันทึก/แก้/ลบรายจ่าย (CEO เท่านั้น)
+  if (p.action === 'expSave') return jsonOut(execSaveExpense(p.key, p));
   // 👥 HR — พนักงาน (แก้ชีต Staff ตัวจริงของโรงงาน → ทุกแอปเห็นทันที)
   if (p.action === 'hrDetail')  return jsonOut(hrStaffDetail(p.key, p.id));
   if (p.action === 'hrSave')    return jsonOut(hrSaveStaff(p.key, p));
@@ -1791,7 +1793,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-08-18d';
+const CODE_VERSION = '2026-08-18e';
 
 function healthCheck() {
   const L = [];
@@ -2604,6 +2606,7 @@ const EXEC_TABS = {
   ExecProduction: ['วันที่', 'สายผลิตภัณฑ์', 'ผลิตได้(ลัง)', 'ของเสีย(ลัง)', 'ชั่วโมงเดินเครื่อง', 'กะ', 'หมายเหตุ'],
   ExecStaff:      ['ชื่อ', 'ตำแหน่ง', 'แผนก', 'เริ่มงาน', 'สถานะ', 'ติดต่อ', 'หมายเหตุ'],
   ExecPlans:      ['ระดับ', 'หัวข้อ', 'รายละเอียด', 'ช่วงเวลา', 'ตัวชี้วัด', 'สถานะ', 'อัปเดตเมื่อ'],
+  ExecExpenses:   ['วันที่', 'หมวด', 'รายการ', 'จำนวนเงิน(บาท)', 'วิธีจ่าย', 'ผู้บันทึก', 'หมายเหตุ', 'บันทึกเมื่อ'],
 };
 function execSheet(name) {
   const id = boardSheetId(); if (!id) return null;
@@ -2705,7 +2708,7 @@ function plantFeed(monthPrefix) {
         const pid = String(r[3] || ''), cid = String(r[2] || '');
         out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, cat), qty: qty, amount: amt,
                          prod: prodName[pid] || pid, cust: custName[cid] || cid,
-                         seller: String(r[6] || ''), st: String(r[7] || ''), pay: String(r[9] || ''),
+                         seller: String(r[6] || ''), st: String(r[7] || ''), pay: String(r[9] || ''), ptype: String(r[10] || ''),
                          // ค้างเก็บ = ส่งของแล้วแต่สถานะจ่ายยัง Unpaid
                          ar: /unpaid/i.test(String(r[9] || '')) && /ส่งแล้ว/.test(String(r[7] || '')) });
       });
@@ -2719,7 +2722,7 @@ function plantFeed(monthPrefix) {
       const pname = String(r[8] || '') || prodName[pid] || pid;
       out.sales.push({ date: dk, line: lineOfProduct(pname, ''), qty: qty, amount: amt,
                        prod: pname, cust: String(r[6] || ''),
-                       seller: String(r[4] || ''), st: String(r[14] || ''), pay: String(r[13] || ''),
+                       seller: String(r[4] || ''), st: String(r[14] || ''), pay: String(r[13] || ''), ptype: String(r[13] || ''),
                        // ค้างเก็บ = ขายเครดิต/วางบิล + ส่งแล้ว แต่ยังไม่บันทึกเก็บเงิน
                        ar: /เครดิต|วางบิล/.test(String(r[13] || '')) && /ส่งแล้ว/.test(String(r[14] || '')) && !/เก็บเงิน/.test(String(r[14] || '')) });
     });
@@ -2730,7 +2733,7 @@ function plantFeed(monthPrefix) {
       const qty = execNum(r[9]);
       out.sales.push({ date: dk, line: 'OEM', qty: qty, amount: execNum(r[12]) || (qty * execNum(r[11])),
                        prod: ('OEM ' + String(r[7] || '') + ' ' + String(r[8] || '')).trim(), cust: String(r[6] || ''),
-                       seller: String(r[4] || ''), st: String(r[15] || ''), pay: String(r[13] || ''),
+                       seller: String(r[4] || ''), st: String(r[15] || ''), pay: String(r[13] || ''), ptype: String(r[13] || ''),
                        ar: /เครดิต/.test(String(r[13] || '')) && /ส่งแล้ว/.test(String(r[15] || '')) });
     });
 
@@ -2896,8 +2899,24 @@ function execDashboard(key, month) {
         .sort(function (a, b) { return a.date < b.date ? -1 : 1; })
         .map(function (s) {
           return { d: s.date, line: s.line, prod: s.prod || '', cust: s.cust || '', seller: s.seller || '',
-                   qty: s.qty, amt: s.amount, st: s.st || '', pay: s.pay || '' };
+                   qty: s.qty, amt: s.amount, st: s.st || '', pay: s.pay || '', ptype: s.ptype || '' };
         });
+    }
+
+    // 💵 รายจ่ายเดือนที่ดู (แท็บ ExecExpenses ของเลขา) — เห็นเฉพาะ CEO/กรรมการ
+    let expenses = null;
+    if (execCanMoney(role)) {
+      const byCat = {}; let expTot = 0;
+      const expList = execRows('ExecExpenses').filter(function (r) {
+        return (execDateKey(r['วันที่']) || '').indexOf(monthPrefix) === 0;
+      }).map(function (r) {
+        const amt = execNum(r['จำนวนเงิน(บาท)']);
+        const cat = String(r['หมวด'] || 'อื่นๆ').trim() || 'อื่นๆ';
+        expTot += amt; byCat[cat] = (byCat[cat] || 0) + amt;
+        return { row: r._row, d: execDateKey(r['วันที่']), cat: cat, item: String(r['รายการ'] || ''),
+                 amt: amt, ptype: String(r['วิธีจ่าย'] || ''), note: String(r['หมายเหตุ'] || '') };
+      }).sort(function (a, b) { return a.d < b.d ? 1 : -1; });
+      expenses = { total: expTot, byCat: byCat, list: expList };
     }
 
     // เดือนก่อนหน้า (คิดทั้งแบบทุกออเดอร์และเฉพาะส่งแล้ว ให้สวิตช์ฝั่งแอปเลือกใช้)
@@ -2961,6 +2980,7 @@ function execDashboard(key, month) {
       viewer: vw.name,
       prev: prev, ar: ar, lost: lost,
       prodLogs: prodLogs, lastProd: lastProd,
+      expenses: expenses,
       boardLink: role === 'ceo' ? boardUrl() : teamBoardUrl(),
       ok: true, role: role,
       month: monthPrefix.slice(5) + '/' + monthPrefix.slice(0, 4), monthKey: monthPrefix,
@@ -2998,6 +3018,27 @@ function execDashboard(key, month) {
       source: liveSource,   // ว่าง = กรอกมือในแท็บ Exec* | มีค่า = ดึงสดจากระบบขาย-โรงงาน
     };
   } catch (e) { console.error('execDashboard: ' + e); return { ok: false, error: String(e) }; }
+}
+
+// 💵 เพิ่ม/แก้/ลบรายจ่ายจากแอปผู้บริหาร (CEO เท่านั้น) — เก็บในแท็บ ExecExpenses ของชีตเลขา
+function execSaveExpense(key, p) {
+  if (execAuth(key) !== 'ceo') return { ok: false, msg: 'เฉพาะ CEO เท่านั้นที่บันทึกรายจ่ายได้ค่ะ' };
+  try {
+    const s = execSheet('ExecExpenses'); if (!s) return { ok: false, msg: 'ยังตั้งค่าชีตไม่เรียบร้อย' };
+    const row = Number(p.row || 0);
+    if (String(p.del || '') === '1') {
+      if (row >= 2 && row <= s.getLastRow()) { s.deleteRow(row); return { ok: true, msg: 'ลบรายการแล้วค่ะ' }; }
+      return { ok: false, msg: 'ไม่พบรายการ' };
+    }
+    const amt = execNum(p.amount);
+    if (!amt) return { ok: false, msg: 'ใส่จำนวนเงินก่อนนะคะ' };
+    const d = execDateKey(p.date) || Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+    const vals = [d, String(p.cat || 'อื่นๆ'), String(p.item || ''), amt,
+                  String(p.ptype || 'เงินสด'), 'คุณปาล์ม', String(p.note || ''), new Date()];
+    if (row >= 2 && row <= s.getLastRow()) s.getRange(row, 1, 1, vals.length).setValues([vals]);
+    else s.appendRow(vals);
+    return { ok: true, msg: 'บันทึกรายจ่าย ' + amt.toLocaleString('th-TH') + ' บาท (' + vals[1] + ') แล้วค่ะ' };
+  } catch (e) { return { ok: false, msg: String(e) }; }
 }
 
 // เพิ่ม/แก้/ลบแผนธุรกิจจากแอปผู้บริหาร (CEO เท่านั้น — ผู้บริหารคนอื่นดูได้อย่างเดียว)
