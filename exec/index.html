@@ -371,7 +371,7 @@ let LOADED_AT = null; // เวลาโหลดข้อมูลล่าส�
 
 // โหมดข้อมูลสด = เซิร์ฟเวอร์ส่งรายละเอียดออเดอร์รายแถวมาให้เจาะดูได้
 const live = () => !!(D && D.source && Array.isArray(D.orders));
-const isDone = o => /ส่งแล้ว|เก็บเงิน|delivered/i.test(o.st || '');
+const isDone = o => /ส่งแล้ว|เก็บเงิน|delivered/i.test((o.st || '') + ' ' + (o.dst || ''));
 const FO = () => (D.orders || []).filter(o => !ONLY_DONE || isDone(o));
 function aggr() {   // สรุปยอดฝั่งแอปจากออเดอร์รายแถว (เปลี่ยนสวิตช์ = คิดใหม่ทันที ไม่ต้องโหลด)
   const byLine = {}, bySeller = {}, byDay = {};
@@ -394,13 +394,27 @@ const BUCKETS = {
   credit:   { icon: '🧾', lbl: 'เครดิต ยังไม่ได้เงิน',       color: 'var(--red)' },
   wait:     { icon: '🚚', lbl: 'ยังไม่ส่ง / รอเก็บ',         color: 'var(--gold)' },
 };
+const delivered = o => /ส่งแล้ว|เก็บเงิน|delivered/i.test((o.st || '') + ' ' + (o.dst || '')) || /^paid$/i.test(o.pay || '');
+// แยกยอดของ 1 บิลลงก้อนเงิน — รองรับจ่ายบางส่วน (มัดจำ/ทยอยเก็บ)
+// โหมดแม่นยำ: มีสมุดรับเงิน v14 (o.recv) · โหมดประเมิน: เดาจากสถานะ+วิธีจ่าย (ระบบเก่า)
+function splitMoney(o) {
+  const s = { cash: 0, transfer: 0, credit: 0, wait: 0 };
+  if (o.recv != null) {
+    s.cash = o.rcash || 0; s.transfer = o.rtrans || 0;
+    const rest = Math.max(0, o.amt - (o.recv || 0));
+    if (rest) { if (delivered(o)) s.credit = rest; else s.wait = rest; }
+    return s;
+  }
+  s[payBucket(o)] = o.amt;
+  return s;
+}
+// ประเมินจากสถานะ (ใช้เมื่อยังไม่มีสมุดรับเงิน) — v14 เลิกใช้สถานะ "เก็บเงินแล้ว" จึงไม่ถือเป็นหลักฐานรับเงิน
 function payBucket(o) {
-  const st = o.st || '', pm = o.ptype || o.pay || '';
+  const pm = o.ptype || o.pay || '';
   if (/จ่ายเต็ม|มัดจำ/.test(pm)) return /โอน|transfer/i.test(pm) ? 'transfer' : 'cash';  // จ่ายก่อนผลิต = เงินเข้าแล้ว
-  const delivered = /ส่งแล้ว|เก็บเงิน/.test(st) || /^paid$/i.test(o.pay || '');
-  if (!delivered) return 'wait';
+  if (!delivered(o)) return 'wait';
   if (/unpaid/i.test(o.pay || '')) return 'credit';
-  if (/เครดิต|วางบิล/.test(pm) && !/เก็บเงิน/.test(st)) return 'credit';
+  if (/เครดิต|วางบิล/.test(pm)) return 'credit';
   if (/โอน|transfer|พร้อมเพย์/i.test(pm)) return 'transfer';
   return 'cash';  // เงินสด/เก็บหน้างาน/ไม่ระบุ
 }
@@ -555,7 +569,7 @@ function render() {
 
     // ── 💳 เงินค้างเก็บ + 🏆 ลูกค้า ──
     h += '<div class="grid2">';
-    h += `<div class="sec"><h2>💳 เงินค้างเก็บ</h2><div class="hint">ขายเครดิต/ส่งแล้วแต่ยังไม่บันทึกรับเงิน — สะสมทุกเดือน ตามที่บันทึกในระบบ</div>${arHtml(D.ar)}</div>`;
+    h += `<div class="sec"><h2>💳 เงินค้างเก็บ</h2><div class="hint">${(D.ar && D.ar.byPay) ? 'ส่งของแล้วแต่ยังรับเงินไม่ครบ (จากสมุดรับเงินรายบิล) — สะสมทุกเดือน' : 'ขายเครดิต/ส่งแล้วแต่ยังไม่มีบันทึกรับเงิน — สะสมทุกเดือน (ประเมินจากสถานะ)'}</div>${arHtml(D.ar)}</div>`;
     h += `<div class="sec"><h2>🏆 ลูกค้าเดือน ${esc(D.month)}</h2><div class="hint">ซื้อเยอะสุด 10 อันดับ · ด้านล่างคือลูกค้าประจำที่เงียบเกิน 30 วัน</div>${custHtml(A)}</div>`;
     h += '</div>';
   }
@@ -620,7 +634,8 @@ function bindPhase1() {
   document.querySelectorAll('[data-dprodcard]').forEach(el => el.onclick = e => { e.stopPropagation(); prodDrill(); });
   document.querySelectorAll('[data-bucket]').forEach(el => el.onclick = () => {
     const id = el.dataset.bucket;
-    openOrders(BUCKETS[id].icon + ' ' + BUCKETS[id].lbl + ' — ' + thMonth(MONTH), FO().filter(o => payBucket(o) === id), true);
+    openOrders(BUCKETS[id].icon + ' ' + BUCKETS[id].lbl + ' — ' + thMonth(MONTH),
+               FO().filter(o => splitMoney(o)[id] > 0), true, id);
   });
   if ($('exAdd')) $('exAdd').onclick = () => openExpense(null);
   document.querySelectorAll('[data-exrow]').forEach(el => el.onclick = () => {
@@ -680,7 +695,10 @@ function sellersHtml(bySeller) {
 // ── 💵 หน้าการเงิน: เงินเข้าแยกก้อนตามที่บันทึกจริง + รายจ่ายแยกหมวด + สรุปสุทธิ ──
 function finHtml() {
   const B = { cash: { amt: 0, n: 0 }, transfer: { amt: 0, n: 0 }, credit: { amt: 0, n: 0 }, wait: { amt: 0, n: 0 } };
-  FO().forEach(o => { const b = B[payBucket(o)]; b.amt += o.amt; b.n++; });
+  FO().forEach(o => {
+    const s = splitMoney(o);
+    ['cash', 'transfer', 'credit', 'wait'].forEach(k => { if (s[k]) { B[k].amt += s[k]; B[k].n++; } });
+  });
   const total = B.cash.amt + B.transfer.amt + B.credit.amt + B.wait.amt;
   const chip = id => {
     const c = BUCKETS[id], v = B[id];
@@ -692,7 +710,10 @@ function finHtml() {
   let h = `<div class="sec"><h2>💵 เงินเข้า-เงินออก เดือน ${esc(D.month)}</h2>
     <div class="hint">ยอดขาย ${money(total)} บาท ไม่ใช่เงินที่ได้จริง — แยกให้เห็นว่าเงินอยู่ก้อนไหน${ONLY_DONE ? ' (เฉพาะส่งแล้ว)' : ''}</div>`;
   h += `<div class="kpis" style="margin-bottom:6px">${chip('cash')}${B.transfer.n ? chip('transfer') : ''}${chip('credit')}${chip('wait')}</div>`;
-  h += `<div class="hint" style="margin-bottom:0">⚠️ "เงินสด/หน้างาน" = ทีมเก็บจากลูกค้าแล้ว แต่ระบบยังไม่รู้ว่านำฝากเข้าบัญชีหรือยัง — ถ้ายอดบัญชีไม่ตรงก้อนนี้ ให้ตามเงินสดที่หน้างานก่อนเลย</div>`;
+  h += D.hasPay
+    ? `<div class="hint" style="margin-bottom:0">✅ ตัวเลขนี้อ่านจาก<b>สมุดรับเงินของระบบขาย</b> (บันทึกรับเงินรายบิล) — รองรับจ่ายบางส่วน/มัดจำ · "เงินสด" = เก็บเป็นเงินสด ยังต้องเช็คว่านำฝากเข้าบัญชีครบไหม</div>`
+    : `<div class="hint" style="margin-bottom:0">⚠️ <b>ยังไม่มีข้อมูลรับเงินรายบิลจากระบบขาย</b> — ตัวเลขนี้ยัง<u>ประเมินจากสถานะออเดอร์</u> ไม่ใช่เงินที่ยืนยันว่าเก็บได้จริง<br>
+       เปิดแอปเซลส์ → หน้า 💰 การเงิน → กด "ย้ายออเดอร์เก่าเข้าสมุดรับเงิน" ครั้งเดียว แล้วรีเฟรชหน้านี้ ตัวเลขจะกลายเป็นเงินรับจริงทันที</div>`;
 
   // ── รายจ่าย ──
   const E = D.expenses || { total: 0, byCat: {}, list: [] };
@@ -846,13 +867,15 @@ function openDay(key) {
   const lbl = new Date(key).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   openOrders('📊 ออเดอร์วัน' + lbl, os, false);
 }
-function openOrders(title, os, showDate) {
-  const tot = os.reduce((s, o) => s + o.amt, 0), totQ = os.reduce((s, o) => s + o.qty, 0);
+function openOrders(title, os, showDate, bucket) {
+  // เปิดจากก้อนเงิน → โชว์ "ยอดในก้อนนี้" (บิลจ่ายบางส่วนจะกระจายอยู่หลายก้อน)
+  const val = o => bucket ? splitMoney(o)[bucket] : o.amt;
+  const tot = os.reduce((s, o) => s + val(o), 0), totQ = os.reduce((s, o) => s + o.qty, 0);
   let h = `<div class="hint" style="margin-bottom:8px">รวม <b>${money(tot)}</b> บาท · ${money(totQ)} ลัง · ${os.length} รายการ${ONLY_DONE ? ' (เฉพาะส่งแล้ว)' : ''}</div>`;
-  h += os.length ? '<div class="scroll"><table class="tb"><tr>' + (showDate ? '<th>วันที่</th>' : '') + '<th>ลูกค้า</th><th>สินค้า</th><th class="num">ลัง</th><th class="num">ยอด</th><th>สถานะ</th></tr>' +
+  h += os.length ? '<div class="scroll"><table class="tb"><tr>' + (showDate ? '<th>วันที่</th>' : '') + '<th>ลูกค้า</th><th>สินค้า</th><th class="num">ลัง</th><th class="num">' + (bucket ? 'ยอดในก้อนนี้' : 'ยอด') + '</th><th>สถานะ</th></tr>' +
     os.map(o => `<tr>${showDate ? '<td style="white-space:nowrap">' + esc(o.d.slice(8) + '/' + o.d.slice(5, 7)) + '</td>' : ''}
       <td>${esc(o.cust || '—')}</td><td>${esc(o.prod || '—')}${o.seller ? ' <span style="color:var(--faint);font-size:.7rem">· ' + esc(o.seller) + '</span>' : ''}</td>
-      <td class="num">${money(o.qty)}</td><td class="num"><b>${money(o.amt)}</b></td>
+      <td class="num">${money(o.qty)}</td><td class="num"><b>${money(val(o))}</b>${bucket && val(o) !== o.amt ? '<div style="font-size:.66rem;color:var(--faint)">ทั้งบิล ' + money(o.amt) + '</div>' : ''}</td>
       <td><span class="pill ${stPill(o.st)}">${esc(o.st || '—')}</span>${/unpaid|ค้าง/i.test(o.pay) ? ' <span class="pill p-red">ยังไม่จ่าย</span>' : ''}${o.ptype ? '<div style="font-size:.66rem;color:var(--faint);margin-top:2px">' + esc(o.ptype) + '</div>' : ''}</td></tr>`).join('') +
     '</table></div>' : '<div class="empty">ไม่มีออเดอร์</div>';
   $('dtTitle').textContent = title;
