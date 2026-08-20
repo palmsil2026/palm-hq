@@ -1793,7 +1793,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-08-18e';
+const CODE_VERSION = '2026-08-19a';
 
 function healthCheck() {
   const L = [];
@@ -2661,6 +2661,46 @@ function plantRows(tab, maxRows) {
     return sh.getRange(start, 1, last - start + 1, sh.getLastColumn()).getValues();
   } catch (e) { console.error('plantRows ' + tab + ': ' + e); return []; }
 }
+// หาตำแหน่งคอลัมน์จากหัวตาราง (ระบบขายเพิ่มคอลัมน์ได้เรื่อย ๆ — ห้าม hardcode ตำแหน่งของใหม่)
+function plantColIdx(tab, re) {
+  const ss = plantSS(); if (!ss) return -1;
+  try {
+    const sh = ss.getSheetByName(tab); if (!sh || sh.getLastColumn() < 1) return -1;
+    const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+    for (let i = 0; i < head.length; i++) if (re.test(head[i])) return i;
+    return -1;
+  } catch (e) { return -1; }
+}
+// 💰 สมุดรับเงินของระบบขาย v14 (ชีต Payments) — แหล่งความจริงเรื่อง "เก็บเงินได้จริง"
+// v14 เลิกใช้สถานะ "เก็บเงินแล้ว" แล้ว ห้ามอ่านสถานะมาตัดสินว่าได้เงิน
+// คืน { orderId: {amt, cash, transfer, last} } หรือ null ถ้ายังไม่มีชีต (ระบบเก่า)
+function plantPayments() {
+  const ss = plantSS(); if (!ss) return null;
+  try {
+    const sh = ss.getSheetByName('Payments'); if (!sh || sh.getLastRow() < 2) return null;
+    const vals = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+    const head = vals[0].map(String);
+    const find = function (re) { for (let i = 0; i < head.length; i++) if (re.test(head[i])) return i; return -1; };
+    const iOrd = find(/order|ออเดอร์|เลขที่บิล|บิล/i);
+    const iAmt = find(/ยอด|จำนวนเงิน|amount|รับ/i);
+    const iWay = find(/วิธี|ช่องทาง|ประเภท|method/i);
+    const iDate = find(/วันที่|date/i);
+    if (iOrd < 0 || iAmt < 0) return null;
+    const m = {};
+    vals.slice(1).forEach(function (r) {
+      const id = String(r[iOrd] || '').trim(); if (!id) return;
+      const amt = execNum(r[iAmt]); if (!amt) return;
+      const way = iWay >= 0 ? String(r[iWay] || '') : '';
+      const o = m[id] = m[id] || { amt: 0, cash: 0, transfer: 0, last: '' };
+      o.amt += amt;
+      if (/โอน|transfer|พร้อมเพย์|promptpay|ธนาคาร|bank/i.test(way)) o.transfer += amt; else o.cash += amt;
+      const d = iDate >= 0 ? execDateKey(r[iDate]) : '';
+      if (d && d > o.last) o.last = d;
+    });
+    return m;
+  } catch (e) { console.error('plantPayments: ' + e); return null; }
+}
+
 // จัดสายผลิตภัณฑ์จากชื่อสินค้า/แบรนด์ — ยึดตามที่ CEO แบ่งไว้ 3 ขา
 function lineOfProduct(name, orderType) {
   const s = String(name || '');
@@ -2706,7 +2746,7 @@ function plantFeed(monthPrefix) {
         // แถวหมวด OEM ที่ยอดเงิน 0 = แถวเงา (เงินจริงบันทึกในแท็บ Orders_OEM) — ข้ามกันนับลังซ้ำ
         if (/OEM/.test(cat) && !amt) return;
         const pid = String(r[3] || ''), cid = String(r[2] || '');
-        out.sales.push({ date: dk, line: lineOfProduct(prodName[pid] || pid, cat), qty: qty, amount: amt,
+        out.sales.push({ date: dk, oid: String(r[0] || ''), line: lineOfProduct(prodName[pid] || pid, cat), qty: qty, amount: amt,
                          prod: prodName[pid] || pid, cust: custName[cid] || cid,
                          seller: String(r[6] || ''), st: String(r[7] || ''), pay: String(r[9] || ''), ptype: String(r[10] || ''),
                          // ค้างเก็บ = ส่งของแล้วแต่สถานะจ่ายยัง Unpaid
@@ -2714,26 +2754,35 @@ function plantFeed(monthPrefix) {
       });
     });
     // Orders_Sales: C=วันที่(2) E=เซลส์(4) G=ชื่อลูกค้า(6) H=Product_ID(7) I=สินค้า(8) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) N=การชำระ(13) O=สถานะ(14)
+    // คอลัมน์ที่ระบบขายเพิ่มทีหลัง (สถานะส่ง / ยอดรับแล้ว) หาจากหัวตาราง ไม่ยึดตำแหน่ง
+    const sDst = plantColIdx('Orders_Sales', /สถานะส่ง/);
+    const sRecv = plantColIdx('Orders_Sales', /ยอดรับ|รับชำระ|รับแล้ว|ชำระแล้ว/);
     plantRows('Orders_Sales', 4000).forEach(function (r) {
       const dk = execDateKey(r[2]) || execDateKey(r[1]); if (!dk) return;
       if (/ยกเลิก|cancel/i.test(String(r[14] || ''))) return;
       const pid = String(r[7] || ''), qty = execNum(r[9]);
       const amt = execNum(r[12]) || (qty * execNum(r[11]));
       const pname = String(r[8] || '') || prodName[pid] || pid;
-      out.sales.push({ date: dk, line: lineOfProduct(pname, ''), qty: qty, amount: amt,
+      out.sales.push({ date: dk, oid: String(r[0] || ''), line: lineOfProduct(pname, ''), qty: qty, amount: amt,
                        prod: pname, cust: String(r[6] || ''),
                        seller: String(r[4] || ''), st: String(r[14] || ''), pay: String(r[13] || ''), ptype: String(r[13] || ''),
+                       dst: sDst >= 0 ? String(r[sDst] || '') : '',
+                       colRecv: sRecv >= 0 ? execNum(r[sRecv]) : null,
                        // ค้างเก็บ = ขายเครดิต/วางบิล + ส่งแล้ว แต่ยังไม่บันทึกเก็บเงิน
                        ar: /เครดิต|วางบิล/.test(String(r[13] || '')) && /ส่งแล้ว/.test(String(r[14] || '')) && !/เก็บเงิน/.test(String(r[14] || '')) });
     });
     // Orders_OEM: C=วันที่(2) E=เซลส์(4) G=ชื่อลูกค้า(6) H=แบรนด์(7) I=ขนาด(8) J=จำนวน(9) L=ราคา/หน่วย(11) M=รวม(12) N=การชำระ(13) P=สถานะ(15) — สาย OEM เสมอ
+    const oDst = plantColIdx('Orders_OEM', /สถานะส่ง/);
+    const oRecv = plantColIdx('Orders_OEM', /ยอดรับ|รับชำระ|รับแล้ว|ชำระแล้ว/);
     plantRows('Orders_OEM', 2000).forEach(function (r) {
       const dk = execDateKey(r[2]) || execDateKey(r[1]); if (!dk) return;
       if (/ยกเลิก|cancel/i.test(String(r[15] || ''))) return;
       const qty = execNum(r[9]);
-      out.sales.push({ date: dk, line: 'OEM', qty: qty, amount: execNum(r[12]) || (qty * execNum(r[11])),
+      out.sales.push({ date: dk, oid: String(r[0] || ''), line: 'OEM', qty: qty, amount: execNum(r[12]) || (qty * execNum(r[11])),
                        prod: ('OEM ' + String(r[7] || '') + ' ' + String(r[8] || '')).trim(), cust: String(r[6] || ''),
                        seller: String(r[4] || ''), st: String(r[15] || ''), pay: String(r[13] || ''), ptype: String(r[13] || ''),
+                       dst: oDst >= 0 ? String(r[oDst] || '') : '',
+                       colRecv: oRecv >= 0 ? execNum(r[oRecv]) : null,
                        ar: /เครดิต/.test(String(r[13] || '')) && /ส่งแล้ว/.test(String(r[15] || '')) });
     });
 
@@ -2764,6 +2813,33 @@ function plantFeed(monthPrefix) {
         }
       }
     } catch (e) {}
+
+    // ── 💰 เงินรับจริงต่อออเดอร์ (v14) → เฉลี่ยลงรายบรรทัดตามสัดส่วนยอด ──
+    // ลำดับความน่าเชื่อถือ: ชีต Payments > คอลัมน์ "ยอดรับแล้ว" ในแท็บออเดอร์ > ไม่มีข้อมูล (แอปจะเดาจากสถานะแทน)
+    const pay = plantPayments();
+    const ordTotal = {}, colRecvByOrd = {};
+    out.sales.forEach(function (s) {
+      if (!s.oid) return;
+      ordTotal[s.oid] = (ordTotal[s.oid] || 0) + s.amount;
+      if (s.colRecv != null) colRecvByOrd[s.oid] = Math.max(colRecvByOrd[s.oid] || 0, s.colRecv);
+    });
+    out.sales.forEach(function (s) {
+      const share = (s.oid && ordTotal[s.oid]) ? (s.amount / ordTotal[s.oid]) : 1;
+      const p = (pay && s.oid) ? pay[s.oid] : null;
+      if (p) {
+        s.recv = Math.round(p.amt * share);
+        s.rcash = Math.round(p.cash * share);
+        s.rtrans = Math.round(p.transfer * share);
+        if (p.last) s.paidAt = p.last;
+      } else if (s.oid && colRecvByOrd[s.oid] != null) {
+        s.recv = Math.round(colRecvByOrd[s.oid] * share);
+        // ไม่มีข้อมูลช่องทาง → จัดตามวิธีจ่ายที่บันทึกในออเดอร์
+        const isT = /โอน|transfer|พร้อมเพย์/i.test(s.ptype || '');
+        s.rcash = isT ? 0 : s.recv; s.rtrans = isT ? s.recv : 0;
+      }
+      delete s.colRecv;
+    });
+    out.hasPay = !!(pay || Object.keys(colRecvByOrd).length);
 
     // ── พนักงานจากชีต Staff: A=Staff_ID B=ชื่อ C=Role E=Active (ไม่ดึงคอลัมน์ PIN เด็ดขาด) ──
     plantRows('Staff').forEach(function (r) {
@@ -2898,8 +2974,10 @@ function execDashboard(key, month) {
       orders = feed.sales.filter(function (s) { return s.date.indexOf(monthPrefix) === 0; })
         .sort(function (a, b) { return a.date < b.date ? -1 : 1; })
         .map(function (s) {
-          return { d: s.date, line: s.line, prod: s.prod || '', cust: s.cust || '', seller: s.seller || '',
-                   qty: s.qty, amt: s.amount, st: s.st || '', pay: s.pay || '', ptype: s.ptype || '' };
+          const o = { d: s.date, line: s.line, prod: s.prod || '', cust: s.cust || '', seller: s.seller || '',
+                      qty: s.qty, amt: s.amount, st: s.st || '', pay: s.pay || '', ptype: s.ptype || '', dst: s.dst || '' };
+          if (s.recv != null) { o.recv = s.recv; o.rcash = s.rcash || 0; o.rtrans = s.rtrans || 0; if (s.paidAt) o.paidAt = s.paidAt; }
+          return o;
         });
     }
 
@@ -2933,19 +3011,29 @@ function execDashboard(key, month) {
       });
     }
 
-    // เงินค้างเก็บสะสมทุกเดือน (ธง ar ติดมาจาก plantFeed ตามกติกาแต่ละแท็บ) — เรียงมาก→น้อย
+    // เงินค้างเก็บสะสมทุกเดือน — ถ้ามีสมุดรับเงิน (v14) ใช้ "ยอดที่ยังไม่ได้รับ" ของบิลที่ส่งของแล้ว
+    // ถ้ายังไม่มี ใช้ธง ar ที่เดาจากสถานะ/วิธีจ่าย (ระบบเก่า)
     let ar = null;
     if (liveSource && feed.sales.length) {
       const m = {}; let tot = 0;
       feed.sales.forEach(function (s) {
-        if (!s.ar || !s.amount) return;
+        if (!s.amount) return;
+        let due = 0;
+        if (feed.hasPay && s.recv != null) {
+          const delivered = /ส่งแล้ว|เก็บเงิน|delivered/i.test(String(s.st || '') + ' ' + String(s.dst || '')) || /^paid$/i.test(s.pay || '');
+          if (delivered) due = Math.max(0, s.amount - s.recv);
+        } else if (!feed.hasPay && s.ar) {
+          due = s.amount;
+        }
+        if (!due) return;
         const c = s.cust || '(ไม่ระบุลูกค้า)';
         const A = m[c] = m[c] || { cust: c, amt: 0, qty: 0, n: 0, since: s.date };
-        A.amt += s.amount; A.qty += s.qty; A.n++;
+        A.amt += due; A.qty += s.qty; A.n++;
         if (s.date < A.since) A.since = s.date;
-        tot += s.amount;
+        tot += due;
       });
-      ar = { total: tot, list: Object.keys(m).map(function (k) { return m[k]; })
+      ar = { total: tot, byPay: !!feed.hasPay,
+             list: Object.keys(m).map(function (k) { return m[k]; })
              .sort(function (a, b) { return b.amt - a.amt; }).slice(0, 20) };
     }
 
@@ -2981,6 +3069,7 @@ function execDashboard(key, month) {
       prev: prev, ar: ar, lost: lost,
       prodLogs: prodLogs, lastProd: lastProd,
       expenses: expenses,
+      hasPay: !!(feed && feed.hasPay),   // true = อ่านเงินรับจริงจากสมุดรับเงิน v14 | false = ประเมินจากสถานะออเดอร์
       boardLink: role === 'ceo' ? boardUrl() : teamBoardUrl(),
       ok: true, role: role,
       month: monthPrefix.slice(5) + '/' + monthPrefix.slice(0, 4), monthKey: monthPrefix,
