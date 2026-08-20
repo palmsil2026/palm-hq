@@ -389,18 +389,20 @@ const thMonth = mk => { const [y, m] = mk.split('-').map(Number); return new Dat
 // ── 💵 การเงิน: จัดออเดอร์เข้าก้อนเงินตามที่บันทึกจริง ──
 const EXP_CATS = ['พนักงาน', 'วัตถุดิบ/บรรจุภัณฑ์', 'อะไหล่/ซ่อมบำรุง', 'ของแถม/การตลาด', 'ขนส่ง/น้ำมัน', 'ค่าน้ำ-ไฟ-เน็ต', 'อื่นๆ'];
 const BUCKETS = {
-  cash:     { icon: '💵', lbl: 'เก็บแล้ว — เงินสด/หน้างาน', color: 'var(--green)' },
-  transfer: { icon: '🏦', lbl: 'เก็บแล้ว — เงินโอน',        color: 'var(--teal)' },
-  credit:   { icon: '🧾', lbl: 'เครดิต ยังไม่ได้เงิน',       color: 'var(--red)' },
-  wait:     { icon: '🚚', lbl: 'ยังไม่ส่ง / รอเก็บ',         color: 'var(--gold)' },
+  transfer: { icon: '🏦', lbl: 'เข้าบัญชีแล้ว — เงินโอน',     color: 'var(--teal)' },
+  cash:     { icon: '✅', lbl: 'เงินสด — นำส่งแล้ว',          color: 'var(--green)' },
+  hand:     { icon: '👛', lbl: 'เงินสด — ยังอยู่กับทีม',      color: 'var(--gold)' },
+  credit:   { icon: '🧾', lbl: 'เครดิต ยังไม่ได้เงิน',        color: 'var(--red)' },
+  wait:     { icon: '🚚', lbl: 'ยังไม่ส่ง / รอเก็บ',          color: 'var(--sub)' },
 };
+const BK = ['transfer', 'cash', 'hand', 'credit', 'wait'];
 const delivered = o => /ส่งแล้ว|เก็บเงิน|delivered/i.test((o.st || '') + ' ' + (o.dst || '')) || /^paid$/i.test(o.pay || '');
 // แยกยอดของ 1 บิลลงก้อนเงิน — รองรับจ่ายบางส่วน (มัดจำ/ทยอยเก็บ)
 // โหมดแม่นยำ: มีสมุดรับเงิน v14 (o.recv) · โหมดประเมิน: เดาจากสถานะ+วิธีจ่าย (ระบบเก่า)
 function splitMoney(o) {
-  const s = { cash: 0, transfer: 0, credit: 0, wait: 0 };
+  const s = { transfer: 0, cash: 0, hand: 0, credit: 0, wait: 0 };
   if (o.recv != null) {
-    s.cash = o.rcash || 0; s.transfer = o.rtrans || 0;
+    s.transfer = o.rtrans || 0; s.cash = o.rcash || 0; s.hand = o.rhand || 0;
     const rest = Math.max(0, o.amt - (o.recv || 0));
     if (rest) { if (delivered(o)) s.credit = rest; else s.wait = rest; }
     return s;
@@ -411,12 +413,13 @@ function splitMoney(o) {
 // ประเมินจากสถานะ (ใช้เมื่อยังไม่มีสมุดรับเงิน) — v14 เลิกใช้สถานะ "เก็บเงินแล้ว" จึงไม่ถือเป็นหลักฐานรับเงิน
 function payBucket(o) {
   const pm = o.ptype || o.pay || '';
-  if (/จ่ายเต็ม|มัดจำ/.test(pm)) return /โอน|transfer/i.test(pm) ? 'transfer' : 'cash';  // จ่ายก่อนผลิต = เงินเข้าแล้ว
+  const isT = /โอน|transfer|พร้อมเพย์/i.test(pm);
+  if (/จ่ายแล้ว|จ่ายเต็ม|มัดจำ/.test(pm)) return isT ? 'transfer' : 'hand';  // v13 ต่อท้าย "· จ่ายแล้ว" / จ่ายก่อนผลิต
   if (!delivered(o)) return 'wait';
   if (/unpaid/i.test(o.pay || '')) return 'credit';
   if (/เครดิต|วางบิล/.test(pm)) return 'credit';
-  if (/โอน|transfer|พร้อมเพย์/i.test(pm)) return 'transfer';
-  return 'cash';  // เงินสด/เก็บหน้างาน/ไม่ระบุ
+  if (isT) return 'transfer';
+  return 'hand';  // เงินสด/เก็บหน้างาน — ยังไม่มีหลักฐานว่านำส่งเข้าบัญชีแล้ว
 }
 
 // จำนวนวันที่โรงงานเงียบ (ไม่มีบันทึกผลิตใหม่) — คืน 0 ถ้ายังสดอยู่ (<7 วัน) หรือไม่มีข้อมูล
@@ -694,12 +697,12 @@ function sellersHtml(bySeller) {
 
 // ── 💵 หน้าการเงิน: เงินเข้าแยกก้อนตามที่บันทึกจริง + รายจ่ายแยกหมวด + สรุปสุทธิ ──
 function finHtml() {
-  const B = { cash: { amt: 0, n: 0 }, transfer: { amt: 0, n: 0 }, credit: { amt: 0, n: 0 }, wait: { amt: 0, n: 0 } };
+  const B = {}; BK.forEach(k => B[k] = { amt: 0, n: 0 });
   FO().forEach(o => {
     const s = splitMoney(o);
-    ['cash', 'transfer', 'credit', 'wait'].forEach(k => { if (s[k]) { B[k].amt += s[k]; B[k].n++; } });
+    BK.forEach(k => { if (s[k]) { B[k].amt += s[k]; B[k].n++; } });
   });
-  const total = B.cash.amt + B.transfer.amt + B.credit.amt + B.wait.amt;
+  const total = BK.reduce((t, k) => t + B[k].amt, 0);
   const chip = id => {
     const c = BUCKETS[id], v = B[id];
     return `<div class="k" data-bucket="${id}" style="cursor:pointer" title="แตะดูรายการ">
@@ -709,10 +712,11 @@ function finHtml() {
   };
   let h = `<div class="sec"><h2>💵 เงินเข้า-เงินออก เดือน ${esc(D.month)}</h2>
     <div class="hint">ยอดขาย ${money(total)} บาท ไม่ใช่เงินที่ได้จริง — แยกให้เห็นว่าเงินอยู่ก้อนไหน${ONLY_DONE ? ' (เฉพาะส่งแล้ว)' : ''}</div>`;
-  h += `<div class="kpis" style="margin-bottom:6px">${chip('cash')}${B.transfer.n ? chip('transfer') : ''}${chip('credit')}${chip('wait')}</div>`;
+  h += `<div class="kpis" style="margin-bottom:6px">${BK.filter(k => B[k].n || k === 'hand' || k === 'credit').map(chip).join('')}</div>`;
   h += D.hasPay
-    ? `<div class="hint" style="margin-bottom:0">✅ ตัวเลขนี้อ่านจาก<b>สมุดรับเงินของระบบขาย</b> (บันทึกรับเงินรายบิล) — รองรับจ่ายบางส่วน/มัดจำ · "เงินสด" = เก็บเป็นเงินสด ยังต้องเช็คว่านำฝากเข้าบัญชีครบไหม</div>`
-    : `<div class="hint" style="margin-bottom:0">⚠️ <b>ยังไม่มีข้อมูลรับเงินรายบิลจากระบบขาย</b> — ตัวเลขนี้ยัง<u>ประเมินจากสถานะออเดอร์</u> ไม่ใช่เงินที่ยืนยันว่าเก็บได้จริง<br>
+    ? `<div class="hint" style="margin-bottom:0">✅ อ่านจาก<b>สมุดรับเงินของระบบขาย</b> (บันทึกรับเงินรายบิล) — รองรับจ่ายบางส่วน/มัดจำ<br>
+       👛 <b>"เงินสด — ยังอยู่กับทีม"</b> คือเก็บจากลูกค้าแล้วแต่<u>ยังไม่มีใบนำส่งเงินสด</u> — เงินก้อนนี้ยังไม่เข้าบัญชี ต้องตามให้ทีมนำส่ง</div>`
+    : `<div class="hint" style="margin-bottom:0">⚠️ <b>ยังไม่มีข้อมูลรับเงินรายบิลจากระบบขาย</b> — ตัวเลขนี้ยัง<u>ประเมินจากสถานะออเดอร์</u> ไม่ใช่เงินที่ยืนยันว่าเก็บได้จริง (เงินสดทั้งหมดจึงถูกนับเป็น "ยังอยู่กับทีม" ไว้ก่อน)<br>
        เปิดแอปเซลส์ → หน้า 💰 การเงิน → กด "ย้ายออเดอร์เก่าเข้าสมุดรับเงิน" ครั้งเดียว แล้วรีเฟรชหน้านี้ ตัวเลขจะกลายเป็นเงินรับจริงทันที</div>`;
 
   // ── รายจ่าย ──
@@ -741,12 +745,13 @@ function finHtml() {
   }
 
   // ── สรุปสุทธิ ──
-  const inAmt = B.cash.amt + B.transfer.amt;
+  // v14: แยกได้ว่าเงินถึงบัญชีจริงเท่าไหร่ · โหมดเก่า: รู้แค่ "เก็บได้แล้ว" รวม ๆ (ยังไม่รู้ว่านำส่งหรือยัง)
+  const inAmt = D.hasPay ? (B.cash.amt + B.transfer.amt) : (B.cash.amt + B.transfer.amt + B.hand.amt);
   const net = inAmt - E.total;
-  h += `<div style="margin-top:13px;padding-top:11px;border-top:2px dashed var(--line);font-size:.86rem">
-    สรุปตามบันทึก: เก็บเงินแล้ว <b style="color:var(--green)">${money(inAmt)}</b> − รายจ่าย <b style="color:var(--red)">${money(E.total)}</b>
-    = <b style="font-size:1.05rem;color:${net >= 0 ? 'var(--green)' : 'var(--red)'}">${money(net)} บาท</b>
-    <span style="color:var(--sub)">· เครดิตที่ต้องตามเก็บอีก ${money(B.credit.amt)} บาท</span></div>`;
+  h += `<div style="margin-top:13px;padding-top:11px;border-top:2px dashed var(--line);font-size:.86rem;line-height:1.9">
+    <b>${D.hasPay ? 'เข้าบัญชีแล้ว' : 'เก็บเงินได้แล้ว (ประเมิน)'}</b> <b style="color:var(--teal)">${money(inAmt)}</b> − รายจ่าย <b style="color:var(--red)">${money(E.total)}</b>
+    = <b style="font-size:1.05rem;color:${net >= 0 ? 'var(--green)' : 'var(--red)'}">${money(net)} บาท</b><br>
+    <span style="color:var(--sub)">ยังต้องตามอีก: ${D.hasPay ? '👛 เงินสดที่ทีมถืออยู่ <b style="color:var(--gold)">' + money(B.hand.amt) + '</b> · ' : ''}🧾 เครดิตค้างเก็บ <b style="color:var(--red)">${money(B.credit.amt)}</b> บาท</span></div>`;
   return h + '</div>';
 }
 function openExpense(x) {
