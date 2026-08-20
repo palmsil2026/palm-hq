@@ -1793,7 +1793,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-08-19a';
+const CODE_VERSION = '2026-08-20a';
 
 function healthCheck() {
   const L = [];
@@ -2672,8 +2672,12 @@ function plantColIdx(tab, re) {
   } catch (e) { return -1; }
 }
 // 💰 สมุดรับเงินของระบบขาย v14 (ชีต Payments) — แหล่งความจริงเรื่อง "เก็บเงินได้จริง"
-// v14 เลิกใช้สถานะ "เก็บเงินแล้ว" แล้ว ห้ามอ่านสถานะมาตัดสินว่าได้เงิน
-// คืน { orderId: {amt, cash, transfer, last} } หรือ null ถ้ายังไม่มีชีต (ระบบเก่า)
+// v14 เลิกใช้สถานะ "เก็บเงินแล้ว" แล้ว ห้ามอ่านสถานะออเดอร์มาตัดสินว่าได้เงิน
+// โครงจริง A..S: Payment_ID·Timestamp·วันที่·Order_ID·ช่องทาง·Customer_ID·ลูกค้า·ยอด·วิธี·ผู้รับเงิน·
+//                สถานะเงิน·สลิป·Remit_ID·ผู้ยืนยัน·เวลายืนยัน·หมายเหตุ·อ้างอิง·ผู้บันทึก·แอป
+// การแก้ยอด = แถวกลับรายการติดลบ (ห้ามแก้แถวเดิม) → รวมยอดตรงอยู่แล้ว
+// คืน { orderId: {amt, cash, hand, transfer, last} } หรือ null ถ้ายังไม่มีชีต (ระบบเก่า)
+//   hand = เงินสดที่เก็บแล้วแต่ยังไม่มีใบนำส่ง (Remit_ID ว่าง) = เงินยังอยู่กับทีมหน้างาน
 function plantPayments() {
   const ss = plantSS(); if (!ss) return null;
   try {
@@ -2681,19 +2685,26 @@ function plantPayments() {
     const vals = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
     const head = vals[0].map(String);
     const find = function (re) { for (let i = 0; i < head.length; i++) if (re.test(head[i])) return i; return -1; };
-    const iOrd = find(/order|ออเดอร์|เลขที่บิล|บิล/i);
-    const iAmt = find(/ยอด|จำนวนเงิน|amount|รับ/i);
-    const iWay = find(/วิธี|ช่องทาง|ประเภท|method/i);
-    const iDate = find(/วันที่|date/i);
+    const iOrd = find(/order_?id|ออเดอร์|เลขที่บิล/i);   // ต้องไม่ไปชน Payment_ID
+    const iAmt = find(/^ยอด|จำนวนเงิน|amount/i);
+    // "วิธี" = เงินสด/โอน (ที่ต้องการ) · "ช่องทาง" = แอปที่บันทึก — อย่าสลับกัน
+    const iWay = find(/^วิธี|method|ประเภทการชำระ/i);
+    const iRemit = find(/remit/i);
+    const iDate = find(/^วันที่|^date/i);
     if (iOrd < 0 || iAmt < 0) return null;
     const m = {};
     vals.slice(1).forEach(function (r) {
       const id = String(r[iOrd] || '').trim(); if (!id) return;
-      const amt = execNum(r[iAmt]); if (!amt) return;
+      const amt = execNum(r[iAmt]); if (!amt) return;   // ติดลบ = แถวกลับรายการ ต้องนับด้วย
       const way = iWay >= 0 ? String(r[iWay] || '') : '';
-      const o = m[id] = m[id] || { amt: 0, cash: 0, transfer: 0, last: '' };
+      const o = m[id] = m[id] || { amt: 0, cash: 0, hand: 0, transfer: 0, last: '' };
       o.amt += amt;
-      if (/โอน|transfer|พร้อมเพย์|promptpay|ธนาคาร|bank/i.test(way)) o.transfer += amt; else o.cash += amt;
+      if (/โอน|transfer|พร้อมเพย์|promptpay|ธนาคาร|bank|บัตร/i.test(way)) {
+        o.transfer += amt;
+      } else {
+        o.cash += amt;
+        if (iRemit < 0 || !String(r[iRemit] || '').trim()) o.hand += amt;  // ยังไม่มีใบนำส่ง
+      }
       const d = iDate >= 0 ? execDateKey(r[iDate]) : '';
       if (d && d > o.last) o.last = d;
     });
@@ -2817,29 +2828,36 @@ function plantFeed(monthPrefix) {
     // ── 💰 เงินรับจริงต่อออเดอร์ (v14) → เฉลี่ยลงรายบรรทัดตามสัดส่วนยอด ──
     // ลำดับความน่าเชื่อถือ: ชีต Payments > คอลัมน์ "ยอดรับแล้ว" ในแท็บออเดอร์ > ไม่มีข้อมูล (แอปจะเดาจากสถานะแทน)
     const pay = plantPayments();
-    const ordTotal = {}, colRecvByOrd = {};
+    const ordTotal = {}, colRecv = {};
     out.sales.forEach(function (s) {
       if (!s.oid) return;
       ordTotal[s.oid] = (ordTotal[s.oid] || 0) + s.amount;
-      if (s.colRecv != null) colRecvByOrd[s.oid] = Math.max(colRecvByOrd[s.oid] || 0, s.colRecv);
+      if (s.colRecv == null) return;
+      // 1 ออเดอร์มีหลายบรรทัดสินค้า — คอลัมน์เงา "ยอดรับแล้ว" อาจเขียนซ้ำทุกบรรทัด (ระดับออเดอร์)
+      // หรือแยกรายบรรทัดก็ได้ → ถ้าทุกบรรทัดค่าเท่ากันถือเป็นยอดของทั้งออเดอร์ ไม่งั้นบวกรวม
+      const c = colRecv[s.oid] = colRecv[s.oid] || { sum: 0, max: 0, same: true, first: s.colRecv };
+      c.sum += s.colRecv; c.max = Math.max(c.max, s.colRecv);
+      if (s.colRecv !== c.first) c.same = false;
     });
     out.sales.forEach(function (s) {
       const share = (s.oid && ordTotal[s.oid]) ? (s.amount / ordTotal[s.oid]) : 1;
       const p = (pay && s.oid) ? pay[s.oid] : null;
       if (p) {
         s.recv = Math.round(p.amt * share);
-        s.rcash = Math.round(p.cash * share);
+        s.rcash = Math.round((p.cash - p.hand) * share);   // เงินสดที่นำส่งแล้ว
+        s.rhand = Math.round(p.hand * share);              // เงินสดยังอยู่กับทีม
         s.rtrans = Math.round(p.transfer * share);
         if (p.last) s.paidAt = p.last;
-      } else if (s.oid && colRecvByOrd[s.oid] != null) {
-        s.recv = Math.round(colRecvByOrd[s.oid] * share);
-        // ไม่มีข้อมูลช่องทาง → จัดตามวิธีจ่ายที่บันทึกในออเดอร์
+      } else if (s.oid && colRecv[s.oid]) {
+        const c = colRecv[s.oid];
+        s.recv = Math.round((c.same ? c.max : c.sum) * share);
+        // คอลัมน์เงาไม่บอกช่องทาง → จัดตามวิธีจ่ายที่บันทึกในออเดอร์ และถือว่ายังไม่รู้ว่านำส่งหรือยัง
         const isT = /โอน|transfer|พร้อมเพย์/i.test(s.ptype || '');
-        s.rcash = isT ? 0 : s.recv; s.rtrans = isT ? s.recv : 0;
+        s.rtrans = isT ? s.recv : 0; s.rcash = 0; s.rhand = isT ? 0 : s.recv;
       }
       delete s.colRecv;
     });
-    out.hasPay = !!(pay || Object.keys(colRecvByOrd).length);
+    out.hasPay = !!(pay || Object.keys(colRecv).length);
 
     // ── พนักงานจากชีต Staff: A=Staff_ID B=ชื่อ C=Role E=Active (ไม่ดึงคอลัมน์ PIN เด็ดขาด) ──
     plantRows('Staff').forEach(function (r) {
@@ -2976,7 +2994,7 @@ function execDashboard(key, month) {
         .map(function (s) {
           const o = { d: s.date, line: s.line, prod: s.prod || '', cust: s.cust || '', seller: s.seller || '',
                       qty: s.qty, amt: s.amount, st: s.st || '', pay: s.pay || '', ptype: s.ptype || '', dst: s.dst || '' };
-          if (s.recv != null) { o.recv = s.recv; o.rcash = s.rcash || 0; o.rtrans = s.rtrans || 0; if (s.paidAt) o.paidAt = s.paidAt; }
+          if (s.recv != null) { o.recv = s.recv; o.rcash = s.rcash || 0; o.rhand = s.rhand || 0; o.rtrans = s.rtrans || 0; if (s.paidAt) o.paidAt = s.paidAt; }
           return o;
         });
     }
