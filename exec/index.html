@@ -300,17 +300,38 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
     <h3 id="pyTitle">💵 เงินเดือน</h3>
     <input type="hidden" id="py_id"><input type="hidden" id="py_staff"><input type="hidden" id="py_name">
     <div class="row2">
-      <div><label>งวด (เดือน)</label><input id="py_period" type="month"></div>
-      <div><label>วันทำงาน</label><input id="py_days" type="number" inputmode="numeric"></div>
+      <div><label>เดือน</label><input id="py_period" type="month"></div>
+      <div><label>งวด</label><select id="py_half">
+        <option value="1">ครึ่งแรก (1–15)</option><option value="2">ครึ่งหลัง (16–สิ้นเดือน)</option><option value="">ทั้งเดือน</option>
+      </select></div>
+    </div>
+    <!-- ⚡ คิดตามกติกาค่าแรง (อิงกติกาที่คุณปาล์มยืนยัน 21/8) -->
+    <div style="background:var(--raise);border:1.5px dashed var(--line);border-radius:12px;padding:10px;margin-top:10px">
+      <div style="font-size:.72rem;font-weight:700;color:var(--sub);margin-bottom:2px">⚡ คิดเร็วตามกติกา — ใส่เรตกับนาทีแล้วกดคำนวณ ระบบเติมช่องล่างให้ (แก้ทับได้)</div>
+      <div class="row2">
+        <div><label>เรตค่าแรง/วัน (บาท)</label><input id="py_rate" type="number" inputmode="decimal" placeholder="เช่น 375 / 410"></div>
+        <div><label>วันทำงาน</label><input id="py_days" type="number" inputmode="numeric"></div>
+      </div>
+      <div class="row2">
+        <div><label>OT รวม (นาที หลัง 17:00)</label><input id="py_otmin" type="number" inputmode="numeric" placeholder="0"></div>
+        <div><label>สายรวม (นาที)</label><input id="py_latemin" type="number" inputmode="numeric" placeholder="0"></div>
+      </div>
+      <button class="bt bt-gray" id="py_calc" style="margin-top:8px;width:100%;justify-content:center">⚡ คำนวณ ฐาน/โอที/หักสาย ตามกติกา</button>
+      <div style="font-size:.68rem;color:var(--faint);margin-top:5px;line-height:1.6">OT = ช่วง 15 นาที (เศษ ≥10 ปัดขึ้น) × เรต÷8÷4 · สาย = ช่วง 30 นาที × เรต÷16 · รายเดือน: ฐานครึ่งเดือน = เงินเดือน÷2, ขาดหักวันละ เงินเดือน÷30, ไม่มี OT · ประกัน: ผลิตเหมา 375/ครึ่งเดือน, อื่น ๆ 5%</div>
     </div>
     <div class="row2">
       <div><label>ฐาน (บาท)</label><input id="py_base" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
       <div><label>โอที (บาท)</label><input id="py_ot" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
     </div>
     <div class="row2">
-      <div><label>โบนัส/เบี้ยขยัน (บาท)</label><input id="py_bonus" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
-      <div><label>หัก (ประกันสังคม/เบิกล่วงหน้า/ขาด)</label><input id="py_ded" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
+      <div><label>โบนัส/เบี้ยขยัน/ค่าดูแลรถ (บาท)</label><input id="py_bonus" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
+      <div><label>หักสาย (บาท)</label><input id="py_dlate" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
     </div>
+    <div class="row2">
+      <div><label>หักขาดงาน (บาท)</label><input id="py_dabs" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
+      <div><label>หักประกัน (บาท)</label><input id="py_dins" type="number" inputmode="decimal" oninput="pyRecalc()"></div>
+    </div>
+    <label>หักอื่นๆ (เบิกล่วงหน้า ฯลฯ)</label><input id="py_doth" type="number" inputmode="decimal" oninput="pyRecalc()">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;padding-top:10px;border-top:2px dashed var(--line)">
       <span style="font-weight:700">สุทธิ</span><span id="py_net" style="font-size:1.25rem;font-weight:800;color:var(--gold)">0 บาท</span></div>
     <div class="row2">
@@ -797,9 +818,19 @@ async function saveExpense(del) {
 function payrollDrill() {
   const P = D.payroll || { list: [] };
   let h = `<div class="hint" style="margin-bottom:8px">งวด ${esc(D.month)} · จ่ายแล้ว <b style="color:var(--green)">${money(P.paid)}</b> บาท${P.due ? ' · ค้างจ่าย <b style="color:var(--red)">' + money(P.due) + '</b> บาท' : ''} · ${P.n} คน</div>`;
+  const dedCell = x => {
+    if (!x.deduct) return '—';
+    const parts = [];
+    if (x.dLate) parts.push('สาย ' + money(x.dLate));
+    if (x.dAbsent) parts.push('ขาด ' + money(x.dAbsent));
+    if (x.dIns) parts.push('ประกัน ' + money(x.dIns));
+    if (x.dOther) parts.push('อื่นๆ ' + money(x.dOther));
+    return '<span style="color:var(--red)">-' + money(x.deduct) + '</span>' +
+      (parts.length ? '<div style="font-size:.64rem;color:var(--faint)">' + parts.join(' · ') + '</div>' : '');
+  };
   h += P.list.length ? '<div class="scroll"><table class="tb"><tr><th>ชื่อ</th><th class="num">วันทำงาน</th><th class="num">ฐาน</th><th class="num">โอที+โบนัส</th><th class="num">หัก</th><th class="num">สุทธิ</th><th>สถานะ</th></tr>' +
-    P.list.map(x => `<tr><td><b>${esc(x.name)}</b></td><td class="num">${x.days || '—'}</td><td class="num">${money(x.base)}</td>
-      <td class="num">${money((x.ot || 0) + (x.bonus || 0)) || '—'}</td><td class="num">${x.deduct ? '<span style="color:var(--red)">-' + money(x.deduct) + '</span>' : '—'}</td>
+    P.list.map(x => `<tr><td><b>${esc(x.name)}</b>${x.per && x.per.length > 7 ? '<div style="font-size:.64rem;color:var(--faint)">งวด' + (x.per.slice(8) === '1' ? 'ครึ่งแรก' : 'ครึ่งหลัง') + '</div>' : ''}</td><td class="num">${x.days || '—'}</td><td class="num">${money(x.base)}</td>
+      <td class="num">${money((x.ot || 0) + (x.bonus || 0)) || '—'}</td><td class="num">${dedCell(x)}</td>
       <td class="num"><b>${money(x.net)}</b></td>
       <td><span class="pill ${x.paid ? 'p-green' : 'p-red'}">${x.paid ? 'จ่ายแล้ว' : 'ค้างจ่าย'}</span>${x.paidAt ? '<div style="font-size:.66rem;color:var(--faint)">' + esc(x.paidAt.slice(8) + '/' + x.paidAt.slice(5, 7)) + '</div>' : ''}</td></tr>`).join('') +
     '</table></div>' : '<div class="empty">ยังไม่มีงวดเงินเดือนของเดือนนี้</div>';
@@ -926,6 +957,8 @@ let hrTab = 'list';      // list | payroll
 let hrShowInactive = false;
 let PAY = null;          // งวดเงินเดือนที่โหลดล่าสุด
 let payPeriod = new Date().toISOString().slice(0, 7);
+let payHalf = '1';       // '1'=ครึ่งแรก(1-15) '2'=ครึ่งหลัง ''=ทั้งเดือน — กติกาจริงจ่ายรายครึ่งเดือน
+const effPeriod = () => payPeriod + (payHalf ? '-' + payHalf : '');
 const isCeo = () => D && D.role === 'ceo';
 // กรรมการ (เช่น คุณพ่อ) เห็นข้อมูลเงินทุกอย่างเท่า CEO — แต่ปุ่มแก้ไข/บันทึกจ่ายยังเป็นของ CEO คนเดียว
 const canMoney = () => D && (D.role === 'ceo' || D.role === 'board');
@@ -1087,15 +1120,16 @@ async function saveLeaveForm() {
 // ── เงินเดือน: หน้ารวมงวด + ฟอร์มบันทึก ──
 async function loadPayroll() {
   render(); // วาดโครงก่อน
-  const j = await api({ action: 'hrPayroll', period: payPeriod });
+  const j = await api({ action: 'hrPayroll', period: effPeriod() });
   if (!j.ok) { toast(j.error || 'โหลดเงินเดือนไม่สำเร็จ'); return; }
   PAY = j; render();
 }
 function payrollHtml() {
   let h = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
     <button class="bt bt-gray" id="payPrev">◀</button><b id="payLabel">${esc(payLabel(payPeriod))}</b><button class="bt bt-gray" id="payNext">▶</button>
-    <span style="flex:1"></span>${PAY && PAY.period === payPeriod ? `<span style="font-size:.8rem;color:var(--sub)">รวม <b>${money(PAY.total)}</b> บาท · จ่ายแล้ว <b style="color:var(--green)">${money(PAY.paid)}</b> · ค้าง <b style="color:var(--red)">${money(PAY.total - PAY.paid)}</b></span>` : ''}</div>`;
-  if (!PAY || PAY.period !== payPeriod) return h + '<div class="empty">กำลังโหลด...</div>';
+    <div class="seg"><button data-payhalf="1" class="${payHalf === '1' ? 'on' : ''}">ครึ่งแรก 1–15</button><button data-payhalf="2" class="${payHalf === '2' ? 'on' : ''}">ครึ่งหลัง 16–สิ้นเดือน</button><button data-payhalf="" class="${payHalf === '' ? 'on' : ''}">ทั้งเดือน</button></div>
+    <span style="flex:1"></span>${PAY && PAY.period === effPeriod() ? `<span style="font-size:.8rem;color:var(--sub)">รวม <b>${money(PAY.total)}</b> บาท · จ่ายแล้ว <b style="color:var(--green)">${money(PAY.paid)}</b> · ค้าง <b style="color:var(--red)">${money(PAY.total - PAY.paid)}</b></span>` : ''}</div>`;
+  if (!PAY || PAY.period !== effPeriod()) return h + '<div class="empty">กำลังโหลด...</div>';
   h += `<div class="scroll"><table class="tb"><tr><th>ชื่อ</th><th>ตำแหน่ง</th><th class="num">ฐาน</th><th class="num">ทำงาน</th><th class="num">สุทธิ</th><th>สถานะ</th><th></th></tr>` +
     PAY.list.map(p => `<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.role || '')}</td>
       <td class="num">${money(p.base != null ? p.base : p.salary)}${p.payType ? ' <span style="font-size:.68rem;color:var(--faint)">' + esc(p.payType) + '</span>' : ''}</td>
@@ -1111,6 +1145,8 @@ function payShift(n) { const [y, m] = payPeriod.split('-').map(Number); const d 
 function bindPayroll() {
   if ($('payPrev')) $('payPrev').onclick = () => payShift(-1);
   if ($('payNext')) $('payNext').onclick = () => payShift(1);
+  document.querySelectorAll('[data-payhalf]').forEach(b => b.onclick = () => { payHalf = b.dataset.payhalf; loadPayroll(); });
+  if ($('py_calc')) $('py_calc').onclick = pyQuickCalc;
   document.querySelectorAll('[data-pay]').forEach(b => b.onclick = () => {
     const p = PAY.list.find(x => x.staffId === b.dataset.pay); if (p) openPayForm(p);
   });
@@ -1119,22 +1155,50 @@ function openPayForm(p) {
   $('pyMask').classList.add('on');
   $('pyTitle').textContent = '💵 เงินเดือน — ' + p.name;
   $('py_id').value = p.payId || ''; $('py_staff').value = p.staffId || ''; $('py_name').value = p.name;
-  $('py_period').value = p.period || payPeriod;
+  // งวด "yyyy-MM" หรือ "yyyy-MM-1/2" → แยกเดือนกับครึ่ง
+  const per = String(p.period || payPeriod + (payHalf ? '-' + payHalf : ''));
+  $('py_period').value = per.slice(0, 7);
+  $('py_half').value = per.length > 7 ? per.slice(8) : '';
   $('py_days').value = p.days != null ? p.days : (p.workDays || '');
   $('py_base').value = p.base != null ? p.base : (p.salary || '');
-  $('py_ot').value = p.ot || ''; $('py_bonus').value = p.bonus || ''; $('py_ded').value = p.deduct || '';
+  $('py_ot').value = p.ot || ''; $('py_bonus').value = p.bonus || '';
+  const hasSplit = (p.dLate || p.dAbsent || p.dIns || p.dOther);
+  $('py_dlate').value = p.dLate || ''; $('py_dabs').value = p.dAbsent || '';
+  $('py_dins').value = p.dIns || '';
+  $('py_doth').value = hasSplit ? (p.dOther || '') : (p.deduct || '');  // ข้อมูลเก่าหักรวม → เข้าช่องอื่นๆ
+  $('py_rate').value = ''; $('py_otmin').value = ''; $('py_latemin').value = '';
   $('py_status').value = p.status || 'ค้างจ่าย'; $('py_note').value = p.note || '';
   pyRecalc();
 }
 function pyRecalc() {
   const n = id => Number(String($(id).value).replace(/,/g, '')) || 0;
-  $('py_net').textContent = money(n('py_base') + n('py_ot') + n('py_bonus') - n('py_ded')) + ' บาท';
+  const ded = n('py_dlate') + n('py_dabs') + n('py_dins') + n('py_doth');
+  $('py_net').textContent = money(n('py_base') + n('py_ot') + n('py_bonus') - ded) + ' บาท';
+}
+// ⚡ กติกาค่าแรง (ยืนยัน 21/8): OT ช่วง 15 นาที เศษ ≥10 ปัดขึ้น เรต=เรตวัน÷8÷4 · สาย ช่วง 30 นาที × เรตวัน÷16
+function pyQuickCalc() {
+  const n = id => Number(String($(id).value).replace(/,/g, '')) || 0;
+  const rate = n('py_rate');
+  if (!rate) { toast('ใส่เรตค่าแรง/วันก่อนนะคะ'); return; }
+  const days = n('py_days');
+  if (days && !n('py_base')) $('py_base').value = Math.round(days * rate);
+  const otMin = n('py_otmin');
+  if (otMin) {
+    const units = Math.floor(otMin / 15) + ((otMin % 15) >= 10 ? 1 : 0);
+    $('py_ot').value = Math.round(units * rate / 8 / 4);
+  }
+  const lateMin = n('py_latemin');
+  if (lateMin) $('py_dlate').value = Math.round(Math.ceil(lateMin / 30) * rate / 16);
+  pyRecalc();
+  toast('คำนวณตามกติกาแล้ว — ตรวจแล้วแก้ทับได้เลยค่ะ');
 }
 async function savePayForm(markPaid) {
   const b = $('py_save'); b.disabled = true;
   const r = await api({ action: 'hrPay', id: $('py_id').value, staffId: $('py_staff').value, name: $('py_name').value,
-    period: $('py_period').value, days: $('py_days').value, base: $('py_base').value, ot: $('py_ot').value,
-    bonus: $('py_bonus').value, deduct: $('py_ded').value, status: markPaid ? 'จ่ายแล้ว' : $('py_status').value, note: $('py_note').value.trim() });
+    period: $('py_period').value + ($('py_half').value ? '-' + $('py_half').value : ''),
+    days: $('py_days').value, base: $('py_base').value, ot: $('py_ot').value, bonus: $('py_bonus').value,
+    dLate: $('py_dlate').value, dAbsent: $('py_dabs').value, dIns: $('py_dins').value, dOther: $('py_doth').value,
+    status: markPaid ? 'จ่ายแล้ว' : $('py_status').value, note: $('py_note').value.trim() });
   b.disabled = false;
   toast(r.msg || (r.ok ? 'บันทึกแล้ว' : 'ไม่สำเร็จ'));
   if (r.ok) { $('pyMask').classList.remove('on'); if (hrTab === 'payroll') loadPayroll(); if ($('hrMask').classList.contains('on') && window._hrCur) openStaff(window._hrCur.staff.id || window._hrCur.staff.name); }
