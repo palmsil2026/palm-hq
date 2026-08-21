@@ -1793,7 +1793,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-08-20a';
+const CODE_VERSION = '2026-08-21a';
 
 function healthCheck() {
   const L = [];
@@ -2999,6 +2999,26 @@ function execDashboard(key, month) {
         });
     }
 
+    // 👥 เงินเดือนงวดของเดือนที่ดู (โมดูล HR ชีต HR_Payroll) — ไหลเข้าหน้าการเงินเอง ไม่ต้องกรอกซ้ำ
+    let payroll = null;
+    if (execCanMoney(role)) {
+      try {
+        let paid = 0, due = 0; const plist = [];
+        hrRowsByHead('HR_Payroll').forEach(function (p) {
+          const per = String(p['งวด'] || '').slice(0, 7);
+          if (per !== monthPrefix) return;
+          const net = execNum(p['สุทธิ']); if (!net) return;
+          const isPaid = /จ่ายแล้ว/.test(String(p['สถานะ'] || ''));
+          if (isPaid) paid += net; else due += net;
+          plist.push({ name: String(p['ชื่อ'] || ''), net: net, days: execNum(p['วันทำงาน']),
+                       base: execNum(p['ฐาน']), ot: execNum(p['โอที']), bonus: execNum(p['โบนัส']),
+                       deduct: execNum(p['หัก']), paid: isPaid, paidAt: execDateKey(p['วันที่จ่าย']) });
+        });
+        plist.sort(function (a, b) { return b.net - a.net; });
+        payroll = { paid: paid, due: due, n: plist.length, list: plist };
+      } catch (e) { console.error('payroll: ' + e); }
+    }
+
     // 💵 รายจ่ายเดือนที่ดู (แท็บ ExecExpenses ของเลขา) — เห็นเฉพาะ CEO/กรรมการ
     let expenses = null;
     if (execCanMoney(role)) {
@@ -3086,7 +3106,7 @@ function execDashboard(key, month) {
       viewer: vw.name,
       prev: prev, ar: ar, lost: lost,
       prodLogs: prodLogs, lastProd: lastProd,
-      expenses: expenses,
+      expenses: expenses, payroll: payroll,
       hasPay: !!(feed && feed.hasPay),   // true = อ่านเงินรับจริงจากสมุดรับเงิน v14 | false = ประเมินจากสถานะออเดอร์
       boardLink: role === 'ceo' ? boardUrl() : teamBoardUrl(),
       ok: true, role: role,
