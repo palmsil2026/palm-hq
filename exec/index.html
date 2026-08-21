@@ -641,6 +641,7 @@ function bindPhase1() {
                FO().filter(o => splitMoney(o)[id] > 0), true, id);
   });
   if ($('exAdd')) $('exAdd').onclick = () => openExpense(null);
+  document.querySelectorAll('[data-dpayroll]').forEach(el => el.onclick = () => payrollDrill());
   document.querySelectorAll('[data-exrow]').forEach(el => el.onclick = () => {
     const x = ((D.expenses || {}).list || []).find(e => String(e.row) === el.dataset.exrow);
     if (x) openExpense(x);
@@ -719,22 +720,32 @@ function finHtml() {
     : `<div class="hint" style="margin-bottom:0">⚠️ <b>ยังไม่มีข้อมูลรับเงินรายบิลจากระบบขาย</b> — ตัวเลขนี้ยัง<u>ประเมินจากสถานะออเดอร์</u> ไม่ใช่เงินที่ยืนยันว่าเก็บได้จริง (เงินสดทั้งหมดจึงถูกนับเป็น "ยังอยู่กับทีม" ไว้ก่อน)<br>
        เปิดแอปเซลส์ → หน้า 💰 การเงิน → กด "ย้ายออเดอร์เก่าเข้าสมุดรับเงิน" ครั้งเดียว แล้วรีเฟรชหน้านี้ ตัวเลขจะกลายเป็นเงินรับจริงทันที</div>`;
 
-  // ── รายจ่าย ──
+  // ── รายจ่าย = ที่บันทึกมือ + เงินเดือนที่จ่ายจริงจากโมดูล HR (ไม่ต้องกรอกซ้ำ) ──
   const E = D.expenses || { total: 0, byCat: {}, list: [] };
+  const P = D.payroll || { paid: 0, due: 0, n: 0, list: [] };
+  const expAll = E.total + P.paid;
   h += `<div style="display:flex;align-items:center;gap:9px;margin-top:16px;flex-wrap:wrap">
     <h4 style="font-size:.88rem">💸 รายจ่ายเดือนนี้</h4>
-    <span style="font-size:1.05rem;font-weight:800;color:var(--red)">${money(E.total)} <span style="font-size:.7rem;font-weight:500;color:var(--sub)">บาท</span></span>
+    <span style="font-size:1.05rem;font-weight:800;color:var(--red)">${money(expAll)} <span style="font-size:.7rem;font-weight:500;color:var(--sub)">บาท</span></span>
+    ${P.paid ? '<span style="font-size:.7rem;color:var(--sub)">(บันทึกมือ ' + money(E.total) + ' + เงินเดือน ' + money(P.paid) + ')</span>' : ''}
     <span style="flex:1"></span>
     ${isCeo() ? '<button class="bt bt-main" id="exAdd" style="padding:7px 13px;font-size:.76rem">＋ บันทึกรายจ่าย</button>' : ''}</div>`;
-  const cats = Object.keys(E.byCat || {}).sort((a, b) => E.byCat[b] - E.byCat[a]);
+  // รวมหมวดเงินเดือนจาก HR เข้ากราฟแท่งเดียวกัน (ทำเครื่องหมายว่ามาจากระบบ)
+  const catAll = Object.assign({}, E.byCat || {});
+  const PAY_CAT = 'เงินเดือน (จากระบบ HR)';
+  if (P.paid) catAll[PAY_CAT] = (catAll[PAY_CAT] || 0) + P.paid;
+  const cats = Object.keys(catAll).sort((a, b) => catAll[b] - catAll[a]);
   if (cats.length) {
-    const cmax = E.byCat[cats[0]] || 1;
-    h += '<div class="bars" style="margin-top:10px">' + cats.map(c => `<div class="brow">
-        <div class="top"><span class="nm"><span class="sw" style="background:var(--red);opacity:.75"></span>${esc(c)}</span>
-        <span class="val">${money(E.byCat[c])} <span style="font-weight:500;color:var(--sub);font-size:.72rem">บาท</span></span></div>
-        <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(E.byCat[c] / cmax * 100))}%;background:var(--red);opacity:.75"></div></div>
-        <div class="pct">${Math.round(E.byCat[c] / (E.total || 1) * 100)}% ของรายจ่ายเดือนนี้</div>
-      </div>`).join('') + '</div>';
+    const cmax = catAll[cats[0]] || 1;
+    h += '<div class="bars" style="margin-top:10px">' + cats.map(c => {
+      const auto = c === PAY_CAT;
+      return `<div class="brow${auto ? ' click" data-dpayroll="1' : ''}">
+        <div class="top"><span class="nm"><span class="sw" style="background:var(--red);opacity:${auto ? '.5' : '.75'}"></span>${esc(c)}${auto ? '<span class="chev">▸ ดูรายคน</span>' : ''}</span>
+        <span class="val">${money(catAll[c])} <span style="font-weight:500;color:var(--sub);font-size:.72rem">บาท</span></span></div>
+        <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(catAll[c] / cmax * 100))}%;background:var(--red);opacity:${auto ? '.5' : '.75'}"></div></div>
+        <div class="pct">${Math.round(catAll[c] / (expAll || 1) * 100)}% ของรายจ่ายเดือนนี้${auto ? ' · ปิดงวดจ่ายแล้ว ' + P.list.filter(x => x.paid).length + ' คน' : ''}</div>
+      </div>`;
+    }).join('') + '</div>';
     h += '<div class="scroll" style="margin-top:10px"><table class="tb"><tr><th>วันที่</th><th>หมวด</th><th>รายการ</th><th class="num">บาท</th><th>จ่ายด้วย</th></tr>' +
       E.list.map(x => `<tr ${isCeo() ? 'data-exrow="' + x.row + '" style="cursor:pointer" title="แตะเพื่อแก้ไข/ลบ"' : ''}>
         <td style="white-space:nowrap">${esc(x.d.slice(8) + '/' + x.d.slice(5, 7))}</td>
@@ -743,15 +754,18 @@ function finHtml() {
   } else {
     h += `<div class="empty" style="padding:14px">ยังไม่มีรายจ่ายบันทึกไว้เดือนนี้${isCeo() ? ' — เงินออกเมื่อไหร่ กดบันทึกไว้เลย จะได้เห็นกำไรจริง' : ''}</div>`;
   }
+  if (P.due) {
+    h += `<div class="hint" style="margin-top:8px;color:var(--red)">⏳ เงินเดือนงวดนี้ที่<b>ยังไม่จ่าย</b> ${money(P.due)} บาท (${P.list.filter(x => !x.paid).length} คน) — ยังไม่ถูกนับเป็นรายจ่าย จนกว่าจะกดจ่ายในหมวดพนักงาน</div>`;
+  }
 
   // ── สรุปสุทธิ ──
   // v14: แยกได้ว่าเงินถึงบัญชีจริงเท่าไหร่ · โหมดเก่า: รู้แค่ "เก็บได้แล้ว" รวม ๆ (ยังไม่รู้ว่านำส่งหรือยัง)
   const inAmt = D.hasPay ? (B.cash.amt + B.transfer.amt) : (B.cash.amt + B.transfer.amt + B.hand.amt);
-  const net = inAmt - E.total;
+  const net = inAmt - expAll;
   h += `<div style="margin-top:13px;padding-top:11px;border-top:2px dashed var(--line);font-size:.86rem;line-height:1.9">
-    <b>${D.hasPay ? 'เข้าบัญชีแล้ว' : 'เก็บเงินได้แล้ว (ประเมิน)'}</b> <b style="color:var(--teal)">${money(inAmt)}</b> − รายจ่าย <b style="color:var(--red)">${money(E.total)}</b>
+    <b>${D.hasPay ? 'เข้าบัญชีแล้ว' : 'เก็บเงินได้แล้ว (ประเมิน)'}</b> <b style="color:var(--teal)">${money(inAmt)}</b> − รายจ่าย <b style="color:var(--red)">${money(expAll)}</b>
     = <b style="font-size:1.05rem;color:${net >= 0 ? 'var(--green)' : 'var(--red)'}">${money(net)} บาท</b><br>
-    <span style="color:var(--sub)">ยังต้องตามอีก: ${D.hasPay ? '👛 เงินสดที่ทีมถืออยู่ <b style="color:var(--gold)">' + money(B.hand.amt) + '</b> · ' : ''}🧾 เครดิตค้างเก็บ <b style="color:var(--red)">${money(B.credit.amt)}</b> บาท</span></div>`;
+    <span style="color:var(--sub)">ยังต้องเก็บเข้า: ${D.hasPay ? '👛 เงินสดที่ทีมถืออยู่ <b style="color:var(--gold)">' + money(B.hand.amt) + '</b> · ' : ''}🧾 เครดิตค้างเก็บ <b style="color:var(--red)">${money(B.credit.amt)}</b>${P.due ? ' · ยังต้องจ่ายออก: 👥 เงินเดือนค้าง <b style="color:var(--red)">' + money(P.due) + '</b>' : ''} บาท</span></div>`;
   return h + '</div>';
 }
 function openExpense(x) {
@@ -777,6 +791,22 @@ async function saveExpense(del) {
     if (r.ok) { $('exMask').classList.remove('on'); load(); }
   } catch (e) { toast(e.message); }
   b.disabled = false; b.innerHTML = old;
+}
+
+// ── 👥 เจาะเงินเดือนงวดนี้ (มาจากโมดูล HR ชีต HR_Payroll) ──
+function payrollDrill() {
+  const P = D.payroll || { list: [] };
+  let h = `<div class="hint" style="margin-bottom:8px">งวด ${esc(D.month)} · จ่ายแล้ว <b style="color:var(--green)">${money(P.paid)}</b> บาท${P.due ? ' · ค้างจ่าย <b style="color:var(--red)">' + money(P.due) + '</b> บาท' : ''} · ${P.n} คน</div>`;
+  h += P.list.length ? '<div class="scroll"><table class="tb"><tr><th>ชื่อ</th><th class="num">วันทำงาน</th><th class="num">ฐาน</th><th class="num">โอที+โบนัส</th><th class="num">หัก</th><th class="num">สุทธิ</th><th>สถานะ</th></tr>' +
+    P.list.map(x => `<tr><td><b>${esc(x.name)}</b></td><td class="num">${x.days || '—'}</td><td class="num">${money(x.base)}</td>
+      <td class="num">${money((x.ot || 0) + (x.bonus || 0)) || '—'}</td><td class="num">${x.deduct ? '<span style="color:var(--red)">-' + money(x.deduct) + '</span>' : '—'}</td>
+      <td class="num"><b>${money(x.net)}</b></td>
+      <td><span class="pill ${x.paid ? 'p-green' : 'p-red'}">${x.paid ? 'จ่ายแล้ว' : 'ค้างจ่าย'}</span>${x.paidAt ? '<div style="font-size:.66rem;color:var(--faint)">' + esc(x.paidAt.slice(8) + '/' + x.paidAt.slice(5, 7)) + '</div>' : ''}</td></tr>`).join('') +
+    '</table></div>' : '<div class="empty">ยังไม่มีงวดเงินเดือนของเดือนนี้</div>';
+  h += '<div class="hint" style="margin-top:8px">ตัวเลขมาจากหมวด 👥 พนักงาน → แท็บ 💵 เงินเดือน — บันทึกที่นั่นแล้วหน้านี้อัปเดตเอง ไม่ต้องกรอกซ้ำในรายจ่าย</div>';
+  $('dtTitle').textContent = '👥 เงินเดือนงวด ' + thMonth(MONTH);
+  $('dtBody').innerHTML = h;
+  $('dtMask').classList.add('on');
 }
 
 // ── 💳 เงินค้างเก็บสะสม (มาจากเซิร์ฟเวอร์ — รวมทุกเดือน ไม่ใช่แค่เดือนที่ดู) ──
