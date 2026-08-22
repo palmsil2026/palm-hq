@@ -282,6 +282,7 @@ function doGet(e) {
   if (p.action === 'hrLeave')   return jsonOut(hrAddLeave(p.key, p));
   if (p.action === 'hrLeaveDel') return jsonOut(hrDeleteLeave(p.key, p.id));
   if (p.action === 'hrPay')     return jsonOut(hrSavePayroll(p.key, p));
+  if (p.action === 'hrPayAll')  return jsonOut(hrPayAllPeriod(p.key, p.period));
   if (p.action === 'hrPayroll') return jsonOut(hrPayrollMonth(p.key, p.period));
 
   // 💬 คุยกับคุณเลขาจากแอปบอร์ด (เฉพาะ key เจ้าของ — สมอง/ความจำเดียวกับไลน์)
@@ -1793,7 +1794,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-08-21b';
+const CODE_VERSION = '2026-08-22a';
 
 function healthCheck() {
   const L = [];
@@ -3198,22 +3199,34 @@ function execSavePlan(key, p) {
 //  สิทธิ์: ceo = อ่าน+แก้ทุกอย่าง (รวมเงินเดือน) | exec = อ่านทะเบียน/สถิติ ไม่เห็นเงิน
 // ════════════════════════════════════════════════════════════
 const HR_TABS = {
+  // เบี้ยขยัน = "มี"/"" (ขนส่ง+เซลส์เร่ 40 บ./วัน) · ค่าประกัน = "375" (เหมา/ครึ่งเดือน) หรือ "5%"
+  // → 5 ช่องที่แชทเงินเดือนขอ (ประเภทจ้าง/เรต=เงินเดือน/เริ่มงาน มีอยู่แล้ว) อยู่ที่ HR_Staff ไม่ต้องแตะชีต Staff
   HR_Staff:   ['Staff_ID', 'ชื่อ', 'ชื่อเล่น', 'ตำแหน่ง', 'แผนก', 'เริ่มงาน', 'ประเภทจ้าง',
                'เงินเดือน', 'วิธีจ่าย', 'โทร', 'LINE', 'ที่อยู่', 'ผู้ติดต่อฉุกเฉิน',
-               'เลขบัตร/บัญชี', 'วันลาพักร้อน/ปี', 'หมายเหตุ', 'อัปเดตเมื่อ'],
+               'เลขบัตร/บัญชี', 'วันลาพักร้อน/ปี', 'หมายเหตุ', 'อัปเดตเมื่อ', 'เบี้ยขยัน', 'ค่าประกัน'],
   // งวด = "yyyy-MM" (ทั้งเดือน) หรือ "yyyy-MM-1"/"yyyy-MM-2" (ครึ่งเดือนตามกติกาจ่ายจริง)
   // หัก = ยอดรวม · แยกประเภทตามคำแนะนำแชทเงินเดือน origin-hq (แยกก่อนเริ่มใช้จริง แก้ทีหลังต้องไล่ข้อมูลเก่า)
   HR_Payroll: ['Pay_ID', 'งวด', 'Staff_ID', 'ชื่อ', 'วันทำงาน', 'ฐาน', 'โอที', 'โบนัส',
                'หัก', 'สุทธิ', 'สถานะ', 'วันที่จ่าย', 'ผู้บันทึก', 'หมายเหตุ',
                'หักสาย', 'หักขาด', 'หักประกัน', 'หักอื่นๆ'],
 };
-// ชีต HR_Payroll เวอร์ชันเก่า (14 คอลัมน์) → เติมหัวคอลัมน์แยกประเภทหักให้ครบ (ท้ายตาราง ไม่กระทบของเดิม)
-function hrEnsurePayrollCols(s) {
-  const lastCol = s.getLastColumn();
-  const head = s.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
-  if (head.indexOf('หักสาย') !== -1) return;
-  s.getRange(1, lastCol + 1, 1, 4).setValues([['หักสาย', 'หักขาด', 'หักประกัน', 'หักอื่นๆ']]);
+// เติมหัวคอลัมน์ที่ขาดให้ชีตเก่า (ท้ายตารางเสมอ ไม่กระทบของเดิม) — คืน map ชื่อหัว→เลขคอลัมน์ (1-based)
+function hrEnsureCols(s, wanted) {
+  let lastCol = s.getLastColumn();
+  let head = s.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  const missing = wanted.filter(function (w) { return head.indexOf(w) === -1; });
+  if (missing.length) {
+    s.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
+    head = head.concat(missing); lastCol += missing.length;
+  }
+  const idx = {};
+  head.forEach(function (h, i) { idx[h] = i + 1; });
+  return idx;
 }
+// คอลัมน์เสริมของ HR_Payroll ตามคำขอแชทเงินเดือน origin-hq (ข้อ 1-2-4-8):
+// หักแยกประเภท (ตรวจย้อนได้) · OT แบบยูนิตตรวจกับเครื่องสแกนได้ · ค่าตำแหน่ง/ค่ารถ (รอบครึ่งหลัง) · วิธีจ่าย
+const PAYROLL_EXTRA = ['หักสาย', 'หักขาด', 'หักประกัน', 'หักอื่นๆ', 'OT(ยูนิต)', 'เรทOT/ยูนิต', 'ค่าตำแหน่ง', 'ค่าดูแลรถ', 'จ่ายด้วย'];
+function hrEnsurePayrollCols(s) { return hrEnsureCols(s, PAYROLL_EXTRA); }
 // ชีต Leaves ของแอปโรงงาน (มีอยู่แล้ว): Leave_ID | Timestamp | พนักงาน | วันที่เริ่ม | วันที่สิ้นสุด | ประเภท | หมายเหตุ | ผู้บันทึก
 const LEAVES_HEAD = ['Leave_ID', 'Timestamp', 'พนักงาน', 'วันที่เริ่ม', 'วันที่สิ้นสุด', 'ประเภท', 'หมายเหตุ', 'ผู้บันทึก'];
 
@@ -3310,6 +3323,7 @@ function hrStaffList(role) {
     if (execCanMoney(role)) { // ข้อมูลเงิน/บัญชี เฉพาะ CEO/กรรมการ
       o.salary = execNum(h['เงินเดือน']); o.payType = String(h['วิธีจ่าย'] || 'รายเดือน');
       o.bankOrId = String(h['เลขบัตร/บัญชี'] || '');
+      o.diligence = String(h['เบี้ยขยัน'] || ''); o.insurance = String(h['ค่าประกัน'] || '');
     }
     return o;
   });
@@ -3403,9 +3417,11 @@ function hrSaveStaff(key, p) {
     }
     // HR_Staff (upsert ตาม Staff_ID)
     const hs = hrSheet('HR_Staff');
+    hrEnsureCols(hs, ['เบี้ยขยัน', 'ค่าประกัน']);
     const hrRow = [id, name, String(p.nick || ''), String(p.role || ''), String(p.dept || 'โรงงาน'), p.since || '',
       String(p.empType || ''), execNum(p.salary), String(p.payType || 'รายเดือน'), String(p.phone || ''), String(p.line || ''),
-      String(p.address || ''), String(p.emergency || ''), String(p.bankOrId || ''), execNum(p.leaveQuota), String(p.note || ''), new Date()];
+      String(p.address || ''), String(p.emergency || ''), String(p.bankOrId || ''), execNum(p.leaveQuota), String(p.note || ''), new Date(),
+      String(p.diligence || ''), String(p.insurance || '')];
     const hv = hs.getDataRange().getValues(); let hi = -1;
     for (let i = 1; i < hv.length; i++) if (String(hv[i][0]).trim() === id) { hi = i; break; }
     if (hi < 0) hs.appendRow(hrRow); else hs.getRange(hi + 1, 1, 1, hrRow.length).setValues([hrRow]);
@@ -3440,8 +3456,13 @@ function hrSavePayroll(key, p) {
   const lock = LockService.getScriptLock(); lock.waitLock(10000);
   try {
     const s = hrSheet('HR_Payroll'); if (!s) return { ok: false, msg: 'ยังไม่ได้ตั้ง PLANT_SHEET_ID' };
-    hrEnsurePayrollCols(s);
-    const base = execNum(p.base), ot = execNum(p.ot), bonus = execNum(p.bonus);
+    const col = hrEnsurePayrollCols(s);
+    const base = execNum(p.base), ot = execNum(p.ot);
+    // ค่าตำแหน่ง/ค่าดูแลรถ จ่ายเฉพาะรอบครึ่งเดือนหลัง (กติกาคุณปาล์ม) — งวดอื่นตีกลับกันกรอกพลาด
+    const pos = execNum(p.pos), car = execNum(p.car);
+    const isHalf2 = /-2$/.test(String(p.period || ''));
+    if ((pos || car) && !isHalf2) return { ok: false, msg: 'ค่าตำแหน่ง/ค่าดูแลรถ จ่ายเฉพาะงวดครึ่งเดือนหลังค่ะ (16–สิ้นเดือน)' };
+    const bonus = execNum(p.bonus) + pos + car;
     // หักแยกประเภท (สาย/ขาด/ประกัน/อื่นๆ) — ถ้าฟอร์มส่งแยกมา รวมเป็นยอดหัก ไม่งั้นใช้ p.deduct ตรง ๆ
     const dLate = execNum(p.dLate), dAbs = execNum(p.dAbsent), dIns = execNum(p.dIns), dOth = execNum(p.dOther);
     const dedSplit = dLate + dAbs + dIns + dOth;
@@ -3456,14 +3477,47 @@ function hrSavePayroll(key, p) {
       for (let i = 1; i < v.length; i++) if (String(v[i][1]) === String(p.period) && String(v[i][2]) === String(p.staffId)) { ri = i; id = String(v[i][0]); break; }
     }
     if (!id) id = 'PAY' + Utilities.formatDate(new Date(), 'GMT+7', 'yyMMddHHmmss');
-    const row = [id, String(p.period || ''), String(p.staffId || ''), String(p.name || ''), execNum(p.days),
-      base, ot, bonus, ded, net, status, paidAt, 'HQ', String(p.note || ''),
-      dLate, dAbs, dIns, dOth];
+    // เขียนตามชื่อหัวคอลัมน์ (ชีตแต่ละยุคมีคอลัมน์ไม่เท่ากัน)
+    const row = new Array(s.getLastColumn()).fill('');
+    const put = function (h, val) { if (col[h]) row[col[h] - 1] = val; };
+    put('Pay_ID', id); put('งวด', String(p.period || '')); put('Staff_ID', String(p.staffId || ''));
+    put('ชื่อ', String(p.name || '')); put('วันทำงาน', execNum(p.days));
+    put('ฐาน', base); put('โอที', ot); put('โบนัส', bonus); put('หัก', ded); put('สุทธิ', net);
+    put('สถานะ', status); put('วันที่จ่าย', paidAt); put('ผู้บันทึก', 'HQ'); put('หมายเหตุ', String(p.note || ''));
+    put('หักสาย', dLate); put('หักขาด', dAbs); put('หักประกัน', dIns); put('หักอื่นๆ', dOth);
+    put('OT(ยูนิต)', execNum(p.otUnits)); put('เรทOT/ยูนิต', execNum(p.otRate));
+    put('ค่าตำแหน่ง', pos); put('ค่าดูแลรถ', car); put('จ่ายด้วย', String(p.payVia || ''));
     if (ri < 0) s.appendRow(row); else s.getRange(ri + 1, 1, 1, row.length).setValues([row]);
     return { ok: true, id: id, net: net, msg: status === 'จ่ายแล้ว' ? 'บันทึกจ่ายเงินเดือนแล้ว' : 'บันทึกงวดแล้ว (ค้างจ่าย)' };
   } catch (e) { return { ok: false, msg: String(e) }; }
   finally { lock.releaseLock(); }
 }
+// 💵 จ่ายทั้งงวด: เปลี่ยนทุกแถว "ค้างจ่าย" ของงวดเป็น "จ่ายแล้ว" ทีเดียว (CEO เท่านั้น — คำขอข้อ 8 แชทเงินเดือน)
+function hrPayAllPeriod(key, period) {
+  if (execAuth(key) !== 'ceo') return { ok: false, msg: 'เฉพาะ CEO เท่านั้นค่ะ' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const s = hrSheet('HR_Payroll'); if (!s) return { ok: false, msg: 'ยังไม่ได้ตั้ง PLANT_SHEET_ID' };
+    const col = hrEnsurePayrollCols(s);
+    const per = String(period || '');
+    const v = s.getDataRange().getValues();
+    const head = v[0].map(String);
+    const iPer = head.indexOf('งวด'), iSt = head.indexOf('สถานะ'), iPaid = head.indexOf('วันที่จ่าย');
+    if (iPer < 0 || iSt < 0) return { ok: false, msg: 'โครงชีตไม่ครบ' };
+    const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+    let n = 0;
+    for (let i = 1; i < v.length; i++) {
+      if (String(v[i][iPer]) !== per) continue;
+      if (/จ่ายแล้ว/.test(String(v[i][iSt] || ''))) continue;
+      s.getRange(i + 1, iSt + 1).setValue('จ่ายแล้ว');
+      if (iPaid >= 0) s.getRange(i + 1, iPaid + 1).setValue(today);
+      n++;
+    }
+    return n ? { ok: true, n: n, msg: 'จ่ายทั้งงวดแล้ว ' + n + ' คนค่ะ' } : { ok: false, msg: 'ไม่มีรายการค้างจ่ายในงวดนี้' };
+  } catch (e) { return { ok: false, msg: String(e) }; }
+  finally { lock.releaseLock(); }
+}
+
 // สรุปงวดเงินเดือนของเดือนหนึ่ง: ทุกคน + ยอดรวม (CEO/กรรมการดูได้ — บันทึกจ่ายยังเป็น CEO เท่านั้น)
 function hrPayrollMonth(key, period) {
   if (!execCanMoney(execAuth(key))) return { ok: false, error: 'unauthorized' };
@@ -3482,6 +3536,8 @@ function hrPayrollMonth(key, period) {
         o.bonus = execNum(p['โบนัส']); o.deduct = execNum(p['หัก']); o.net = execNum(p['สุทธิ']); o.status = String(p['สถานะ'] || '');
         o.paidAt = execDateKey(p['วันที่จ่าย']); o.note = String(p['หมายเหตุ'] || '');
         o.dLate = execNum(p['หักสาย']); o.dAbsent = execNum(p['หักขาด']); o.dIns = execNum(p['หักประกัน']); o.dOther = execNum(p['หักอื่นๆ']);
+        o.otUnits = execNum(p['OT(ยูนิต)']); o.otRate = execNum(p['เรทOT/ยูนิต']);
+        o.pos = execNum(p['ค่าตำแหน่ง']); o.car = execNum(p['ค่าดูแลรถ']); o.payVia = String(p['จ่ายด้วย'] || '');
         total += o.net; if (o.status === 'จ่ายแล้ว') paid += o.net;
       } else { o.status = ''; total += (s.salary || 0); }
       return o;
