@@ -1794,7 +1794,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-08-22a';
+const CODE_VERSION = '2026-08-22b';
 
 function healthCheck() {
   const L = [];
@@ -2662,6 +2662,19 @@ function plantRows(tab, maxRows) {
     return sh.getRange(start, 1, last - start + 1, sh.getLastColumn()).getValues();
   } catch (e) { console.error('plantRows ' + tab + ': ' + e); return []; }
 }
+// 👥 ชีต Staff ของโรงงาน — โครงจริง (ยืนยันกับชีต 2026-08-22): A=No. B=Name C=Staff_ID D=Role E=PIN F=Active
+// v18 ฝั่งโรงน้ำต่อคอลัมน์ท้ายตาราง (G–K: สาย/บทบาทขาย/เรตค่าจ้าง/ประเภทจ้าง/วันเริ่มงาน และเพิ่มได้อีก)
+// → หาคอลัมน์จากหัวตารางเท่านั้น ห้ามอิงตำแหน่งตายตัว (ของเดิมอิง A=Staff_ID แล้วอ่าน/เขียนเลื่อม 1 ช่อง)
+function plantStaffCols(sh) {
+  const head = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0].map(function (h) { return String(h).trim(); });
+  const find = function (re) { for (let i = 0; i < head.length; i++) if (re.test(head[i])) return i; return -1; };
+  return {
+    no: find(/^(No\.?|ลำดับ)$/i), id: find(/^Staff_?ID$/i), name: find(/^(Name|ชื่อ)$/i),
+    role: find(/^(Role|ตำแหน่ง)$/i), pin: find(/^PIN$/i), active: find(/^Active$/i),
+    // v18 — โรงน้ำเป็นเจ้าของข้อมูล palm-hq อ่านอย่างเดียว (ใช้เป็นค่าสำรองเมื่อ HR_Staff ยังว่าง)
+    rate: find(/^เรตค่าจ้าง$/), empType: find(/^ประเภทจ้าง$/), since: find(/^วันเริ่มงาน$/),
+  };
+}
 // หาตำแหน่งคอลัมน์จากหัวตาราง (ระบบขายเพิ่มคอลัมน์ได้เรื่อย ๆ — ห้าม hardcode ตำแหน่งของใหม่)
 function plantColIdx(tab, re) {
   const ss = plantSS(); if (!ss) return -1;
@@ -2860,12 +2873,14 @@ function plantFeed(monthPrefix) {
     });
     out.hasPay = !!(pay || Object.keys(colRecv).length);
 
-    // ── พนักงานจากชีต Staff: A=Staff_ID B=ชื่อ C=Role E=Active (ไม่ดึงคอลัมน์ PIN เด็ดขาด) ──
-    plantRows('Staff').forEach(function (r) {
-      const name = String(r[1] || '').trim(); if (!name) return;
-      const active = String(r[4]);
+    // ── พนักงานจากชีต Staff — หาคอลัมน์จากหัวตาราง (ไม่ดึงคอลัมน์ PIN เด็ดขาด) ──
+    const stSh = ss.getSheetByName('Staff');
+    const SC = stSh ? plantStaffCols(stSh) : null;
+    if (SC && SC.name >= 0) plantRows('Staff').forEach(function (r) {
+      const name = String(r[SC.name] || '').trim(); if (!name) return;
+      const active = SC.active >= 0 ? String(r[SC.active]) : '';
       if (active === 'false' || active === 'FALSE' || /ลาออก|ไม่ทำงาน/.test(active)) return;
-      out.staff.push({ name: name, role: String(r[2] || ''), dept: 'โรงงาน', since: '', status: 'ทำงาน', contact: '' });
+      out.staff.push({ name: name, role: String((SC.role >= 0 && r[SC.role]) || ''), dept: 'โรงงาน', since: '', status: 'ทำงาน', contact: '' });
     });
   } catch (e) { console.error('plantFeed: ' + e); }
   return out;
@@ -3268,12 +3283,18 @@ function hrTenure(since) {
 }
 
 // ── ทะเบียน: Staff (ตัวจริง) + HR_Staff (ต่อยอด) รวมเป็นรายชื่อเดียว ──
-// Staff จริง: A=Staff_ID B=ชื่อ C=Role D=PIN E=Active — ห้ามส่ง PIN ออกไปเด็ดขาด
+// Staff จริง: A=No. B=Name C=Staff_ID D=Role E=PIN F=Active (+G–K ของโรงน้ำ) — อ่านตามหัวตาราง ห้ามส่ง PIN ออกไปเด็ดขาด
 function hrStaffList(role) {
   const ss = plantSS(); if (!ss) return [];
   const st = ss.getSheetByName('Staff'); if (!st) return [];
-  const rows = st.getLastRow() > 1 ? st.getRange(2, 1, st.getLastRow() - 1, Math.max(5, st.getLastColumn())).getValues() : [];
-  const hr = {}; hrRowsByHead('HR_Staff').forEach(function (h) { hr[String(h['Staff_ID'] || '').trim()] = h; });
+  const C = plantStaffCols(st);
+  if (C.name < 0) { console.error('hrStaffList: ชีต Staff ไม่มีหัวคอลัมน์ชื่อ (Name/ชื่อ)'); return []; }
+  const rows = st.getLastRow() > 1 ? st.getRange(2, 1, st.getLastRow() - 1, st.getLastColumn()).getValues() : [];
+  const hr = {}; hrRowsByHead('HR_Staff').forEach(function (h) {
+    const k1 = String(h['Staff_ID'] || '').trim(), k2 = String(h['ชื่อ'] || '').trim();
+    if (k1) hr[k1] = h;
+    if (k2 && !hr[k2]) hr[k2] = h;   // แถวที่ยังไม่มีรหัส S## ผูกด้วยชื่อไปพลางก่อน
+  });
 
   // วันลาปีนี้ + สถิติงานเดือนนี้ (นับจากที่ระบบบันทึกชื่อคนทำไว้)
   const yr = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy');
@@ -3302,26 +3323,31 @@ function hrStaffList(role) {
     plantRows('Orders_Sales', 3000).forEach(function (r) { mark(String(r[4] || '').trim(), execDateKey(r[2])); });
   } catch (e) {}
 
-  return rows.filter(function (r) { return String(r[1] || '').trim(); }).map(function (r) {
-    const id = String(r[0] || '').trim(), name = String(r[1] || '').trim();
+  return rows.filter(function (r) { return String(r[C.name] || '').trim(); }).map(function (r) {
+    const id = C.id >= 0 ? String(r[C.id] || '').trim() : '';
+    const name = String(r[C.name] || '').trim();
     const h = hr[id] || hr[name] || {};
-    const active = String(r[4]);
+    const active = C.active >= 0 ? String(r[C.active]) : '';
+    // เริ่มงาน/ประเภทจ้าง: HR_Staff มาก่อน → ว่างค่อยใช้ v18 ของชีต Staff (วันเริ่มงาน/ประเภทจ้าง)
+    const vSince = h['เริ่มงาน'] || (C.since >= 0 ? r[C.since] : '');
     const o = {
       id: id, name: name, nick: String(h['ชื่อเล่น'] || ''),
-      role: String(h['ตำแหน่ง'] || r[2] || ''), dept: String(h['แผนก'] || 'โรงงาน'),
-      since: execDateKey(h['เริ่มงาน']), tenure: hrTenure(h['เริ่มงาน']),
-      empType: String(h['ประเภทจ้าง'] || ''),
+      role: String(h['ตำแหน่ง'] || (C.role >= 0 && r[C.role]) || ''), dept: String(h['แผนก'] || 'โรงงาน'),
+      since: execDateKey(vSince), tenure: hrTenure(vSince),
+      empType: String(h['ประเภทจ้าง'] || (C.empType >= 0 && r[C.empType]) || ''),
       phone: String(h['โทร'] || ''), line: String(h['LINE'] || ''),
       address: String(h['ที่อยู่'] || ''), emergency: String(h['ผู้ติดต่อฉุกเฉิน'] || ''),
       leaveQuota: execNum(h['วันลาพักร้อน/ปี']) || 0,
       note: String(h['หมายเหตุ'] || ''),
-      hasPin: String(r[3] || '').trim() !== '',
+      hasPin: C.pin >= 0 && String(r[C.pin] || '').trim() !== '',
       active: !(active === 'false' || active === 'FALSE'),
       leaveDaysYear: leaveDays[name] || 0, upcomingLeaves: upcoming[name] || 0,
       workDaysMonth: Object.keys(workDays[name] || {}).length,
     };
     if (execCanMoney(role)) { // ข้อมูลเงิน/บัญชี เฉพาะ CEO/กรรมการ
-      o.salary = execNum(h['เงินเดือน']); o.payType = String(h['วิธีจ่าย'] || 'รายเดือน');
+      // เงินเดือนจาก HR_Staff มาก่อน → ว่างค่อยใช้ "เรตค่าจ้าง" v18 (ตีความคู่กับ empType เช่น รายวัน)
+      o.salary = execNum(h['เงินเดือน']) || (C.rate >= 0 ? execNum(r[C.rate]) : 0);
+      o.payType = String(h['วิธีจ่าย'] || 'รายเดือน');
       o.bankOrId = String(h['เลขบัตร/บัญชี'] || '');
       o.diligence = String(h['เบี้ยขยัน'] || ''); o.insurance = String(h['ค่าประกัน'] || '');
     }
@@ -3390,32 +3416,50 @@ function hrStaffDetail(key, staffId) {
 }
 
 // ── เพิ่ม/แก้พนักงาน (CEO) — เขียนชีต Staff ตัวจริง + HR_Staff ──
+// เขียนเฉพาะช่องที่รู้จักหัวคอลัมน์ (No./Staff_ID/Name/Role/PIN/Active) — คอลัมน์อื่นของโรงน้ำ
+// (G–K v18: สาย/บทบาทขาย/เรตค่าจ้าง/ประเภทจ้าง/วันเริ่มงาน) ไม่แตะเด็ดขาด ให้ฝั่งโรงน้ำกรอกเอง
 function hrSaveStaff(key, p) {
   if (execAuth(key) !== 'ceo') return { ok: false, msg: 'เฉพาะ CEO เท่านั้นค่ะ' };
   const ss = plantSS(); if (!ss) return { ok: false, msg: 'ยังไม่ได้ตั้ง PLANT_SHEET_ID' };
   const lock = LockService.getScriptLock(); lock.waitLock(10000);
   try {
     const st = ss.getSheetByName('Staff'); if (!st) return { ok: false, msg: 'ไม่พบชีต Staff' };
+    const C = plantStaffCols(st);
+    if (C.name < 0) return { ok: false, msg: 'หัวตารางชีต Staff เปลี่ยนจนไม่รู้จัก (หาคอลัมน์ชื่อไม่เจอ) — ขอไม่บันทึก กันเขียนผิดช่องค่ะ' };
     const name = String(p.name || '').trim(); if (!name) return { ok: false, msg: 'ต้องมีชื่อ' };
     const data = st.getDataRange().getValues();
     let id = String(p.id || '').trim(), rowIdx = -1;
-    for (let i = 1; i < data.length; i++) {
-      if (id && String(data[i][0]).trim() === id) { rowIdx = i; break; }
-      if (!id && String(data[i][1]).trim() === name) { rowIdx = i; id = String(data[i][0]).trim(); break; }
+    if (id && C.id >= 0) for (let i = 1; i < data.length; i++) {
+      if (String(data[i][C.id] || '').trim() === id) { rowIdx = i; break; }
     }
-    if (rowIdx < 0) { // ใหม่ → ออกรหัส S## ต่อจากเดิม
-      let maxN = 0;
-      for (let i = 1; i < data.length; i++) { const m = String(data[i][0]).match(/^S(\d+)$/i); if (m) maxN = Math.max(maxN, Number(m[1])); }
+    // ไม่เจอตามรหัส → เทียบชื่อ (รวมเคสหน้าเว็บเก่าที่ค้างรหัสแบบเดิมอยู่)
+    if (rowIdx < 0) for (let i = 1; i < data.length; i++) {
+      if (String(data[i][C.name] || '').trim() === name) {
+        rowIdx = i; id = C.id >= 0 ? String(data[i][C.id] || '').trim() : ''; break;
+      }
+    }
+    const actVal = p.active === false || String(p.active) === 'false' ? 'FALSE' : 'TRUE';
+    if (rowIdx < 0) { // ใหม่ → ออกรหัส S## ต่อจากเดิม (นับจากคอลัมน์ Staff_ID) + รันเลข No. ต่อท้าย
+      let maxN = 0, maxNo = 0;
+      for (let i = 1; i < data.length; i++) {
+        if (C.id >= 0) { const m = String(data[i][C.id] || '').match(/^S(\d+)$/i); if (m) maxN = Math.max(maxN, Number(m[1])); }
+        if (C.no >= 0) { const n = Number(data[i][C.no]); if (!isNaN(n)) maxNo = Math.max(maxNo, n); }
+      }
       id = id || ('S' + String(maxN + 1).padStart(2, '0'));
-      const row = [id, name, String(p.role || ''), String(p.pin || ''), p.active === false || String(p.active) === 'false' ? 'FALSE' : 'TRUE'];
+      const row = [];
+      const put = function (ci, v) { if (ci >= 0) row[ci] = v; };
+      put(C.no, maxNo + 1); put(C.id, id); put(C.name, name);
+      put(C.role, String(p.role || '')); put(C.pin, String(p.pin || '')); put(C.active, actVal);
+      for (let i = 0; i < row.length; i++) if (row[i] === undefined) row[i] = '';
       st.appendRow(row);
     } else {
-      st.getRange(rowIdx + 1, 2).setValue(name);
-      st.getRange(rowIdx + 1, 3).setValue(String(p.role || data[rowIdx][2] || ''));
-      if (String(p.pin || '') !== '') st.getRange(rowIdx + 1, 4).setValue(String(p.pin)); // ว่าง = ไม่เปลี่ยน PIN
-      st.getRange(rowIdx + 1, 5).setValue(p.active === false || String(p.active) === 'false' ? 'FALSE' : 'TRUE');
+      const w = function (ci, v) { if (ci >= 0) st.getRange(rowIdx + 1, ci + 1).setValue(v); };
+      w(C.name, name);
+      w(C.role, String(p.role || (C.role >= 0 && data[rowIdx][C.role]) || ''));
+      if (String(p.pin || '') !== '') w(C.pin, String(p.pin)); // ว่าง = ไม่เปลี่ยน PIN
+      w(C.active, actVal);
     }
-    // HR_Staff (upsert ตาม Staff_ID)
+    // HR_Staff (upsert ตาม Staff_ID — แถวที่ยังไม่มีรหัสเทียบด้วยชื่อ)
     const hs = hrSheet('HR_Staff');
     hrEnsureCols(hs, ['เบี้ยขยัน', 'ค่าประกัน']);
     const hrRow = [id, name, String(p.nick || ''), String(p.role || ''), String(p.dept || 'โรงงาน'), p.since || '',
@@ -3423,7 +3467,8 @@ function hrSaveStaff(key, p) {
       String(p.address || ''), String(p.emergency || ''), String(p.bankOrId || ''), execNum(p.leaveQuota), String(p.note || ''), new Date(),
       String(p.diligence || ''), String(p.insurance || '')];
     const hv = hs.getDataRange().getValues(); let hi = -1;
-    for (let i = 1; i < hv.length; i++) if (String(hv[i][0]).trim() === id) { hi = i; break; }
+    if (id) for (let i = 1; i < hv.length; i++) if (String(hv[i][0] || '').trim() === id) { hi = i; break; }
+    if (hi < 0) for (let i = 1; i < hv.length; i++) if (String(hv[i][1] || '').trim() === name) { hi = i; break; }
     if (hi < 0) hs.appendRow(hrRow); else hs.getRange(hi + 1, 1, 1, hrRow.length).setValues([hrRow]);
     return { ok: true, id: id, msg: rowIdx < 0 ? 'เพิ่มพนักงาน ' + name + ' แล้ว (ทุกแอปเห็นทันที)' : 'อัปเดตข้อมูล ' + name + ' แล้ว' };
   } catch (e) { return { ok: false, msg: String(e) }; }
