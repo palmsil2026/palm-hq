@@ -424,6 +424,13 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 </div>
 
 <!-- 🔎 เจาะรายละเอียดยอดขาย (รายวัน / รายสาย / รายเซลส์) -->
+<div class="mask" id="vanMask">
+  <div class="sheet" style="max-width:640px">
+    <div style="display:flex;align-items:center;gap:8px"><h3 id="vanTitle" style="flex:1;margin:0"></h3><button class="bt bt-gray" id="vanClose">ปิด</button></div>
+    <div id="vanBody" style="margin-top:10px"></div>
+  </div>
+</div>
+
 <div class="mask" id="dtMask">
   <div class="sheet" style="max-width:760px">
     <div style="display:flex;align-items:center;gap:8px"><h3 id="dtTitle" style="flex:1;margin:0"></h3><button class="bt bt-gray" id="dtClose">ปิด</button></div>
@@ -695,6 +702,9 @@ function render() {
   const prodClickable = live() && (D.prodLogs || []).length;
   h += `<div class="sec"><h2>🏭 การผลิตเดือน ${esc(D.month)}${prodClickable ? ' <button class="bt bt-gray" data-dprodcard style="padding:5px 11px;font-size:.72rem;margin-left:auto">📄 ดูรายการบันทึก (' + D.prodLogs.length + ')</button>' : ''}</h2><div class="hint">ผลิตได้ / ของเสีย แยกตามสายผลิตภัณฑ์</div>${prodHtml(D.prodByLine)}${prodNote}</div>`;
 
+  // ── 🚚 บัญชีรถประจำวัน (โหลดแยกหลังหน้าหลักขึ้น — ไม่ถ่วงเวลาเปิดแอป) ──
+  if (live()) h += vanSectionHtml();
+
   // ── แผนธุรกิจ ──
   h += `<div class="sec"><h2>🧭 แผนธุรกิจ &amp; Business Model</h2>
     <div class="hint">${D.role === 'ceo' ? 'แตะการ์ดเพื่อแก้ไข — เฉพาะ CEO เท่านั้นที่แก้ได้' : 'ดูอย่างเดียว (แก้ได้เฉพาะ CEO)'}</div>`;
@@ -721,6 +731,7 @@ function render() {
   });
   bindHr();
   bindPhase1();
+  vanAfterRender();
 }
 
 // ── ผูกอีเวนต์: เลือกเดือน / สวิตช์ / เจาะรายวัน-รายสาย-รายเซลส์ ──
@@ -825,6 +836,132 @@ function pRole(p) {
   return p.del.tN ? 'del' : 'sale';
 }
 const pctChg = (now, before) => !before ? (now ? '+100%' : '—') : (now >= before ? '+' : '') + Math.round((now - before) / before * 100) + '%';
+// ════════════════════════════════════════════════════════════
+//  🚚 บัญชีรถประจำวัน — อ่านชีต VanDailyCheck ของระบบขาย (สัญญาใน origin-hq/STATUS.md)
+//  หลักการของคุณปาล์ม: ทุกเช้ารถเริ่มที่ 0 → เย็นของต้องลงหมด เหลือ = 0
+//  โหลดแยกจากหน้าหลัก: หน้าหลักขึ้นก่อน การ์ดนี้ค่อยเติมตามมา (กันแอปช้า)
+// ════════════════════════════════════════════════════════════
+const VANC = {};            // แคชรายเดือน: VANC['2026-09'] = payload
+let VAN_SEQ = 0;            // กันคำตอบเดือนเก่ามาทับ
+const vanPill = r => r === 'ลงตัว' ? 'p-green' : (r === 'รอคลังเช็ค' ? 'p-gold' : 'p-red');
+const vanDay = d => {
+  const [y, m, dd] = String(d).split('-');
+  return dd + '/' + m;
+};
+// +เหลือ / −ลงเกิน (แพ็ค) — 0 คือสิ่งที่ถูกต้อง
+function vanLeftHtml(n) {
+  const v = Number(n || 0);
+  if (!v) return '<span style="color:var(--green);font-weight:700">0</span>';
+  return `<span style="color:var(--red);font-weight:700">${v > 0 ? '+' : ''}${money(v)}</span>`;
+}
+
+function vanSectionHtml() {
+  const v = VANC[MONTH];
+  return `<div class="sec"><h2>🚚 บัญชีรถประจำวัน</h2>
+    <div class="hint">ทุกเช้ารถเริ่มที่ 0 — เย็นของต้องลงหมด · เดือน ${esc(thMonth(MONTH))} · วันไหนไม่มีของขยับจะไม่มีรายการ${v && v.has ? ' · แตะแถวเพื่อดูรายละเอียดคันนั้น' : ''}</div>
+    <div id="vanBox">${v ? vanBoxHtml(v) : '<div class="empty"><span class="spin"></span> กำลังอ่านชีตบัญชีรถ...</div>'}</div></div>`;
+}
+
+function vanBoxHtml(v) {
+  if (v.err) return `<div class="empty">⚠️ ${esc(v.err)}</div>`;
+  if (!v.has) return '<div class="empty">ยังไม่มีชีต <b>VanDailyCheck</b> ในระบบขาย — ระบบขายจะสร้างให้เองเมื่อเซลส์กดนำส่งครั้งแรก</div>';
+  if (!v.sum.rows) return `<div class="empty">เดือน ${esc(thMonth(v.month))} ยังไม่มีรายการบัญชีรถ</div>`;
+  const S = v.sum;
+  let h = `<div class="kpis" style="margin-bottom:12px">
+    <div class="k green"><div class="lb">ลงตัว</div><div class="v">${money(S.ok)}<span class="u">รายการ</span></div><div class="sub">จาก ${money(S.rows)} รายการ · ${money(S.days)} วัน</div></div>
+    <div class="k${S.bad ? ' red' : ''}"><div class="lb">ไม่ลงตัว</div><div class="v">${money(S.bad)}<span class="u">รายการ</span></div><div class="sub">${S.bad ? 'ต้องตามให้จบ' : 'ไม่มีรายการค้าง'}</div></div>
+    <div class="k${S.wait ? ' gold' : ''}"><div class="lb">รอคลังเช็ค</div><div class="v">${money(S.wait)}<span class="u">รายการ</span></div><div class="sub">คลังยังไม่ยืนยันใบคืน</div></div>
+  </div>`;
+
+  // รายเซลส์ — เรียงคนที่ไม่ลงตัวบ่อยสุดขึ้นก่อน
+  if ((v.bySeller || []).length) {
+    h += `<div style="font-size:.78rem;color:var(--sub);font-weight:600;margin:4px 0 6px">รายเซลส์เดือนนี้</div><div class="scroll"><table class="tb">
+      <tr><th>เซลส์</th><th>วันที่ลงของ</th><th>ลงตัว</th><th>รอเช็ค</th><th>ไม่ลงตัว</th></tr>` +
+      v.bySeller.map(x => `<tr><td>${esc(x.name)}</td><td>${money(x.days)}</td>
+        <td><span style="color:var(--green);font-weight:700">${money(x.ok)}</span></td>
+        <td>${x.wait ? '<span style="color:var(--gold);font-weight:700">' + money(x.wait) + '</span>' : '—'}</td>
+        <td>${x.bad ? '<span style="color:var(--red);font-weight:700">' + money(x.bad) + '</span>' : '—'}</td></tr>`).join('') +
+      '</table></div>';
+  }
+
+  // รายวัน (ใหม่→เก่า) — แตะแถวดูรายละเอียด
+  h += `<div style="font-size:.78rem;color:var(--sub);font-weight:600;margin:14px 0 6px">รายวัน (ล่าสุดขึ้นก่อน)</div><div class="scroll"><table class="tb">
+    <tr><th>วันที่</th><th>เซลส์</th><th>ผล</th><th>เหลือเย็น</th><th>ติดอะไร</th></tr>`;
+  v.days.forEach(day => {
+    day.rows.forEach((r, i) => {
+      const note = r.res === 'ลงตัว' ? (r.carry ? 'ของออเดอร์ค้างข้ามวัน' : '—')
+                 : (r.items || r.pending || '—');
+      h += `<tr data-van="${esc(day.d)}|${esc(r.seller)}" style="cursor:pointer">
+        <td>${i === 0 ? esc(vanDay(day.d)) : ''}</td>
+        <td>${esc(r.seller)}</td>
+        <td><span class="pill ${vanPill(r.res)}">${esc(r.res || '—')}</span></td>
+        <td>${vanLeftHtml(r.left)}</td>
+        <td style="max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)">${esc(note)}</td></tr>`;
+    });
+  });
+  h += '</table></div>';
+  return h;
+}
+
+function vanAfterRender() {
+  if (!$('vanBox')) return;
+  document.querySelectorAll('[data-van]').forEach(el => el.onclick = () => {
+    const [d, seller] = el.dataset.van.split('|');
+    vanDrill(d, seller);
+  });
+  if (!VANC[MONTH]) vanLoad(MONTH);
+}
+
+async function vanLoad(month, fresh) {
+  const seq = ++VAN_SEQ;
+  try {
+    const prm = { action: 'vanDaily', month };
+    if (fresh) prm.fresh = '1';
+    const j = await api(prm, 1);
+    if (!j.ok) throw new Error(j.error === 'unauthorized' ? 'รหัสไม่ถูกต้อง' : (j.error || 'โหลดไม่สำเร็จ'));
+    VANC[month] = j;
+  } catch (e) {
+    VANC[month] = { err: e.message, has: false, month, days: [], bySeller: [], sum: { rows: 0 } };
+  }
+  if (seq !== VAN_SEQ || month !== MONTH || !$('vanBox')) return;
+  $('vanBox').innerHTML = vanBoxHtml(VANC[month]);
+  document.querySelectorAll('[data-van]').forEach(el => el.onclick = () => {
+    const [d, seller] = el.dataset.van.split('|');
+    vanDrill(d, seller);
+  });
+}
+
+function vanDrill(dateKey, seller) {
+  const v = VANC[MONTH]; if (!v || !v.has) return;
+  const day = (v.days || []).find(x => x.d === dateKey); if (!day) return;
+  const r = day.rows.find(x => x.seller === seller); if (!r) return;
+  $('vanTitle').textContent = '🚚 ' + seller + ' · ' + vanDay(dateKey);
+  const line = (lb, val, hint) => `<tr><td style="color:var(--sub)">${esc(lb)}${hint ? '<div style="font-size:10.5px;opacity:.75">' + esc(hint) + '</div>' : ''}</td><td style="text-align:right;font-weight:700">${money(val)}</td></tr>`;
+  let h = `<div style="margin-bottom:10px"><span class="pill ${vanPill(r.res)}">${esc(r.res || '—')}</span>
+    <span style="margin-left:8px;font-size:.8rem;color:var(--sub)">เหลือเย็น ${vanLeftHtml(r.left)} แพ็ค${r.left ? (r.left > 0 ? ' (เหลือบนรถ)' : ' (ลงเกินที่เบิก)') : ''}</span></div>`;
+
+  h += `<div class="grid2"><div><div style="font-size:.78rem;color:var(--sub);font-weight:600;margin-bottom:5px">ของขึ้นรถ</div><table class="tb">`;
+  h += line('ขึ้นเผื่อขาย', r.upSell, 'ของบนรถไว้ขายเร่');
+  h += line('ของออเดอร์ขึ้นรถ', r.upOrder, 'ของที่มีใบสั่งแล้ว');
+  h += line('เติม/รับคืน', r.refill, 'เติมกลางวัน/รับคืนจากร้าน');
+  h += `<tr><td style="font-weight:700">รวมขึ้น</td><td style="text-align:right;font-weight:800;color:var(--teal)">${money(r.up)}</td></tr></table></div>`;
+
+  h += `<div><div style="font-size:.78rem;color:var(--sub);font-weight:600;margin-bottom:5px">ของลงจากรถ</div><table class="tb">`;
+  h += line('ส่งตามออเดอร์', r.dlOrder);
+  h += line('ส่งด้วยของบนรถ', r.dlVan, 'ขายเร่หน้างาน');
+  h += line('แจกของแถม', r.gift);
+  h += line('คืนเข้าคลัง', r.back);
+  h += line('ของเสีย', r.waste);
+  h += `<tr><td style="font-weight:700">รวมลง</td><td style="text-align:right;font-weight:800;color:var(--teal)">${money(r.down)}</td></tr></table></div></div>`;
+
+  if (r.items) h += `<div style="margin-top:12px"><div style="font-size:.78rem;color:var(--red);font-weight:700;margin-bottom:4px">รายสินค้าที่ไม่ลงตัว</div><div style="font-size:.85rem;line-height:1.7">${esc(r.items)}</div></div>`;
+  if (r.pending) h += `<div style="margin-top:10px"><div style="font-size:.78rem;color:var(--gold);font-weight:700;margin-bottom:4px">ใบรอคลังเช็ค</div><div style="font-size:.85rem;line-height:1.7">${esc(r.pending)}</div></div>`;
+  if (r.carry) h += `<div style="margin-top:10px"><div style="font-size:.78rem;color:var(--sub);font-weight:700;margin-bottom:4px">ของออเดอร์ค้างข้ามวัน</div><div style="font-size:.85rem;line-height:1.7">${esc(r.carry)}</div><div style="font-size:10.5px;color:var(--sub);margin-top:3px">ของที่ขึ้นรถไว้แล้วแต่ยังไม่ได้ส่ง — ยกไปวันถัดไป ไม่ใช่ของหาย</div></div>`;
+  if (r.at) h += `<div style="font-size:10.5px;color:var(--sub);margin-top:12px">อัปเดตเมื่อ ${esc(r.at)}</div>`;
+  $('vanBody').innerHTML = h;
+  $('vanMask').classList.add('on');
+}
+
 function peopleHtml() {
   const ls = PPL();
   if (!ls.length) return '';
@@ -1938,6 +2075,7 @@ $('py_save').onclick = () => savePayForm(false);
 $('py_paid').onclick = () => savePayForm(true);
 $('py_half').onchange = pyHalfGuard;
 $('dtClose').onclick = () => $('dtMask').classList.remove('on');
+$('vanClose').onclick = () => $('vanMask').classList.remove('on');
 // 📆 รายวัน + 📥 นำเข้าไฟล์สแกน
 $('at_close').onclick = () => $('atMask').classList.remove('on');
 $('at_save').onclick = saveAttForm;
@@ -1952,7 +2090,7 @@ $('ex_del').onclick = function () {
   this.dataset.arm = ''; this.textContent = 'ลบ'; saveExpense(true);
 };
 // แตะพื้นหลังมืดเพื่อปิด (เฉพาะ modal HR/เจาะยอด/รายจ่าย — ฟอร์มแผนเดิมคงพฤติกรรมเดิม)
-['hrMask', 'sfMask', 'lvMask', 'pyMask', 'dtMask', 'exMask'].forEach(id => $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).classList.remove('on'); }));
+['hrMask', 'sfMask', 'lvMask', 'pyMask', 'dtMask', 'exMask', 'vanMask'].forEach(id => $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).classList.remove('on'); }));
 $('planMask').onclick = e => { if (e.target === $('planMask')) $('planMask').classList.remove('on'); };
 async function savePlan(del) {
   const btn = del ? $('p_del') : $('p_save');

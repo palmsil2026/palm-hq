@@ -290,6 +290,8 @@ function doGet(e) {
 
   // 🏭 แอปผู้บริหาร — ภาพรวมบริษัท (รับทั้ง EXEC_KEY และ QUEUE_KEY ของ CEO)
   if (p.action === 'exec') { PLANT_FRESH = String(p.fresh || '') === '1'; return jsonOut(execDashboard(p.key, p.month)); }
+  // 🚚 บัญชีรถประจำวัน — โหลดแยกตอนผู้ใช้เปิดการ์ด (ไม่ถ่วงหน้าหลัก)
+  if (p.action === 'vanDaily') { PLANT_FRESH = String(p.fresh || '') === '1'; return jsonOut(vanDailyRead(p.key, p.month)); }
   if (p.action === 'execSave') {
     return jsonOut(execSavePlan(p.key, { row: p.row, level: p.level, title: p.title, detail: p.detail,
                                          period: p.period, kpi: p.kpi, status: p.status, del: p.del }));
@@ -1846,7 +1848,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-09-04a';
+const CODE_VERSION = '2026-09-22a';
 
 function healthCheck() {
   const L = [];
@@ -2713,7 +2715,7 @@ function plantSS() {
 //  หมายเหตุ: ค่าที่ผ่าน JSON วันที่กลายเป็นสตริง ISO — execDateKey/new Date รับได้อยู่แล้ว
 const PLANT_MEM = {};
 let PLANT_FRESH = false;
-const PLANT_CACHEABLE = /^(Orders|Orders_LINE|Orders_Sales|Orders_OEM|Products|Customers|Customers_Sales|ProductionLog|ProductionRuns|Payments|CashRemits|Visits|Deliveries|VanLoads|DeliveryRounds|StandingOrders)$/;
+const PLANT_CACHEABLE = /^(Orders|Orders_LINE|Orders_Sales|Orders_OEM|Products|Customers|Customers_Sales|ProductionLog|ProductionRuns|Payments|CashRemits|Visits|Deliveries|VanLoads|DeliveryRounds|StandingOrders|VanDailyCheck)$/;
 function plantVals(tab) {   // คืน [[หัวตาราง], ...แถวข้อมูล] หรือ null ถ้าไม่มีแท็บ/ยังไม่ตั้ง PLANT_SHEET_ID
   if (tab in PLANT_MEM) return PLANT_MEM[tab];
   const cacheable = PLANT_CACHEABLE.test(tab) && !PLANT_FRESH;
@@ -3329,6 +3331,86 @@ function plantSalesSummaryText(which) {
 }
 
 // รวมข้อมูลให้แอปผู้บริหารในครั้งเดียว (ประหยัดรอบเรียก GAS)
+// ════════════════════════════════════════════════════════════
+//  🚚 บัญชีรถประจำวัน — อ่านชีต `VanDailyCheck` ของระบบขาย (อ่านอย่างเดียว)
+//  สัญญาชีตอยู่ใน origin-hq/STATUS.md หัวข้อ "🚚 บัญชีรถประจำวัน" (เซลส์ v32.79)
+//  กติกา: 1 แถว = 1 วัน × 1 เซลส์ · อ่านตามชื่อหัวคอลัมน์เสมอ (ระบบขายต่อท้ายคอลัมน์ได้)
+//  วันที่ไม่มีของขยับ = ไม่มีแถว (ไม่ใช่ข้อมูลหาย) → หน้าบอร์ดเขียนว่า "ไม่มีรายการ" เอง
+// ════════════════════════════════════════════════════════════
+const VAN_RESULTS = ['ลงตัว', 'รอคลังเช็ค', 'เหลือไม่ได้คืน', 'ลงเกินที่เบิก'];
+function vanDailyRead(key, month) {
+  const vw = execViewer(key);
+  if (!vw.role) return { ok: false, error: 'unauthorized' };
+  try {
+    const v = plantVals('VanDailyCheck');
+    if (!v || v.length < 2) {
+      return { ok: true, has: false, month: month || '', days: [],
+               sum: { rows: 0, days: 0, sellers: 0, ok: 0, wait: 0, bad: 0 }, bySeller: [] };
+    }
+    const head = v[0].map(function (x) { return String(x).trim(); });
+    const idx = function (label) { return head.indexOf(label); };
+    const cDate = idx('วันที่'), cSeller = idx('เซลส์'), cRes = idx('ผล');
+    if (cDate < 0 || cSeller < 0 || cRes < 0) {
+      return { ok: false, error: 'ชีต VanDailyCheck คอลัมน์ไม่ครบตามสัญญา (ต้องมี วันที่ · เซลส์ · ผล)' };
+    }
+    const now = new Date();
+    const monthPrefix = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(month || '')) ? String(month)
+                        : Utilities.formatDate(now, 'GMT+7', 'yyyy-MM');
+    const get = function (row, label) { const i = idx(label); return i < 0 ? '' : row[i]; };
+    const n = function (row, label) { return execNum(get(row, label)); };
+
+    const dayMap = {}, sellerMap = {};
+    let rows = 0, cOk = 0, cWait = 0, cBad = 0;
+    for (let r = 1; r < v.length; r++) {
+      const row = v[r];
+      const dk = execDateKey(row[cDate]); if (!dk || dk.indexOf(monthPrefix) !== 0) continue;
+      const seller = String(row[cSeller] || '').trim(); if (!seller) continue;
+      const res = String(row[cRes] || '').trim();
+      rows++;
+      if (res === 'ลงตัว') cOk++; else if (res === 'รอคลังเช็ค') cWait++; else cBad++;
+
+      if (!sellerMap[seller]) sellerMap[seller] = { name: seller, days: 0, ok: 0, wait: 0, bad: 0, left: 0 };
+      const sm = sellerMap[seller];
+      sm.days++;
+      if (res === 'ลงตัว') sm.ok++; else if (res === 'รอคลังเช็ค') sm.wait++; else sm.bad++;
+      sm.left += n(row, 'เหลือเย็น');
+
+      const rec = {
+        seller: seller, res: res,
+        upSell: n(row, 'ขึ้นเผื่อขาย'), upOrder: n(row, 'ของออเดอร์ขึ้นรถ'), refill: n(row, 'เติม/รับคืน'),
+        dlOrder: n(row, 'ส่งตามออเดอร์'), dlVan: n(row, 'ส่งด้วยของบนรถ'), gift: n(row, 'แจกของแถม'),
+        back: n(row, 'คืนเข้าคลัง'), waste: n(row, 'ของเสีย'),
+        up: n(row, 'รวมขึ้น'), down: n(row, 'รวมลง'), left: n(row, 'เหลือเย็น'),
+        items: String(get(row, 'รายสินค้าที่ไม่ลงตัว') || '').trim(),
+        pending: String(get(row, 'ใบรอเช็ค') || '').trim(),
+        carry: String(get(row, 'ของออเดอร์ค้างข้ามวัน') || '').trim(),
+        at: String(get(row, 'อัปเดตเมื่อ') || '').trim(),
+      };
+      if (!dayMap[dk]) dayMap[dk] = [];
+      dayMap[dk].push(rec);
+    }
+    const days = Object.keys(dayMap).sort().reverse().map(function (d) {
+      const list = dayMap[d].sort(function (a, b) { return a.seller.localeCompare(b.seller, 'th'); });
+      return {
+        d: d, rows: list,
+        ok: list.filter(function (x) { return x.res === 'ลงตัว'; }).length,
+        wait: list.filter(function (x) { return x.res === 'รอคลังเช็ค'; }).length,
+        bad: list.filter(function (x) { return x.res !== 'ลงตัว' && x.res !== 'รอคลังเช็ค'; }).length,
+      };
+    });
+    const bySeller = Object.keys(sellerMap).map(function (k) { return sellerMap[k]; })
+      .sort(function (a, b) { return (b.bad - a.bad) || (b.wait - a.wait) || b.days - a.days; });
+    return {
+      ok: true, has: true, month: monthPrefix, days: days, bySeller: bySeller,
+      sum: { rows: rows, days: days.length, sellers: bySeller.length, ok: cOk, wait: cWait, bad: cBad },
+      results: VAN_RESULTS,
+    };
+  } catch (e) {
+    console.error('vanDailyRead: ' + e);
+    return { ok: false, error: 'อ่านชีตบัญชีรถไม่สำเร็จ: ' + e };
+  }
+}
+
 function execDashboard(key, month) {
   const vw = execViewer(key);
   const role = vw.role;
