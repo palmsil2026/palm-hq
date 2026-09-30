@@ -2,16 +2,16 @@
 
 > ไฟล์นี้ตอบคำถามเดียว: **"โค้ดใน repo กับของที่รันจริง ตรงกันรึยัง"**
 > ประวัติว่าใครแก้อะไรเมื่อไหร่ → ดู `git log` (ไม่ต้องจดซ้ำที่นี่ เลยไม่ต้อง compact)
-> อัปเดตล่าสุด: 2026-09-30 โดยแชท palm-hq (เปลี่ยนสมองเลขาเป็น Sonnet 5.5) — **GAS เลขารอขึ้น `2026-09-30a`** · ⚠️ **deploy อัตโนมัติยังไม่ทำงาน**: workflow `Deploy to Apps Script` ล้มครบ 3 รอบ (3 ก.ย. / 4 ก.ย. / 29 ก.ย. หลัง merge PR #33) — log ยืนยันแล้ว: **ยังไม่ได้ใส่ Secret `CLASPRC_JSON`** (ดู `DEPLOY.md` ตั้งครั้งเดียว แล้วกด Run workflow) · เช็ค 28 ก.ย.: `…/exec?action=version` ของจริงยังไม่รู้จัก action นี้ = **ของจริงยังรันรุ่นก่อน `2026-09-04a`** งานในตารางรอ deploy ทั้งหมดยังไม่ขึ้น
+> อัปเดตล่าสุด: 2026-09-30 โดยแชท palm-hq — ✅ **GAS เลขารัน `2026-09-30a` แล้ว ตรงกับ repo** (คุณปาล์มวางมือ 30 ก.ย. · ยืนยันจาก `…/exec?action=version` ตอบ `{"ok":true,"version":"2026-09-30a"}`) · ⚠️ **deploy อัตโนมัติยังไม่ทำงาน**: ยังไม่ได้ใส่ Secret `CLASPRC_JSON` (ดู `DEPLOY.md`) — รอบหน้าต้องวางมือเองอีก หรือตั้ง Secret ก่อน
 
 ## ของจริงที่รันอยู่ เทียบกับ repo
 
 | ชิ้นส่วน | ที่รันจริง | สถานะเทียบ repo |
 |---|---|---|
 | หน้าเว็บทั้งหมด (`index.html`, `board/`, `exec/`, `request.html`) | GitHub Pages ของ repo นี้ `palmsil2026.github.io/palm-hq/` | ✅ push `main` = ขึ้นจริงใน ~1 นาที (เฟส 1 แอปผู้บริหารขึ้นแล้ว) |
-| GAS คุณเลขา (`secretary/Code.gs`) — บอท LINE + บอร์ด + exec API + HR | Apps Script deployment `AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J` | ⏳ **รอขึ้น `CODE_VERSION = 2026-09-30a`** (ของจริงยังรันรุ่นก่อน `09-04a`) — ขึ้นได้ 2 ทาง: 🤖 ใส่ Secret แล้วกด Run workflow (`DEPLOY.md`) หรือ ✋ วางมือ · ตรวจของจริงได้จาก `…/exec?action=version` หรือพิมพ์ "เช็คระบบ" ในไลน์ |
+| GAS คุณเลขา (`secretary/Code.gs`) — บอท LINE + บอร์ด + exec API + HR | Apps Script deployment `AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J` | ✅ **ตรงกับ repo — `CODE_VERSION = 2026-09-30a`** (เช็ค 2026-09-30) · ขึ้นรอบหน้าได้ 2 ทาง: 🤖 ใส่ Secret แล้วกด Run workflow (`DEPLOY.md`) หรือ ✋ วางมือ · ตรวจของจริงได้จาก `…/exec?action=version` หรือพิมพ์ "เช็คระบบ" ในไลน์ |
 
-### รอ deploy GAS เลขา
+### ขึ้น GAS แล้ว (`2026-09-30a`) — รอคุณปาล์มลองของจริง
 | งาน | มาจากแชท |
 |---|---|
 | 🧠 **เปลี่ยนสมองเลขาเป็น `claude-sonnet-5-5`** (ทั้ง `MODEL` แชทปกติ/อ่านรูป และ `PLANNER_MODEL` นักวางแผน — เดิม `claude-sonnet-5`) · ราคาเท่าเดิม ($2/$10 ต่อล้าน token) · request ไม่ใช้ `thinking`/`tool_choice`/`temperature` จึงไม่ติดข้อห้ามของรุ่นใหม่ · หลังวางให้พิมพ์ "เช็คระบบ" ต้องขึ้น "สมองดิฉันทำงานปกติ (claude-sonnet-5-5)" | palm-hq (2026-09-30) |
