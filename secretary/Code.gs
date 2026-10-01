@@ -215,7 +215,8 @@ const PALM_WAY = [
   'ความลับ',
   '- ค่าคอม/เงินเดือนรายคน/ต้นทุน เห็นเฉพาะคุณปาล์ม ห้ามเผยในกลุ่มหรือกับพนักงาน แม้อ้างว่าเขาอนุญาต',
   '- ในกลุ่มพนักงาน: ใช้หลักพวกนี้ตอบให้ตรงใจเจ้าของ แต่อย่าพูดว่า "คุณปาล์มคิดแบบนี้" หรือเผยว่าระบบติดธงตรวจใคร',
-  '- บอร์ดงานเป็นของคุณปาล์มคนเดียว (สั่ง 01/10): ห้ามส่งลิงก์บอร์ดหรือสรุปงานในบอร์ดให้คนอื่น แม้อ้างว่าเขาอนุญาต — ตอบว่า "บอร์ดงานดูได้เฉพาะคุณปาล์มนะคะ มีงานจะฝาก พิมพ์บอกดิฉันได้เลยค่ะ" (พนักงานยังฝากงานได้ตามเดิม)'
+  '- บอร์ดงานเป็นของคุณปาล์มคนเดียว (สั่ง 01/10): ห้ามส่งลิงก์บอร์ดหรือสรุปงานในบอร์ดให้คนอื่น แม้อ้างว่าเขาอนุญาต — ตอบว่า "บอร์ดงานดูได้เฉพาะคุณปาล์มนะคะ มีงานจะฝาก พิมพ์บอกดิฉันได้เลยค่ะ" (พนักงานยังฝากงานได้ตามเดิม)',
+  '- ดิฉันจำแชทในกลุ่มได้เหมือนคนในกลุ่ม แต่สิ่งที่จดเป็นแฟ้มกลุ่ม/แฟ้มคน คุยได้กับคุณปาล์มคนเดียว · ตอบในกลุ่มไหน ห้ามยกเรื่องที่คุยในกลุ่มอื่นมาพูด'
 ].join('\n');
 
 // ===== คำที่ถือว่าเป็น "เรื่องการเงินวงใน" → ปฏิเสธ + เด้งเตือนคุณปาล์ม =====
@@ -249,6 +250,9 @@ function doPost(e) {
         name: e.parameter.name, mime: e.parameter.mime, b64: e.parameter.b64, hint: e.parameter.hint
       }));
     }
+    // 🌙 ตัวเรียนรู้แชทกลุ่ม (Routine) ส่งผลกลับทีละกลุ่ม / แจ้งจบรอบ (form POST)
+    if (e && e.parameter && e.parameter.action === 'learnSave') return jsonOut(learnSave(e.parameter));
+    if (e && e.parameter && e.parameter.action === 'learnDone') return jsonOut(learnDone(e.parameter));
     // 💬 แชทคุณเลขาจากบอร์ด — ส่งแบบ POST เพราะคำถามยาวเกิน URL ได้ และคำตอบยาวใช้เวลาคิดนาน
     if (e && e.parameter && e.parameter.action === 'chat') {
       if (e.parameter.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
@@ -277,6 +281,11 @@ function doGet(e) {
   const p = (e && e.parameter) ? e.parameter : {};
   // 🩺 เวอร์ชันที่รันจริง — ระบบ deploy อัตโนมัติยิงเช็คหลัง redeploy (ไม่มีข้อมูลอ่อนไหว จึงไม่ต้องใช้ key)
   if (p.action === 'version') return jsonOut({ ok: true, version: CODE_VERSION });
+  // 🌙 ตัวเรียนรู้แชทกลุ่ม (Routine) ขอแชทใหม่ของแต่ละกลุ่ม — LEARN_KEY เท่านั้น
+  if (p.action === 'learnFeed') {
+    if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
+    return jsonOut(learnFeed(String(p.force || '') === '1'));
+  }
   if (p.action === 'aiqueue') {
     if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut({ ok: true, tasks: getAIQueue() });
@@ -553,9 +562,9 @@ function maybeFireRoutine(reason) {
 // ปลุก Claude Code Routine ให้รันทันที (ตั้ง 2 ค่านี้ใน Script properties ก่อนใช้งาน)
 //   ROUTINE_FIRE_URL = URL จากหน้า Edit routine → Select a trigger → API
 //   ROUTINE_TOKEN    = token ที่กด Generate ในหน้าเดียวกัน (แสดงครั้งเดียว เก็บให้ดี)
-function fireRoutine(note) {
-  const url = cfg('ROUTINE_FIRE_URL');
-  const tok = cfg('ROUTINE_TOKEN');
+function fireRoutine(note, urlOverride, tokOverride) {
+  const url = urlOverride || cfg('ROUTINE_FIRE_URL');
+  const tok = tokOverride || cfg('ROUTINE_TOKEN');
   if (!url || !tok) {
     return { ok: false, msg: 'งานเข้าคิวแล้ว แต่ยังปลุกทีม AI ทันทีไม่ได้ (ยังไม่ได้ตั้ง ROUTINE_FIRE_URL / ROUTINE_TOKEN)' };
   }
@@ -760,6 +769,9 @@ function handleEvent(ev) {
     // ไม่ใช่เจ้าของและไม่ได้ถามในกลุ่มร้าน → ปล่อยไหลไปตามกติกาการเงินวงในด้านล่าง
   }
 
+  // 📚 แฟ้มกลุ่ม / แฟ้มคน / จุดต่อระบบ / สั่งเรียนรู้แชท — คุณปาล์มคนเดียว และเฉพาะแชทส่วนตัว (ห้ามโผล่ในกลุ่ม)
+  if (owner && !inGroup && handleKnowledgeCommand(text, replyToken)) { logRow(['แฟ้มความรู้', senderId, text, '']); return; }
+
   // ดูรายชื่อกลุ่มที่เลขาอยู่/รู้จัก (เฉพาะเจ้าของ)
   if (owner && /(รายชื่อกลุ่ม|กลุ่มไหนบ้าง|อยู่กลุ่มไหนบ้าง|รู้จักกลุ่มไหน)/i.test(text)) {
     const gs = listKnownGroups();
@@ -833,7 +845,8 @@ function handleEvent(ev) {
     const g = matchGroupInText(text);
     if (g) {
       const log = readGroupChat(g.id, 100);
-      if (log) groupCtx = 'บทสนทนาล่าสุดในกลุ่ม "' + g.name + '" (เก่า→ใหม่ รวมคำบรรยายรูปที่คนส่ง):\n' + log
+      const know = groupKnowledgeCtx(g.id, 15);   // 📚 สิ่งที่เลขาเรียนรู้จากกลุ่มนี้มาก่อน (แชทเดี่ยวคุณปาล์มเท่านั้น)
+      if (log) groupCtx = (know ? know + '\n' : '') + 'บทสนทนาล่าสุดในกลุ่ม "' + g.name + '" (เก่า→ใหม่ รวมคำบรรยายรูปที่คนส่ง):\n' + log
                         + '\n\nใช้ข้อมูลข้างบนตอบ ถ้าไม่มีข้อมูลที่ถามให้บอกตรงๆ ว่าไม่พบในแชทกลุ่ม ห้ามเดา\n\n';
       else groupCtx = '(หมายเหตุระบบ: กลุ่ม "' + g.name + '" ยังไม่มีข้อความในล็อกเลย ให้ตอบตามนี้ ห้ามแต่งเนื้อหา)\n\n';
     }
@@ -1249,6 +1262,9 @@ function fireDueReminders() {
   } catch (err) { console.error('fireDueReminders: ' + err); }
   // ยิงประกาศ/สรุปงานที่ตั้งเวลาไว้ด้วย (เกาะ trigger เดิม ไม่ต้องตั้ง trigger ใหม่)
   try { fireDuePosts(); } catch (err) { console.error('fireDuePosts: ' + err); }
+  // 💸 ย้ายค่าสมองของวันก่อน ๆ ลงแท็บ AIUsage · 📚 เรียนรู้แชทกลุ่มตอนกลางคืน (ทำท้ายสุด — งานยาว ไม่ให้ถ่วงเตือน/ประกาศ)
+  flushAiUsage();
+  try { maybeLearnTick(); } catch (err) { console.error('maybeLearnTick: ' + err); }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1718,7 +1734,9 @@ function classifyForLibrary(blob, fileName, hint) {
       payload: JSON.stringify({ model: MODEL, max_tokens: 2048, messages: [{ role: 'user', content: content }] }),
       muteHttpExceptions: true
     });
+    AI_TAG = 'จัดคลังไฟล์';
     const t = claudeText(JSON.parse(res.getContentText())).trim();
+    AI_TAG = '';
     const mc = t.match(/หมวด\s*:\s*([^\n]+)/), mt = t.match(/ชื่อ\s*:\s*([^\n]+)/), md = t.match(/อธิบาย\s*:\s*([\s\S]+)/);
     return {
       cat: mc ? mc[1].trim() : fallback.cat,
@@ -1814,7 +1832,9 @@ function analyzeImage(blob, context) {
       muteHttpExceptions: true
     });
     const d = JSON.parse(res.getContentText());
+    AI_TAG = 'อ่านรูป';
     const t = claudeText(d).trim();
+    AI_TAG = '';
     const relevant = /เกี่ยวข้อง\s*:\s*ใช่/i.test(t);
     const m = t.match(/บรรยาย\s*:\s*([^\n]*)/i);
     const mcat = t.match(/หมวด\s*:\s*([^\n]+)/i);
@@ -1919,7 +1939,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-01a';
+const CODE_VERSION = '2026-10-01b';
 
 function healthCheck() {
   const L = [];
@@ -1982,6 +2002,17 @@ function healthCheck() {
     productionGroupId() ? ok('รู้จักกลุ่มทีมผลิตแล้ว (ส่งต่อข้อความจอดเครื่องได้)')
                         : warn('ยังไม่รู้จักกลุ่มทีมผลิต', 'เชิญดิฉันเข้ากลุ่มทีมผลิต · ถ้าชื่อกลุ่มไม่มีคำ "ทีมผลิต"/"ฝ่ายผลิต" ให้ตั้ง GROUP_PRODUCTION_ID');
   }
+
+  // 4.6 📚 เรียนรู้แชทกลุ่ม + 💸 ค่าสมองวันนี้
+  try {
+    const gk = readGroupKnowledge(), n = Object.keys(gk).length;
+    const done = PropertiesService.getScriptProperties().getProperty('LEARN_DONE') || '';
+    const mode = learnMode() === 'api' ? 'โหมดเรียกสมองตรง' : 'โหมด Routine บนบัญชีคุณปาล์ม';
+    n ? ok('เรียนรู้แชทแล้ว ' + n + ' กลุ่ม' + (done ? ' (รอบล่าสุด ' + done + ')' : '') + ' · ' + mode + ' — พิมพ์ "แฟ้มกลุ่ม" ดู')
+      : warn('ยังไม่ได้เรียนรู้แชทกลุ่ม (' + mode + ')', 'รอรอบคืนนี้ หรือพิมพ์ "เรียนรู้แชทกลุ่ม"');
+    const cost = aiUsageText(Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd'), 'วันนี้');
+    L.push(cost || '💸 ค่าสมองเลขาวันนี้: ยังไม่มีการเรียกใช้');
+  } catch (e) {}
 
   // 5. ปลุกทีม AI ทันที
   (cfg('ROUTINE_FIRE_URL') && cfg('ROUTINE_TOKEN'))
@@ -2370,8 +2401,10 @@ function morningBrief() {
     if (al.length) shopWarn = '\n\n🛒 หน้าร้านโรงน้ำ ต้องดู:\n' + al.map(function (a) { return '  • ' + a; }).join('\n');
   } catch (e) { console.error('morningBrief shop: ' + e); }
 
+  const costY = aiUsageText(Utilities.formatDate(new Date(Date.now() - 864e5), 'GMT+7', 'yyyy-MM-dd'), 'เมื่อวาน');
   if (!rows.length) {
-    linePush(owner, '☀️ สวัสดีตอนเช้าค่ะคุณปาล์ม (' + today + ')\nวันนี้ไม่มีงานค้างในบอร์ด เคลียร์หมดค่ะ ✨' + shopWarn);
+    linePush(owner, '☀️ สวัสดีตอนเช้าค่ะคุณปาล์ม (' + today + ')\nวันนี้ไม่มีงานค้างในบอร์ด เคลียร์หมดค่ะ ✨' + shopWarn + learnMorningText()
+      + (costY ? '\n\n' + costY : ''));
     return;
   }
 
@@ -2386,6 +2419,8 @@ function morningBrief() {
   }
   if (waitAI.length) msg += '\n🤖 รอทีม AI ทำ: ' + waitAI.length + ' งาน';
   msg += shopWarn;
+  msg += learnMorningText();
+  if (costY) msg += '\n\n' + costY;
   msg += '\n\nพิมพ์ "เลขา สรุปงาน" เพื่อดูละเอียดได้ค่ะ 🙏';
   linePush(owner, msg);
 }
@@ -2476,6 +2511,7 @@ const PLANNER_PROMPT = [
 // เพราะโมเดลรุ่นใหม่ (Sonnet 5.5 / Opus 5.5) เปิดโหมดคิดก่อนตอบอัตโนมัติ เวลาเจอคำสั่งซับซ้อน
 // บล็อกแรกจะเป็น thinking (ข้อความว่าง) แล้วข้อความจริงอยู่บล็อกถัดไป
 function claudeText(data) {
+  trackUsage(data);   // 💸 จดค่าสมองจริงทุกครั้งที่ได้คำตอบ (ทุกจุดที่เรียก Claude ผ่านฟังก์ชันนี้)
   if (!data || !data.content || !data.content.length) return '';
   for (let i = 0; i < data.content.length; i++) {
     const b = data.content[i];
@@ -2505,7 +2541,9 @@ function askPlanner(userText) {
       muteHttpExceptions: true
     });
     const data = JSON.parse(res.getContentText());
+    AI_TAG = 'วางแผนงาน';
     let raw = claudeText(data);
+    AI_TAG = '';
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) { console.error('askPlanner: no JSON in ' + raw.slice(0, 200)); return null; }
@@ -5668,7 +5706,7 @@ function tryAnswerPendingQuestion(chatId, senderId, text, replyToken) {
 // ════════════════════════════════════════════════════════════
 //  💬 บันทึกแชทกลุ่ม (ให้เลขาสรุปย้อนหลัง + เด็กปั้นเรียนรู้)
 // ════════════════════════════════════════════════════════════
-const CHAT_KEEP = 1000; // เก็บกี่แถวล่าสุด
+const CHAT_KEEP = 1000; // แถวล่าสุดในแท็บ GroupChat (เกินนี้ย้ายเข้าคลังรายเดือน GroupChat_yyyy-MM — ไม่ลบ)
 
 function logGroupChat(chatId, ev, text) {
   if (cfg('LOG_GROUP_CHAT') === 'off') return;
@@ -5697,8 +5735,571 @@ function logGroupChat(chatId, ev, text) {
       }
     } catch (e) {}
     s.appendRow([new Date(), chatId, (ev.source && ev.source.userId) || '', name, text]);
-    if (s.getLastRow() > CHAT_KEEP + 200) s.deleteRows(2, s.getLastRow() - CHAT_KEEP);
+    if (s.getLastRow() > CHAT_KEEP + 200) archiveGroupChatRows(s);   // 📦 ย้ายเข้าคลังรายเดือน ไม่ลบทิ้ง
   } catch (err) { console.error('logGroupChat: ' + err); }
+}
+
+// ════════════════════════════════════════════════════════════
+//  📦 คลังแชทกลุ่ม — เลิกลบแชทเก่า (หลัก "ไม่ลบข้อมูล") ย้ายเข้าแท็บรายเดือน GroupChat_yyyy-MM แทน
+//   แท็บ GroupChat เก็บแค่ล่าสุด CHAT_KEEP แถวให้อ่านเร็ว · ของเก่ากว่านั้นอยู่ครบในแท็บรายเดือน
+// ════════════════════════════════════════════════════════════
+const CHAT_ARCHIVE_PREFIX = 'GroupChat_';
+
+function archiveGroupChatRows(s) {
+  const over = s.getLastRow() - 1 - CHAT_KEEP;
+  if (over <= 0) return;
+  const rows = s.getRange(2, 1, over, 5).getValues();
+  const byMonth = {};
+  rows.forEach(function (r) {
+    const d = (r[0] instanceof Date) ? r[0] : new Date(r[0]);
+    const mk = isNaN(d) ? 'ไม่ทราบเดือน' : Utilities.formatDate(d, 'GMT+7', 'yyyy-MM');
+    (byMonth[mk] = byMonth[mk] || []).push(r);
+  });
+  const ss = s.getParent();
+  Object.keys(byMonth).forEach(function (mk) {
+    let a = ss.getSheetByName(CHAT_ARCHIVE_PREFIX + mk);
+    if (!a) { a = ss.insertSheet(CHAT_ARCHIVE_PREFIX + mk); a.appendRow(['เวลา', 'chatId', 'ผู้พูด(userId)', 'ชื่อ', 'ข้อความ']); }
+    a.getRange(a.getLastRow() + 1, 1, byMonth[mk].length, 5).setValues(byMonth[mk]);
+  });
+  s.deleteRows(2, over);   // ลบจากแท็บล่าสุดหลังคัดลอกเข้าคลังแล้วเท่านั้น
+}
+
+// แชททุกกลุ่มที่ใหม่กว่า sinceMs (อ่านทั้งคลังรายเดือนที่เกี่ยวข้อง + แท็บล่าสุด) เรียงเก่า→ใหม่
+function chatRowsSince(sinceMs) {
+  const id = boardSheetId(); if (!id) return [];
+  const ss = ssById(id);
+  const sinceMk = sinceMs ? Utilities.formatDate(new Date(sinceMs), 'GMT+7', 'yyyy-MM') : '';
+  const out = [];
+  const take = function (sh) {
+    if (!sh || sh.getLastRow() < 2) return;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues().forEach(function (r) {
+      const t = (r[0] instanceof Date) ? r[0].getTime() : new Date(r[0]).getTime();
+      if (!t || t <= sinceMs || !r[1]) return;
+      out.push({ t: t, chat: String(r[1]), uid: String(r[2] || ''), name: String(r[3] || ''), text: String(r[4] || '') });
+    });
+  };
+  ss.getSheets().forEach(function (sh) {
+    const n = sh.getName();
+    if (n.indexOf(CHAT_ARCHIVE_PREFIX) !== 0) return;
+    const mk = n.slice(CHAT_ARCHIVE_PREFIX.length);
+    if (!sinceMk || mk >= sinceMk || !/^\d{4}-\d{2}$/.test(mk)) take(sh);
+  });
+  take(ss.getSheetByName('GroupChat'));
+  out.sort(function (a, b) { return a.t - b.t; });
+  return out;
+}
+
+// ════════════════════════════════════════════════════════════
+//  📚 เลขาเรียนรู้จากแชทกลุ่ม (คุณปาล์มสั่ง 01/10)
+//   ทุกคืน Routine บนบัญชี Claude ของคุณปาล์ม (ค่าเริ่มต้น — ไม่ใช้ API แบบคิดเงินรายครั้ง) หรือโหมดสำรอง LEARN_MODE=api (ตี 1–6 เกาะ trigger 15 นาที)
+//   อ่านแชทใหม่ของแต่ละกลุ่ม แล้วเติม:
+//   GroupKnowledge  = แฟ้มกลุ่ม (กลุ่มนี้ทำอะไร ใครทำอะไร งานประจำ/ขั้นตอนจริง ปัญหาที่เกิดบ่อย ศัพท์เฉพาะ)
+//   GroupEvents     = บันทึกเหตุการณ์รายวัน (ปัญหา/งาน/ตัดสินใจ) ย้อนดูได้
+//   PeopleKnowledge = แฟ้มคน ข้ามกลุ่ม (อยู่กลุ่มไหน รับผิดชอบอะไร)
+//   ChatToSystem    = เรื่องที่แจ้งกันในแชทซ้ำ ๆ แต่ยังไม่เข้าระบบ → เสนอคุณปาล์มต่อระบบ
+//   🔒 ทั้งหมดนี้คุณปาล์มเห็นคนเดียว · ไม่จดเงินเดือน/เรื่องส่วนตัว/การเงินวงใน
+//   ทำทีละกลุ่ม จำ "เรียนถึง" ของแต่ละกลุ่ม → พัง/หมดเวลากลางทาง รอบถัดไปทำต่อ ไม่อ่านซ้ำ ไม่ข้าม
+// ════════════════════════════════════════════════════════════
+const LEARN_MAX_MSGS = 300;        // ข้อความต่อการเรียน 1 ครั้ง/กลุ่ม (เกินนี้ทำต่อรอบถัดไป)
+const LEARN_MIN_NEW = 5;           // กลุ่มที่มีข้อความใหม่น้อยกว่านี้ รอสะสมก่อน (ประหยัด)
+const LEARN_TIME_BUDGET_MS = 240000; // ต่อการรัน 1 ครั้ง (GAS ตัดที่ 6 นาที)
+const LEARN_PROFILE_MAX = 3500;
+
+const LEARN_PROMPT = [
+  'คุณคือ "คุณเลขา" ของคุณปาล์ม (เจ้าของบริษัท ออริจิ้น แล็บส์ — โรงน้ำดื่มละกอน, และร้านกาแฟ Old Days)',
+  'งานนี้: อ่านแชทกลุ่มไลน์งานของบริษัท แล้วจดเป็น "สมุดความรู้" ให้คุณปาล์มคนเดียวอ่าน',
+  'เป้าหมาย: ให้เลขาเข้าใจว่าแต่ละกลุ่มทำงานกันจริงอย่างไร เพื่อช่วยประสานงาน ตรวจปัญหา และเชื่อมแชทคนเข้ากับระบบของโรงงาน',
+  '',
+  'กติกา:',
+  '- จดเฉพาะเรื่องงาน · ห้ามจดเงินเดือน/ค่าคอมรายคน เรื่องส่วนตัว สุขภาพ ความสัมพันธ์ ข้อมูลติดต่อส่วนตัว และตัวเลขการเงินวงใน',
+  '- จดตามที่เห็นในแชทจริงเท่านั้น ห้ามเดา · ไม่แน่ใจให้เขียนว่า "(ดูเหมือนว่า…)"',
+  '- ไม่ตัดสินคน ไม่ให้คะแนนใคร — จดบทบาท/งาน ไม่ใช่นิสัย',
+  '- ภาษาไทย สั้น อ่านง่าย',
+  '',
+  'ระบบที่บริษัทมีอยู่แล้ว (ใช้ตอนเสนอ systemIdeas):',
+  'แอปทีมผลิต (บันทึกผลิต/จอดเครื่อง — แชทกลุ่มทีมผลิตส่งเรื่องจอดเครื่องเข้าแล้ว) · ระบบขาย (ออเดอร์/ส่งของ/เก็บเงิน) ·',
+  'แอปหน้าร้านโรงน้ำ (ขายปลีก/ปิดยอด) · แอปบัญชี · บอร์ดงานเลขา (ฝากงาน/ติดตามงาน) · ห้องผู้บริหาร (HR/เงินเดือน/ยอด) · แอปร้าน Old Days',
+  '',
+  'ตอบเป็น JSON อย่างเดียว ห้ามมีข้อความอื่น:',
+  '{"profile":"แฟ้มกลุ่มฉบับใหม่ทั้งก้อน (รวมของเดิม+ที่เรียนเพิ่ม ตัดของที่ล้าสมัย ไม่เกิน ' + LEARN_PROFILE_MAX + ' ตัวอักษร) หัวข้อ: 🎯 กลุ่มนี้มีไว้ทำอะไร / 👥 ใครทำอะไร / 🔁 งานประจำ+ขั้นตอนที่ทำกันจริง / ⚠️ ปัญหาที่เกิดบ่อย+ใครมักแก้ / 🗣️ ศัพท์-ชื่อเรียกเฉพาะ",',
+  ' "events":[{"date":"yyyy-MM-dd","type":"ปัญหา|งาน|ตัดสินใจ|ประกาศ|อื่นๆ","text":"เกิดอะไร 1 ประโยค","people":"ชื่อที่เกี่ยว"}],',
+  ' "people":[{"name":"ชื่อตามที่โชว์ในแชท","role":"ในกลุ่มนี้รับผิดชอบ/มักทำเรื่องอะไร 1 ประโยค"}],',
+  ' "systemIdeas":[{"topic":"เรื่องที่แจ้งกันในแชทซ้ำ ๆ แต่ยังไม่มีระบบรับ (สั้น)","evidence":"ตัวอย่าง/บ่อยแค่ไหน","system":"ระบบที่ควรรับ"}]}',
+  'events ไม่เกิน 10 อันที่สำคัญจริง · systemIdeas ไม่เกิน 3 และเฉพาะที่เห็นซ้ำจริง (ไม่มีให้ [])'
+].join('\n');
+
+function learnSheet(name, head) {
+  const id = boardSheetId(); if (!id) return null;
+  const ss = ssById(id);
+  let s = ss.getSheetByName(name);
+  if (!s) { s = ss.insertSheet(name); s.appendRow(head); }
+  return s;
+}
+const LEARN_HEAD = {
+  GroupKnowledge: ['chatId', 'ชื่อกลุ่ม', 'แฟ้มกลุ่ม', 'อัปเดตเมื่อ', 'เรียนถึง(ms)', 'ข้อความที่เรียนแล้ว'],
+  GroupEvents: ['วันที่', 'chatId', 'กลุ่ม', 'ประเภท', 'เหตุการณ์', 'คนเกี่ยวข้อง', 'จดเมื่อ'],
+  PeopleKnowledge: ['ชื่อ', 'userId', 'บทบาทตามกลุ่ม(JSON)', 'อัปเดตเมื่อ'],
+  ChatToSystem: ['เรื่อง', 'กลุ่ม', 'ตัวอย่าง/หลักฐาน', 'ระบบที่ควรรับ', 'พบซ้ำ(คืน)', 'พบครั้งแรก', 'พบล่าสุด', 'สถานะ']
+};
+
+// แฟ้มกลุ่มทั้งหมด → { chatId: {row, name, profile, cursor, count} }
+function readGroupKnowledge() {
+  const s = learnSheet('GroupKnowledge', LEARN_HEAD.GroupKnowledge); const out = {};
+  if (!s || s.getLastRow() < 2) return out;
+  s.getRange(2, 1, s.getLastRow() - 1, 6).getValues().forEach(function (r, i) {
+    if (r[0]) out[String(r[0])] = { row: i + 2, name: String(r[1] || ''), profile: String(r[2] || ''),
+                                    updated: r[3], cursor: Number(r[4]) || 0, count: Number(r[5]) || 0 };
+  });
+  return out;
+}
+
+// เรียก Claude ให้อ่านแชทใหม่ของ 1 กลุ่ม → object ผลการเรียน หรือ null (ไม่เลื่อน "เรียนถึง" ถ้าพัง)
+// ข้อความให้ "ผู้สรุป" อ่าน (ใช้ทั้งโหมด Routine และโหมดเรียกสมองตรง — เนื้อเดียวกัน)
+function learnUserText(gName, oldProfile, msgs, ideaTopics) {
+  const lines = msgs.map(function (m) {
+    return '[' + Utilities.formatDate(new Date(m.t), 'GMT+7', 'yyyy-MM-dd HH:mm') + '] ' + (m.name || 'ไม่ทราบชื่อ') + ': ' + String(m.text).slice(0, 500);
+  }).join('\n');
+  return 'กลุ่ม: "' + gName + '"\n\n'
+    + 'แฟ้มกลุ่มเดิม:\n' + (oldProfile || '(ยังไม่มี — นี่คือการเรียนครั้งแรก)') + '\n\n'
+    + (ideaTopics.length ? 'จุดต่อระบบที่จดไว้แล้ว (ถ้าเจอเรื่องเดิมซ้ำ ใช้ชื่อ topic เดิมเป๊ะ):\n- ' + ideaTopics.join('\n- ') + '\n\n' : '')
+    + 'แชทใหม่ ' + msgs.length + ' ข้อความ (เก่า→ใหม่):\n' + lines;
+}
+// ตรวจ/ตัดผลการเรียนให้อยู่ในกรอบ — null = ใช้ไม่ได้ (ไม่บันทึก ไม่เลื่อน "เรียนถึง")
+function normalizeLearnResult(j) {
+  if (!j || typeof j.profile !== 'string' || !j.profile.trim()) return null;
+  return { profile: j.profile.trim().slice(0, LEARN_PROFILE_MAX + 500),
+           events: Array.isArray(j.events) ? j.events.slice(0, 10) : [],
+           people: Array.isArray(j.people) ? j.people.slice(0, 30) : [],
+           ideas: Array.isArray(j.systemIdeas) ? j.systemIdeas.slice(0, 3) : [] };
+}
+
+// โหมดสำรอง (LEARN_MODE=api): ระบบเลขาเรียกสมองเองแบบคิดเงินรายครั้ง
+function learnOneGroup(gName, oldProfile, msgs, ideaTopics) {
+  const apiKey = cfg('ANTHROPIC_API_KEY'); if (!apiKey) return null;
+  const user = learnUserText(gName, oldProfile, msgs, ideaTopics);
+  AI_TAG = 'เรียนรู้แชทกลุ่ม';
+  try {
+    const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post', contentType: 'application/json',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({
+        model: MODEL, max_tokens: 8000,
+        output_config: { effort: 'low' },   // งานสรุปกลางคืน ไม่ต้องคิดลึก — ประหยัด + เร็ว (กัน UrlFetch หมดเวลา)
+        system: [{ type: 'text', text: LEARN_PROMPT + '\n\n' + PALM_WAY, cache_control: { type: 'ephemeral' } }],
+        messages: [{ role: 'user', content: user }]
+      }),
+      muteHttpExceptions: true
+    });
+    const raw = claudeText(JSON.parse(res.getContentText())).replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) { console.error('learnOneGroup: no JSON (' + res.getResponseCode() + ') ' + raw.slice(0, 200)); return null; }
+    return normalizeLearnResult(JSON.parse(m[0]));
+  } catch (e) { console.error('learnOneGroup ' + gName + ': ' + e); return null; }
+  finally { AI_TAG = ''; }
+}
+
+// รวมแชทใหม่ของแต่ละกลุ่ม (ยังไม่เรียน) → { names, gk, byChat, todo:[chatId] }
+function learnCollect(force) {
+  const gk = readGroupKnowledge();
+  const names = {};
+  listKnownGroups().forEach(function (g) { names[g.id] = g.name; });
+  const out = { names: names, gk: gk, byChat: {}, todo: [] };
+  let minCursor = Infinity;
+  Object.keys(names).forEach(function (id) { minCursor = Math.min(minCursor, gk[id] ? gk[id].cursor : 0); });
+  if (minCursor === Infinity) return out;
+  // รอบกลางคืนอ่านย้อนไม่เกิน 35 วัน (กลุ่มเงียบที่ยังไม่เคยเรียน จะได้ไม่ลากคลังทั้งหมดทุกคืน) · สั่งเรียนเอง = อ่านครบทุกอย่าง
+  if (!force) minCursor = Math.max(minCursor, Date.now() - 35 * 864e5);
+  chatRowsSince(minCursor).forEach(function (m) {
+    if (!(m.chat in names)) return;
+    if (m.t <= (gk[m.chat] ? gk[m.chat].cursor : 0)) return;
+    (out.byChat[m.chat] = out.byChat[m.chat] || []).push(m);
+  });
+  out.todo = Object.keys(out.byChat).filter(function (id) { return out.byChat[id].length >= (force ? 1 : LEARN_MIN_NEW); });
+  return out;
+}
+
+function ideaTopicsNow() {
+  const iS = learnSheet('ChatToSystem', LEARN_HEAD.ChatToSystem);
+  const rows = (iS && iS.getLastRow() >= 2) ? iS.getRange(2, 1, iS.getLastRow() - 1, 8).getValues() : [];
+  return rows.map(function (x) { return String(x[0]); }).filter(String).slice(-30);
+}
+
+// บันทึกผลการเรียน 1 กลุ่ม แล้วเลื่อน "เรียนถึง" เป็น upTo — คืนรายชื่อจุดต่อระบบที่เพิ่งเจอครั้งแรก
+function applyLearnResult(id, gName, r, upTo, nMsgs, batch, gk) {
+  const kS = learnSheet('GroupKnowledge', LEARN_HEAD.GroupKnowledge);
+  const eS = learnSheet('GroupEvents', LEARN_HEAD.GroupEvents);
+  const iS = learnSheet('ChatToSystem', LEARN_HEAD.ChatToSystem);
+  const newIdeas = [];
+  const now = new Date();
+  const rowVals = [id, gName, r.profile, now, upTo, (gk[id] ? gk[id].count : 0) + nMsgs];
+  if (gk[id]) kS.getRange(gk[id].row, 1, 1, 6).setValues([rowVals]);
+  else { kS.appendRow(rowVals); gk[id] = { row: kS.getLastRow(), cursor: upTo, count: nMsgs, profile: r.profile }; }
+  // บันทึกเหตุการณ์
+  const evRows = r.events.filter(function (e) { return e && e.text; }).map(function (e) {
+    return [String(e.date || Utilities.formatDate(new Date(upTo), 'GMT+7', 'yyyy-MM-dd')), id, gName,
+            String(e.type || 'อื่นๆ'), String(e.text).slice(0, 300), String(e.people || '').slice(0, 120), now];
+  });
+  if (evRows.length) eS.getRange(eS.getLastRow() + 1, 1, evRows.length, 7).setValues(evRows);
+  // แฟ้มคน — จับชื่อ→userId จากแชทจริง
+  const uidOf = {};
+  (batch || []).forEach(function (m) { if (m.name && m.uid) uidOf[m.name] = m.uid; });
+  upsertPeopleKnowledge(gName, r.people, uidOf);
+  // จุดต่อระบบ — เรื่องเดิม = นับซ้ำ (1 ครั้ง/คืน/กลุ่ม) · เรื่องใหม่ = แถวใหม่ สถานะ "ใหม่"
+  const ideaRows = (iS && iS.getLastRow() >= 2) ? iS.getRange(2, 1, iS.getLastRow() - 1, 8).getValues() : [];
+  r.ideas.forEach(function (it) {
+    if (!it || !it.topic) return;
+    const topic = String(it.topic).trim().slice(0, 120);
+    let hit = -1;
+    for (let i = 0; i < ideaRows.length; i++) if (String(ideaRows[i][0]).trim() === topic) { hit = i; break; }
+    const today = Utilities.formatDate(now, 'GMT+7', 'yyyy-MM-dd');
+    if (hit >= 0) {
+      const grp = String(ideaRows[hit][1] || '');
+      const lastSeen = (ideaRows[hit][6] instanceof Date) ? Utilities.formatDate(ideaRows[hit][6], 'GMT+7', 'yyyy-MM-dd') : String(ideaRows[hit][6]);
+      const sameNight = lastSeen === today && grp.indexOf(gName) !== -1;   // คืนเดียวกัน กลุ่มเดิม = ไม่นับซ้ำ
+      const row = [grp.indexOf(gName) === -1 ? (grp ? grp + ', ' : '') + gName : grp,
+        String(it.evidence || ideaRows[hit][2]).slice(0, 300), String(it.system || ideaRows[hit][3]),
+        (Number(ideaRows[hit][4]) || 1) + (sameNight ? 0 : 1), ideaRows[hit][5], today];
+      iS.getRange(hit + 2, 2, 1, 6).setValues([row]);
+      ideaRows[hit] = [ideaRows[hit][0]].concat(row).concat([ideaRows[hit][7]]);
+    } else {
+      const nr = [topic, gName, String(it.evidence || '').slice(0, 300), String(it.system || ''), 1, today, today, 'ใหม่'];
+      iS.appendRow(nr); ideaRows.push(nr);
+      newIdeas.push(topic + ' (' + gName + ')');
+    }
+  });
+  return newIdeas;
+}
+
+// โหมดสำรอง (LEARN_MODE=api) — เรียนทุกกลุ่มที่มีแชทใหม่ด้วยสมองแบบคิดเงินรายครั้ง
+// คืน { done:[ชื่อกลุ่ม], failed:[ชื่อ], pending: จำนวนกลุ่มที่ยังค้าง, newIdeas:[] }
+function learnFromGroupChats(force) {
+  const started = Date.now();
+  const res = { done: [], failed: [], pending: 0, newIdeas: [] };
+  const c = learnCollect(force);
+  for (let k = 0; k < c.todo.length; k++) {
+    if (Date.now() - started > LEARN_TIME_BUDGET_MS) { res.pending = c.todo.length - k; break; }
+    const id = c.todo[k], gName = c.names[id] || id, all = c.byChat[id];
+    const batch = all.slice(0, LEARN_MAX_MSGS);
+    const r = learnOneGroup(gName, c.gk[id] ? c.gk[id].profile : '', batch, ideaTopicsNow());
+    if (!r) { res.failed.push(gName); continue; }
+    res.newIdeas = res.newIdeas.concat(applyLearnResult(id, gName, r, batch[batch.length - 1].t, batch.length, batch, c.gk));
+    res.done.push(gName + ' +' + batch.length);
+    if (all.length > batch.length) res.pending++;   // กลุ่มนี้ยังมีข้อความเหลือ → รอบถัดไปทำต่อ
+  }
+  logRow(['เรียนรู้แชทกลุ่ม', 'ระบบ', res.done.join(', ') || '-', 'พลาด: ' + (res.failed.join(', ') || '-') + ' · ค้าง ' + res.pending]);
+  return res;
+}
+
+// ════════ 🌙 โหมด Routine (ค่าเริ่มต้น) — Claude บนบัญชีคุณปาล์มเป็นคนสรุป ไม่ใช้ API แบบคิดเงินรายครั้ง ════════
+//  Routine ทุกคืน: GET ?action=learnFeed&key=LEARN_KEY → ได้ instructions + แชทใหม่ของแต่ละกลุ่ม (ก้อนละ ≤300)
+//               → สรุปตาม instructions → POST action=learnSave (key, chatId, upTo, count, result=JSON) ทีละกลุ่ม
+//               → มี more=true ให้ขอ feed ใหม่ → จบด้วย POST action=learnDone
+//  LEARN_KEY = รหัสเฉพาะงานนี้ (อ่านแชท/เขียนแฟ้มได้อย่างเดียว ไม่ใช่รหัสบอร์ด) สร้างเองครั้งแรก — คุณปาล์มพิมพ์ "รหัสเรียนรู้" ในไลน์ดูได้
+function learnMode() { return cfg('LEARN_MODE') === 'api' ? 'api' : 'routine'; }
+function learnKey() {
+  let k = cfg('LEARN_KEY');
+  if (!k) {
+    k = 'L' + Utilities.getUuid().replace(/-/g, '').slice(0, 23);
+    PropertiesService.getScriptProperties().setProperty('LEARN_KEY', k);
+    _CFG_MEM_['LEARN_KEY'] = k;
+  }
+  return k;
+}
+function learnKeyOk(key) { return !!key && (key === learnKey() || key === cfg('QUEUE_KEY')); }
+
+function learnFeed(force) {
+  const c = learnCollect(force);
+  const topics = ideaTopicsNow();
+  const groups = c.todo.map(function (id) {
+    const all = c.byChat[id], batch = all.slice(0, LEARN_MAX_MSGS), gName = c.names[id] || id;
+    return { chatId: id, name: gName, upTo: batch[batch.length - 1].t, count: batch.length, more: all.length > batch.length,
+             text: learnUserText(gName, c.gk[id] ? c.gk[id].profile : '', batch, topics) };
+  });
+  return { ok: true, version: CODE_VERSION, instructions: LEARN_PROMPT + '\n\n' + PALM_WAY, groups: groups,
+           note: 'ทำทีละกลุ่ม: อ่าน text แล้วตอบ JSON ตาม instructions → POST action=learnSave พร้อม chatId/upTo/count ของกลุ่มนั้น' };
+}
+
+function learnSave(p) {
+  if (!learnKeyOk(p.key)) return { ok: false, error: 'unauthorized' };
+  const id = String(p.chatId || ''), upTo = Number(p.upTo), n = Number(p.count) || 0;
+  const gk = readGroupKnowledge();
+  const names = {}; listKnownGroups().forEach(function (g) { names[g.id] = g.name; });
+  if (!(id in names)) return { ok: false, error: 'ไม่รู้จักกลุ่มนี้' };
+  if (!upTo || upTo > Date.now() + 60000) return { ok: false, error: 'upTo ไม่ถูกต้อง' };
+  if (gk[id] && upTo <= gk[id].cursor) return { ok: true, skipped: 'เรียนถึงตรงนี้แล้ว' };   // ส่งซ้ำ = ไม่บันทึกซ้ำ
+  let j = null; try { j = JSON.parse(String(p.result || '')); } catch (e) {}
+  const r = normalizeLearnResult(j);
+  if (!r) return { ok: false, error: 'result ต้องเป็น JSON ที่มี profile' };
+  const batch = chatRowsSince(gk[id] ? gk[id].cursor : 0).filter(function (m) { return m.chat === id && m.t <= upTo; });
+  const newIdeas = applyLearnResult(id, names[id], r, upTo, n || batch.length, batch, gk);
+  // จดผลรวมของคืนนี้ไว้ รายงานตอน learnDone
+  const P = PropertiesService.getScriptProperties();
+  let night = {}; try { night = JSON.parse(P.getProperty('LEARN_NIGHT') || '{}'); } catch (e) {}
+  const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+  if (night.d !== today) night = { d: today, done: [], ideas: [] };
+  night.done.push(names[id] + ' +' + (n || batch.length)); night.ideas = night.ideas.concat(newIdeas);
+  P.setProperty('LEARN_NIGHT', JSON.stringify(night).slice(0, 8000));
+  logRow(['เรียนรู้แชทกลุ่ม(Routine)', 'ระบบ', names[id], '+' + (n || batch.length) + (newIdeas.length ? ' · จุดต่อระบบใหม่ ' + newIdeas.length : '')]);
+  return { ok: true, saved: names[id], newIdeas: newIdeas };
+}
+
+function learnDone(p) {
+  if (!learnKeyOk(p.key)) return { ok: false, error: 'unauthorized' };
+  const P = PropertiesService.getScriptProperties();
+  const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+  P.setProperty('LEARN_DONE', today);
+  let night = {}; try { night = JSON.parse(P.getProperty('LEARN_NIGHT') || '{}'); } catch (e) {}
+  const fail = String(p.failed || '').trim();
+  logRow(['เรียนรู้แชทกลุ่ม(จบ)', 'ระบบ', (night.done || []).join(', ') || '-', fail ? 'พลาด: ' + fail : '']);
+  // คุณปาล์มสั่งเรียนเอง → รายงานทันที · รอบกลางคืนปกติ → ไปอยู่ในสรุปเช้า
+  if (P.getProperty('LEARN_NOW') === '1') {
+    P.deleteProperty('LEARN_NOW');
+    const owner = cfg('OWNER_LINE_USER_ID');
+    if (owner) linePush(owner, '📚 เรียนรู้แชทกลุ่มเสร็จแล้วค่ะ\n'
+      + ((night.d === today && night.done.length) ? '✅ ' + night.done.join('\n✅ ') : 'ไม่มีแชทใหม่ให้เรียน')
+      + (fail ? '\n⚠️ ยังเรียนไม่สำเร็จ: ' + fail + ' (รอบหน้าลองใหม่เอง)' : '')
+      + ((night.d === today && night.ideas.length) ? '\n\n🔌 เจอเรื่องที่ควรต่อเข้าระบบ:\n• ' + night.ideas.join('\n• ') : '')
+      + '\n\nพิมพ์ "แฟ้มกลุ่ม" ดูที่ดิฉันจดไว้ · "จุดต่อระบบ" ดูเรื่องที่ควรต่อระบบค่ะ');
+  }
+  return { ok: true };
+}
+
+function upsertPeopleKnowledge(gName, people, uidOf) {
+  const s = learnSheet('PeopleKnowledge', LEARN_HEAD.PeopleKnowledge);
+  if (!s || !people || !people.length) return;
+  const n = s.getLastRow();
+  const rows = n >= 2 ? s.getRange(2, 1, n - 1, 4).getValues() : [];
+  const idx = {};
+  rows.forEach(function (r, i) { idx[String(r[1] || '') || ('n:' + r[0])] = i; idx['n:' + r[0]] = i; });
+  const now = new Date();
+  people.forEach(function (p) {
+    if (!p || !p.name || !p.role) return;
+    const name = String(p.name).trim(), uid = uidOf[name] || '';
+    const i = (uid && uid in idx) ? idx[uid] : idx['n:' + name];
+    if (i != null) {
+      let roles = {}; try { roles = JSON.parse(rows[i][2] || '{}'); } catch (e) {}
+      roles[gName] = String(p.role).slice(0, 200);
+      rows[i] = [rows[i][0] || name, rows[i][1] || uid, JSON.stringify(roles), now];
+      s.getRange(i + 2, 1, 1, 4).setValues([rows[i]]);
+    } else {
+      const r = [name, uid, JSON.stringify(function () { const o = {}; o[gName] = String(p.role).slice(0, 200); return o; }()), now];
+      s.appendRow(r); rows.push(r); idx['n:' + name] = rows.length - 1; if (uid) idx[uid] = rows.length - 1;
+    }
+  });
+}
+
+// โหมดสำรอง LEARN_MODE=api: ตี 1–6 ทุกคืน (หรือคุณปาล์มสั่ง "เรียนรู้แชทกลุ่ม") — เรียกจาก fireDueReminders ทุก 15 นาที
+function maybeLearnTick() {
+  if (learnMode() !== 'api') return;   // โหมด Routine: Routine บนบัญชีคุณปาล์มเป็นคนเรียน ระบบนี้แค่เปิด feed ให้
+  const P = PropertiesService.getScriptProperties();
+  const now = new Date();
+  const today = Utilities.formatDate(now, 'GMT+7', 'yyyy-MM-dd');
+  const hour = Number(Utilities.formatDate(now, 'GMT+7', 'H'));
+  const forced = P.getProperty('LEARN_NOW') === '1';
+  if (!forced && (hour < 1 || hour >= 6 || P.getProperty('LEARN_DONE') === today)) return;
+  // กันรอบซ้อน ด้วยธงใน Properties (ห้ามถือ script lock ยาว ๆ — webhook/ความจำแชทรอ lock นี้อยู่ 10 วิ จะพัง)
+  const running = Number(P.getProperty('LEARN_RUNNING') || 0);
+  if (running && Date.now() - running < 7 * 60000) return;
+  P.setProperty('LEARN_RUNNING', String(Date.now()));
+  try {
+    const r = learnFromGroupChats(forced);
+    if (!r.pending) {
+      P.setProperty('LEARN_DONE', today);
+      if (forced) {
+        P.deleteProperty('LEARN_NOW');
+        const owner = cfg('OWNER_LINE_USER_ID');
+        if (owner) linePush(owner, '📚 เรียนรู้แชทกลุ่มเสร็จแล้วค่ะ\n'
+          + (r.done.length ? '✅ ' + r.done.join('\n✅ ') : 'ไม่มีแชทใหม่ให้เรียน')
+          + (r.failed.length ? '\n⚠️ ยังเรียนไม่สำเร็จ: ' + r.failed.join(', ') + ' (รอบหน้าลองใหม่เอง)' : '')
+          + (r.newIdeas.length ? '\n\n🔌 เจอเรื่องที่ควรต่อเข้าระบบ:\n• ' + r.newIdeas.join('\n• ') : '')
+          + '\n\nพิมพ์ "แฟ้มกลุ่ม" ดูที่ดิฉันจดไว้ · "จุดต่อระบบ" ดูเรื่องที่ควรต่อระบบค่ะ');
+      }
+    }
+  } catch (e) { console.error('maybeLearnTick: ' + e); }
+  finally { P.deleteProperty('LEARN_RUNNING'); }
+}
+
+// ── สิ่งที่เลขาเรียนรู้ ไว้ใช้ตอบคุณปาล์ม (แชทส่วนตัวเท่านั้น) ──
+function groupKnowledgeCtx(chatId, nEvents) {
+  try {
+    const g = readGroupKnowledge()[chatId];
+    let t = g && g.profile ? 'แฟ้มกลุ่มที่ดิฉันจดไว้ (อัปเดต ' + fmtTime(g.updated) + '):\n' + g.profile + '\n' : '';
+    const ev = recentGroupEvents(chatId, nEvents || 15);
+    if (ev.length) t += '\nเหตุการณ์ล่าสุดที่จดไว้:\n' + ev.join('\n') + '\n';
+    return t;
+  } catch (e) { return ''; }
+}
+function recentGroupEvents(chatId, n, sinceKey) {
+  const s = learnSheet('GroupEvents', LEARN_HEAD.GroupEvents);
+  if (!s || s.getLastRow() < 2) return [];
+  const rows = s.getRange(2, 1, s.getLastRow() - 1, 7).getValues();
+  const out = [];
+  for (let i = rows.length - 1; i >= 0 && out.length < n; i--) {
+    const r = rows[i];
+    if (chatId && String(r[1]) !== String(chatId)) continue;
+    const d = (r[0] instanceof Date) ? Utilities.formatDate(r[0], 'GMT+7', 'yyyy-MM-dd') : String(r[0]);
+    if (sinceKey && d < sinceKey) continue;
+    out.push('- ' + d + (chatId ? '' : ' [' + r[2] + ']') + ' (' + r[3] + ') ' + r[4] + (r[5] ? ' — ' + r[5] : ''));
+  }
+  return out.reverse();
+}
+
+// คำสั่งของคุณปาล์ม (แชทส่วนตัว): แฟ้มกลุ่ม [ชื่อ] · แฟ้มคน <ชื่อ> · จุดต่อระบบ · เรียนรู้แชทกลุ่ม
+function handleKnowledgeCommand(text, replyToken) {
+  const t = String(text).replace(/^เลขา\s*/, '').trim();
+  if (/^(เรียนรู้|อ่าน)(แชท|แชต)?กลุ่ม(เลย|ตอนนี้|ใหม่)?$|^เรียนรู้แชท(ทุกกลุ่ม)?$/.test(t)) {
+    PropertiesService.getScriptProperties().setProperty('LEARN_NOW', '1');
+    if (learnMode() === 'api') {
+      lineReply(replyToken, '📚 รับทราบค่ะ ดิฉันจะเริ่มอ่านแชททุกกลุ่มในรอบถัดไป (ภายใน 15 นาที) เสร็จแล้วรายงานสรุปให้นะคะ');
+      return true;
+    }
+    // โหมด Routine: ปลุก Routine เรียนรู้ทันที ถ้าตั้ง LEARN_ROUTINE_FIRE_URL/TOKEN ไว้ — ไม่งั้นรอรอบคืนนี้
+    const fired = (cfg('LEARN_ROUTINE_FIRE_URL') && cfg('LEARN_ROUTINE_TOKEN'))
+      ? fireRoutine('คุณปาล์มสั่งเรียนรู้แชทกลุ่มตอนนี้ — อ่านย้อนทั้งหมด (force=1)', cfg('LEARN_ROUTINE_FIRE_URL'), cfg('LEARN_ROUTINE_TOKEN')) : null;
+    lineReply(replyToken, fired && fired.ok
+      ? '📚 รับทราบค่ะ ปลุกตัวเรียนรู้แล้ว เสร็จแล้วรายงานสรุปให้นะคะ (ปกติไม่เกินครึ่งชั่วโมง)'
+      : '📚 รับทราบค่ะ ดิฉันจะเรียนรอบคืนนี้ (ตี 2) แล้วรายงานให้ตอนเสร็จนะคะ');
+    return true;
+  }
+  if (/^รหัสเรียนรู้$/.test(t)) {
+    lineReply(replyToken, '🔑 รหัสสำหรับตัวเรียนรู้แชทกลุ่มค่ะ (อ่านแชท/เขียนแฟ้มได้อย่างเดียว เปิดบอร์ดไม่ได้):\n' + learnKey()
+      + '\n\nเอาไปใส่เป็นตัวแปร PALM_LEARN_KEY ในหน้าตั้งค่า environment ของ Claude Code (ห้ามวางในแชทกับ Claude)'
+      + '\nอยากเปลี่ยนรหัส: ลบ LEARN_KEY ใน Script Properties แล้วพิมพ์คำนี้ใหม่ค่ะ');
+    return true;
+  }
+  let m = t.match(/^แฟ้มกลุ่ม\s*(.*)$/);
+  if (m) {
+    const gk = readGroupKnowledge(), ids = Object.keys(gk);
+    if (!ids.length) { lineReply(replyToken, 'ยังไม่ได้เรียนกลุ่มไหนเลยค่ะ — พิมพ์ "เรียนรู้แชทกลุ่ม" ให้ดิฉันเริ่มได้เลย หรือรอคืนนี้ค่ะ'); return true; }
+    const q = m[1].trim();
+    if (!q) {
+      lineReply(replyToken, '📚 แฟ้มกลุ่มที่ดิฉันจดไว้ (' + ids.length + ' กลุ่ม):\n'
+        + ids.map(function (id, i) { return (i + 1) + '. ' + (gk[id].name || id) + ' · เรียน ' + gk[id].count + ' ข้อความ · ' + fmtTime(gk[id].updated); }).join('\n')
+        + '\n\nพิมพ์ "แฟ้มกลุ่ม <ชื่อกลุ่ม>" เพื่อเปิดอ่านค่ะ');
+      return true;
+    }
+    const nq = normGroupName(q);
+    const id = ids.filter(function (x) { const n = normGroupName(gk[x].name); return n && (n.indexOf(nq) !== -1 || nq.indexOf(n) !== -1); })[0];
+    if (!id) { lineReply(replyToken, 'ไม่เจอแฟ้มกลุ่ม "' + q + '" ค่ะ — พิมพ์ "แฟ้มกลุ่ม" ดูรายชื่อที่มีได้เลย'); return true; }
+    const ev = recentGroupEvents(id, 8);
+    lineReply(replyToken, ('📁 ' + gk[id].name + '\n\n' + gk[id].profile
+      + (ev.length ? '\n\n🗓️ เหตุการณ์ล่าสุด:\n' + ev.join('\n') : '')).slice(0, 4900));
+    return true;
+  }
+  m = t.match(/^แฟ้มคน\s*(.+)$/);
+  if (m) {
+    const s = learnSheet('PeopleKnowledge', LEARN_HEAD.PeopleKnowledge);
+    const q = m[1].trim().replace(/^(คุณ|พี่|น้อง)/, '');
+    const rows = (s && s.getLastRow() >= 2) ? s.getRange(2, 1, s.getLastRow() - 1, 4).getValues() : [];
+    const hit = rows.filter(function (r) { return String(r[0]).indexOf(q) !== -1; }).slice(0, 3);
+    if (!hit.length) { lineReply(replyToken, 'ยังไม่มีแฟ้มของ "' + q + '" ค่ะ (ดิฉันจดจากคนที่คุยในกลุ่ม หลังเรียนรู้แชทแล้ว)'); return true; }
+    lineReply(replyToken, hit.map(function (r) {
+      let roles = {}; try { roles = JSON.parse(r[2] || '{}'); } catch (e) {}
+      return '👤 ' + r[0] + '\n' + Object.keys(roles).map(function (g) { return '• ' + g + ': ' + roles[g]; }).join('\n');
+    }).join('\n\n').slice(0, 4900));
+    return true;
+  }
+  if (/^(จุดต่อระบบ|เรื่องที่ควรต่อระบบ|ต่อระบบอะไรดี)$/.test(t)) {
+    const s = learnSheet('ChatToSystem', LEARN_HEAD.ChatToSystem);
+    const rows = (s && s.getLastRow() >= 2) ? s.getRange(2, 1, s.getLastRow() - 1, 8).getValues() : [];
+    const open = rows.filter(function (r) { return r[0] && !/พับ|ทำแล้ว/.test(String(r[7])); })
+                     .sort(function (a, b) { return (Number(b[4]) || 0) - (Number(a[4]) || 0); }).slice(0, 10);
+    lineReply(replyToken, open.length
+      ? '🔌 เรื่องที่คุยกันในแชทซ้ำ ๆ แต่ยังไม่เข้าระบบ (เรียงตามที่เจอบ่อย):\n\n'
+        + open.map(function (r, i) { return (i + 1) + '. ' + r[0] + ' — ' + r[1] + '\n   → ' + (r[3] || '?') + ' · เจอ ' + (Number(r[4]) || 1) + ' คืน\n   ' + String(r[2]).slice(0, 120); }).join('\n')
+        + '\n\nอยากต่ออันไหน บอกดิฉันได้เลย · อันไหนไม่เอา แก้คอลัมน์ "สถานะ" ในแท็บ ChatToSystem เป็น พับ ค่ะ'
+      : 'ยังไม่เจอเรื่องที่ควรต่อระบบค่ะ (ดิฉันจะเจอได้หลังเรียนแชทไปสักพัก)');
+    return true;
+  }
+  return false;
+}
+
+// สรุปเช้า: สิ่งที่เรียนรู้เมื่อคืน (ปัญหาเมื่อวาน + จุดต่อระบบใหม่) — '' ถ้าไม่มีอะไร
+function learnMorningText() {
+  try {
+    const y = Utilities.formatDate(new Date(Date.now() - 864e5), 'GMT+7', 'yyyy-MM-dd');
+    const probs = recentGroupEvents('', 200, y).filter(function (l) { return l.indexOf('(ปัญหา)') !== -1 && l.indexOf(y) !== -1; });
+    const s = learnSheet('ChatToSystem', LEARN_HEAD.ChatToSystem);
+    const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+    const fresh = (s && s.getLastRow() >= 2) ? s.getRange(2, 1, s.getLastRow() - 1, 8).getValues().filter(function (r) {
+      const f = (r[5] instanceof Date) ? Utilities.formatDate(r[5], 'GMT+7', 'yyyy-MM-dd') : String(r[5]);
+      return r[0] && (f === today || f === y);
+    }) : [];
+    if (!probs.length && !fresh.length) return '';
+    return '\n\n📚 จากแชทกลุ่มเมื่อวาน:'
+      + (probs.length ? '\n⚠️ ปัญหาที่คุยกัน ' + probs.length + ' เรื่อง:\n' + probs.slice(0, 5).map(function (l) { return '  ' + l.replace(/^- \S+ /, '• '); }).join('\n') : '')
+      + (fresh.length ? '\n🔌 ควรต่อเข้าระบบ (ใหม่): ' + fresh.map(function (r) { return r[0]; }).join(' · ') : '')
+      + '\n(พิมพ์ "แฟ้มกลุ่ม" / "จุดต่อระบบ" ดูเพิ่ม)';
+  } catch (e) { return ''; }
+}
+
+// ════════════════════════════════════════════════════════════
+//  💸 ค่าสมองเลขาจริง — จดจาก usage ที่ Claude ตอบกลับมาทุกครั้ง (ไม่ต้องเดา)
+//   รวมรายวันไว้ใน Script Properties (เร็ว ไม่หน่วงการตอบไลน์) → ขึ้นวันใหม่ย้ายลงแท็บ AIUsage
+//   ราคา Sonnet 5.5 ต่อล้าน token: เข้า $2 · เขียนแคช $2.5 · อ่านแคช $0.2 · ออก (รวมค่าคิด) $10
+//   อัตราแลกเปลี่ยน: Script Property USD_THB (ไม่ตั้ง = 35)
+// ════════════════════════════════════════════════════════════
+var AI_TAG = '';   // งานที่กำลังเรียกสมอง (ว่าง = แชท) — ตั้งก่อนเรียก แล้วคืนค่าว่างหลังเสร็จ
+const AI_PRICE = { in: 2, cw: 2.5, cr: 0.2, out: 10 };
+
+function aiCostUsd(u) { return (u.in * AI_PRICE.in + u.cw * AI_PRICE.cw + u.cr * AI_PRICE.cr + u.out * AI_PRICE.out) / 1e6; }
+function usdThb() { return Number(cfg('USD_THB')) || 35; }
+
+function trackUsage(data) {
+  try {
+    const u = data && data.usage; if (!u) return;
+    const key = 'AIU_' + Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+    const lock = LockService.getUserLock();   // คนละ lock กับ script lock ที่งานอื่นถืออยู่ (กันปล่อย lock ของเขาโดยไม่ตั้งใจ)
+    const got = lock.tryLock(1500);
+    try {
+      const P = PropertiesService.getScriptProperties();
+      let day = {}; try { day = JSON.parse(P.getProperty(key) || '{}'); } catch (e) {}
+      const tag = AI_TAG || 'แชท';
+      const t = day[tag] = day[tag] || { n: 0, in: 0, cw: 0, cr: 0, out: 0 };
+      t.n++; t.in += u.input_tokens || 0; t.cw += u.cache_creation_input_tokens || 0;
+      t.cr += u.cache_read_input_tokens || 0; t.out += u.output_tokens || 0;
+      P.setProperty(key, JSON.stringify(day));
+    } finally { if (got) lock.releaseLock(); }
+  } catch (e) { console.error('trackUsage: ' + e); }
+}
+
+// { thb, n, byTag:{tag:{n,thb}} } ของวันที่ระบุ (ยังอยู่ใน Properties = วันนี้/ยังไม่ย้าย)
+function aiUsageDay(dayKey) {
+  let day = {}; try { day = JSON.parse(PropertiesService.getScriptProperties().getProperty('AIU_' + dayKey) || '{}'); } catch (e) {}
+  const out = { thb: 0, n: 0, byTag: {} };
+  Object.keys(day).forEach(function (tag) {
+    const thb = aiCostUsd(day[tag]) * usdThb();
+    out.thb += thb; out.n += day[tag].n; out.byTag[tag] = { n: day[tag].n, thb: thb };
+  });
+  return out;
+}
+function aiUsageText(dayKey, label) {
+  const d = aiUsageDay(dayKey);
+  if (!d.n) return '';
+  const fm = function (x) { return x < 10 ? x.toFixed(2) : Math.round(x).toLocaleString('en-US'); };
+  return '💸 ค่าสมองเลขา' + label + ' ≈ ' + fm(d.thb) + ' บาท (' + d.n + ' ครั้ง: '
+    + Object.keys(d.byTag).map(function (t) { return t + ' ' + fm(d.byTag[t].thb); }).join(' · ') + ')';
+}
+
+// วันที่ผ่านไปแล้ว → ย้ายลงแท็บ AIUsage (1 แถว/วัน/งาน) แล้วลบออกจาก Properties (เรียกจาก fireDueReminders)
+function flushAiUsage() {
+  try {
+    const P = PropertiesService.getScriptProperties();
+    const today = 'AIU_' + Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+    const keys = P.getKeys().filter(function (k) { return k.indexOf('AIU_') === 0 && k < today; });
+    if (!keys.length) return;
+    const s = learnSheet('AIUsage', ['วันที่', 'งาน', 'ครั้ง', 'token เข้า', 'เขียนแคช', 'อ่านแคช', 'token ออก', 'USD', 'บาท(ประมาณ)']);
+    if (!s) return;
+    keys.sort().forEach(function (k) {
+      let day = {}; try { day = JSON.parse(P.getProperty(k) || '{}'); } catch (e) {}
+      const rows = Object.keys(day).map(function (tag) {
+        const u = day[tag], usd = aiCostUsd(u);
+        return [k.slice(4), tag, u.n, u.in, u.cw, u.cr, u.out, Math.round(usd * 10000) / 10000, Math.round(usd * usdThb() * 100) / 100];
+      });
+      if (rows.length) s.getRange(s.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
+      P.deleteProperty(k);
+    });
+  } catch (e) { console.error('flushAiUsage: ' + e); }
 }
 
 function readGroupChat(chatId, limit) {
