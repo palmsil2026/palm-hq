@@ -436,6 +436,18 @@ const GAS = 'https://script.google.com/macros/s/AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7y
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 const money = n => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
+// 🛒 หน้าร้านโรงน้ำ (shop-app) — ชีตแยกจากยอดเซลส์ จึงโชว์เป็นบรรทัดแยก + ยอดรวมทั้งโรงน้ำ (ไม่บวกซ้ำในกราฟสาย)
+function shopHtml(sh, salesAmt) {
+  if (!sh || !sh.bills) return '';
+  const part = [];
+  if (sh.retail && sh.retail.bills) part.push(`ขายปลีก ${money(sh.retail.amt)}`);
+  if (sh.staff && sh.staff.bills) part.push(`ราคาพนักงาน ${money(sh.staff.amt)}`);
+  return `<div class="shop-row" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line,#ddd)">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>🛒 หน้าร้าน</b><b>${money(sh.amt)} บาท</b></div>
+    <div class="hint" style="margin:2px 0 0">${money(sh.qty)} แพ็ค · ${sh.bills} บิล${part.length ? ' · ' + part.join(' · ') : ''}${sh.trWait ? ` · โอนรอตรวจยอด ${money(sh.trWait)}` : ''}</div>
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:6px"><span>รวมทั้งโรงน้ำ (+หน้าร้าน)</span><b>${money((salesAmt || 0) + sh.amt)} บาท</b></div>
+  </div>`;
+}
 
 let KEY = new URLSearchParams(location.search).get('key') || localStorage.getItem('EX_KEY') || '';
 let D = null;         // ข้อมูลล่าสุด
@@ -644,7 +656,7 @@ function render() {
     <div class="k gold"><div class="lb">ยอดขายเดือน ${esc(D.month)}</div><div class="v">${money(salesAmt)}<span class="u">บาท</span></div><div class="sub">${money(salesQty)} ลัง${ONLY_DONE && live() ? ' · เฉพาะส่งแล้ว' : ''}${cmp}</div></div>
     <div class="k teal"><div class="lb">ผลิตเดือน ${esc(D.month)}</div><div class="v">${money(k.produced)}<span class="u">ลัง</span></div><div class="sub">${prodStale() ? '<span style="color:var(--red);font-weight:700">⚠️ ไม่มีบันทึกผลิตมา ' + prodStale() + ' วัน</span>' : 'ของเสีย ' + k.wastePct + '% (' + money(k.waste) + ' ลัง)'}</div></div>
     <div class="k green"><div class="lb">พนักงานปฏิบัติงาน</div><div class="v">${money(k.staff)}<span class="u">คน</span></div><div class="sub">จากทะเบียนพนักงาน</div></div>
-    <div class="k${k.openTasks ? ' red' : ''}" data-oboard style="cursor:pointer" title="เปิดบอร์ดทีม AI"><div class="lb">งานโรงน้ำค้างอยู่</div><div class="v">${money(k.openTasks)}<span class="u">งาน</span></div><div class="sub">บนบอร์ดทีม AI · แตะเพื่อเปิด ↗</div></div>
+    ${D.role === 'ceo' ? `<div class="k${k.openTasks ? ' red' : ''}" data-oboard style="cursor:pointer" title="เปิดบอร์ดทีม AI"><div class="lb">งานโรงน้ำค้างอยู่</div><div class="v">${money(k.openTasks)}<span class="u">งาน</span></div><div class="sub">บนบอร์ดทีม AI · แตะเพื่อเปิด ↗</div></div>` : ''}
   </div>`;
 
   if (D.source) {
@@ -664,7 +676,7 @@ function render() {
   // ── ยอดขายแยกสายผลิตภัณฑ์ + รายวัน ──
   h += '<div class="grid2">';
   h += `<div class="sec"><h2>💰 ยอดขายแยกสายผลิตภัณฑ์</h2>
-    <div class="hint">เดือน ${esc(D.month)} — แยกเสมอเพราะแต่ละสายมาร์จิ้นต่างกันมาก${live() ? ' · แตะสายเพื่อดูรายสินค้า/ลูกค้า' : ''}</div>${barsHtml(A ? A.byLine : D.byLine, 'amount', 'บาท', live())}</div>`;
+    <div class="hint">เดือน ${esc(D.month)} — แยกเสมอเพราะแต่ละสายมาร์จิ้นต่างกันมาก${live() ? ' · แตะสายเพื่อดูรายสินค้า/ลูกค้า' : ''}</div>${barsHtml(A ? A.byLine : D.byLine, 'amount', 'บาท', live())}${shopHtml(D.shop, salesAmt)}</div>`;
   if (live()) {
     h += `<div class="sec"><h2>📊 ยอดขายรายวัน</h2><div class="hint">เดือน ${esc(D.month)} รวมทุกสาย (บาท/วัน) — แตะวันไหนเพื่อดูออเดอร์วันนั้น</div>${dailyHtml(A.byDay)}</div>`;
   } else {
@@ -747,7 +759,7 @@ function bindPhase1() {
   document.querySelectorAll('[data-dperson]').forEach(el => el.onclick = () => openPerson(el.dataset.dperson));
   document.querySelectorAll('[data-dbook]').forEach(el => el.onclick = () => bookingDrill(el.dataset.dbook));
   document.querySelectorAll('[data-dmk]').forEach(el => el.onclick = () => marketingDrill(el.dataset.dmk));
-  document.querySelectorAll('[data-oboard]').forEach(el => el.onclick = () => window.open(D.boardLink || '../board/', '_blank'));
+  document.querySelectorAll('[data-oboard]').forEach(el => el.onclick = () => { if (D.boardLink) window.open(D.boardLink, '_blank'); });   // 🔒 บอร์ดงาน = คุณปาล์มคนเดียว
   document.querySelectorAll('[data-dprodcard]').forEach(el => el.onclick = e => { e.stopPropagation(); prodDrill(); });
   document.querySelectorAll('[data-bucket]').forEach(el => el.onclick = () => {
     const id = el.dataset.bucket;

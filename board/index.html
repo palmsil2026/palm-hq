@@ -299,7 +299,7 @@ button{font-family:inherit;border:none;cursor:pointer;background:none;color:inhe
 // ══════════ Mission Board — หน้าบ้านอยู่ GitHub Pages (เร็ว/นิ่ง) ข้อมูลมาจาก GAS ══════════
 const GAS = 'https://script.google.com/macros/s/AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J/exec';
 // เวอร์ชันหน้าเว็บ — โชว์ในหัวห้องแชท เอาไว้เช็คว่าเบราว์เซอร์โหลดของใหม่แล้วจริงไหม (เจอปัญหาแคชหน้าเก่ามาแล้ว)
-const BOARD_VER = '31a';
+const BOARD_VER = '32a';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
@@ -371,6 +371,8 @@ async function apiPost(params, timeoutMs) {
 function fromCache() {
   try {
     const c = JSON.parse(localStorage.getItem('BD_CACHE') || 'null');
+    // 🔒 บอร์ดทีมปิดแล้ว (01/10) — แคชเก่าของเครื่องที่เคยเปิดด้วยรหัสทีม ทิ้งเลย ไม่โชว์
+    if (c && c.mode && c.mode !== 'owner') { localStorage.removeItem('BD_CACHE'); return; }
     if (c && c.tasks) { TASKS = c.tasks; MODE = c.mode || 'owner'; NEXT = c.next || ''; render();
       $('upd').textContent = 'ข้อมูลเมื่อ ' + new Date(c.t).toLocaleTimeString('th-TH', {hour:'2-digit',minute:'2-digit'}) + ' — กำลังอัปเดต...'; }
   } catch (e) {}
@@ -389,7 +391,11 @@ async function load(silent) {
   } catch (e) {
     $('dot').className = 'dot off'; $('syncTxt').textContent = 'ออฟไลน์';
     if (!silent) toast(e.message, false);
-    if (String(e.message).indexOf('รหัส') !== -1) { localStorage.removeItem('BD_KEY'); KEY=''; $('keyMask').classList.add('on'); }
+    if (/รหัส|unauthorized/.test(String(e.message))) {
+      // รหัสใช้ไม่ได้ (เช่น ลิงก์บอร์ดทีมเก่า) → ล้างรหัส+งานที่แคชไว้ในเครื่องทิ้ง ไม่ให้ค้างบนจอ
+      localStorage.removeItem('BD_KEY'); localStorage.removeItem('BD_CACHE'); KEY=''; TASKS=[]; render();
+      $('keyMask').classList.add('on');
+    }
   }
 }
 
@@ -590,7 +596,6 @@ function card(t) {
           <span class="pill ${st.p}">${st.i} ${st.l}</span>
           ${t.urgency==='ด่วนมาก'?'<span class="pill p-red">🔥 ด่วนมาก</span>':''}
           ${t.biz?`<span class="pill p-gray">${esc(t.biz)}</span>`:''}
-          ${MODE==='owner'&&t.vis?`<span class="pill p-gray">${t.vis==='ทีม'?'👥':'🔒'}</span>`:''}
         </div>
       </div>
       <div class="cd-x">▾</div>
@@ -635,7 +640,6 @@ function actionBar(t) {
   const blocked = t.status === 'รอข้อมูล';
   return `<div class="acts">${main}
     <button class="bt ${blocked ? 'bt-run' : 'bt-gray'}" data-cmt="${esc(t.ref)}">💬${blocked ? ' ตอบคำถาม' : ''}</button>
-    <button class="bt bt-gray" data-act="vis" data-ref="${esc(t.ref)}" ${b(t.ref)}>${t.vis==='ทีม'?'👥':'🔒'}</button>
     ${done(t)?'':`<button class="bt bt-red" data-cancel="${esc(t.ref)}">✕</button>`}
   </div><textarea class="cmt-box" id="cmt-${esc(t.ref)}" placeholder="${blocked ? 'พิมพ์คำตอบตรงนี้ แล้วกด 💬 ตอบคำถาม อีกครั้งเพื่อส่งกลับให้ทีมทำต่อ' : 'คอมเมนต์/สั่งแก้ตรงนี้ แล้วกด 💬 อีกครั้งเพื่อส่ง'}"></textarea>
   ${isAI ? `<label class="redo-lb" id="rw-${esc(t.ref)}"><input type="checkbox" id="rd-${esc(t.ref)}" ${blocked ? 'checked' : ''}>
@@ -707,7 +711,6 @@ async function doAction(act, ref, el) {
         if (act === 'cancel') t.status = 'ยกเลิก';
         if (act === 'runnow' || act === 'approve') t.status = 'รอทีม AI';
         if (act === 'unqueue') t.status = APPROVE_DEPTS.includes(t.dept) ? 'รออนุมัติ' : 'ใหม่';
-        if (act === 'vis') t.vis = (t.vis === 'ทีม' ? 'ส่วนตัว' : 'ทีม');
       }});
       render();
       setTimeout(() => load(true), 6000);   // ดึงของจริงตามมา เผื่อสถานะฝั่งเซิร์ฟเวอร์ขยับต่อ
