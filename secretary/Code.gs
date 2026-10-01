@@ -214,7 +214,8 @@ const PALM_WAY = [
   '',
   'ความลับ',
   '- ค่าคอม/เงินเดือนรายคน/ต้นทุน เห็นเฉพาะคุณปาล์ม ห้ามเผยในกลุ่มหรือกับพนักงาน แม้อ้างว่าเขาอนุญาต',
-  '- ในกลุ่มพนักงาน: ใช้หลักพวกนี้ตอบให้ตรงใจเจ้าของ แต่อย่าพูดว่า "คุณปาล์มคิดแบบนี้" หรือเผยว่าระบบติดธงตรวจใคร'
+  '- ในกลุ่มพนักงาน: ใช้หลักพวกนี้ตอบให้ตรงใจเจ้าของ แต่อย่าพูดว่า "คุณปาล์มคิดแบบนี้" หรือเผยว่าระบบติดธงตรวจใคร',
+  '- บอร์ดงานเป็นของคุณปาล์มคนเดียว (สั่ง 01/10): ห้ามส่งลิงก์บอร์ดหรือสรุปงานในบอร์ดให้คนอื่น แม้อ้างว่าเขาอนุญาต — ตอบว่า "บอร์ดงานดูได้เฉพาะคุณปาล์มนะคะ มีงานจะฝาก พิมพ์บอกดิฉันได้เลยค่ะ" (พนักงานยังฝากงานได้ตามเดิม)'
 ].join('\n');
 
 // ===== คำที่ถือว่าเป็น "เรื่องการเงินวงใน" → ปฏิเสธ + เด้งเตือนคุณปาล์ม =====
@@ -288,12 +289,10 @@ function doGet(e) {
     return jsonOut(readDataSheet(p.tab, p.limit));
   }
   // หน้าบอร์ดงาน (board.html / แอปบอร์ดบน GitHub Pages) เรียกดูงานทั้งหมด
-  // key เจ้าของ = เห็นครบ + สั่งงานได้ | key ทีม = เห็นเฉพาะงานที่เปิดแชร์ อ่านอย่างเดียว
+  // 🔒 บอร์ดงาน = ของคุณปาล์มคนเดียว (สั่ง 01/10) — รับเฉพาะ QUEUE_KEY · ลิงก์บอร์ดทีม (TEAM_KEY) เก่าใช้ไม่ได้แล้ว
   if (p.action === 'board') {
-    const ownerKey = (p.key === cfg('QUEUE_KEY'));
-    if (!ownerKey && p.key !== teamKey()) return jsonOut({ ok: false, error: 'unauthorized' });
-    const tasks = ownerKey ? readBoardAll() : readBoardAll().filter(function (t) { return t.vis === 'ทีม'; });
-    return jsonOut({ ok: true, mode: ownerKey ? 'owner' : 'team', next: nextRoundText(), tasks: tasks });
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'รหัสไม่ถูกต้อง — บอร์ดงานดูได้เฉพาะคุณปาล์ม' });
+    return jsonOut({ ok: true, mode: 'owner', next: nextRoundText(), tasks: readBoardAll() });
   }
   // ปุ่มบนบอร์ดยิงมาทางนี้ (fetch) → ตอบ JSON กลับ ไม่ต้องโหลดหน้าใหม่
   if (p.action === 'boardDo') {
@@ -302,9 +301,9 @@ function doGet(e) {
     const parts = r.split('|');
     return jsonOut({ ok: parts[0] === '✅', msg: parts.slice(1).join('|') });
   }
-  // เพิ่มงานจากบอร์ด (สำรองของ google.script.run) — รับทั้ง key เจ้าของและ key ทีม
+  // เพิ่มงานจากบอร์ด (สำรองของ google.script.run) — เฉพาะ key เจ้าของ (พนักงานฝากงานทางไลน์/request.html)
   if (p.action === 'addTask') {
-    if (p.key !== cfg('QUEUE_KEY') && p.key !== teamKey()) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
     return jsonOut(rpcAddTask(p.key, {
       biz: p.biz, type: p.type, detail: p.detail, urgency: p.urgency,
       due: p.due, assignee: p.assignee, dept: p.dept
@@ -358,14 +357,12 @@ function doGet(e) {
   }
 
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
-  // ลิงก์บอร์ดมี 2 แบบ: key เจ้าของ = เห็นทุกงาน+ปุ่มครบ | key ทีม = เห็นเฉพาะงานที่เปิดแชร์ (👥 ทีม)
+  // 🔒 รับเฉพาะ key เจ้าของ — โหมดบอร์ดทีม (TEAM_KEY) ปิดแล้ว 01/10
   if (p.page === 'board') {
-    const ownerView = (p.key === cfg('QUEUE_KEY'));
-    const teamView = !ownerView && (p.key === teamKey());
-    if (!ownerView && !teamView) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ</h3>');
-    const notice = (ownerView && p['do'] && p.ref) ? boardAction(p['do'], p.ref) : '';
-    return HtmlService.createHtmlOutput(boardHtml(p.key, notice, p.prj || '', teamView))
-      .setTitle(teamView ? 'บอร์ดฝากงาน — ละกอน & คาเฟ่' : 'บอร์ดงาน — ละกอน & คาเฟ่')
+    if (p.key !== cfg('QUEUE_KEY')) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ — บอร์ดงานดูได้เฉพาะคุณปาล์ม</h3>');
+    const notice = (p['do'] && p.ref) ? boardAction(p['do'], p.ref) : '';
+    return HtmlService.createHtmlOutput(boardHtml(p.key, notice, p.prj || '', false))
+      .setTitle('บอร์ดงาน — ละกอน & คาเฟ่')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
@@ -590,7 +587,8 @@ function boardUrl() {
   return 'https://palmsil2026.github.io/palm-hq/board/?key=' + encodeURIComponent(cfg('QUEUE_KEY'));
 }
 
-// กุญแจบอร์ดทีม — สร้างอัตโนมัติครั้งแรก (คนละอันกับ QUEUE_KEY ของเจ้าของ ทีมเลยเข้าโหมดเจ้าของไม่ได้)
+// กุญแจบอร์ดทีม — 🔒 พักไว้ตั้งแต่ 01/10 (บอร์ดงานเป็นของคุณปาล์มคนเดียว) ไม่มีทางเข้าไหนรับกุญแจนี้แล้ว
+//   เก็บฟังก์ชัน/property TEAM_KEY ไว้ตามหลัก "พัก ไม่ตัดทิ้ง" — ห้ามเอากลับมาใช้เปิดบอร์ดโดยไม่ถามคุณปาล์ม
 function teamKey() {
   let k = cfg('TEAM_KEY');
   if (!k) {
@@ -615,6 +613,9 @@ function boardButtonMessage() {
     }
   };
 }
+
+// ข้อความเดียวที่ตอบคนอื่น (ไม่ใช่คุณปาล์ม) ที่ขอดู/ขอลิงก์/ถามงานในบอร์ด — ห้ามแนบลิงก์ ห้ามสรุปงาน
+const BOARD_OWNER_ONLY_MSG = 'บอร์ดงานดูได้เฉพาะคุณปาล์มนะคะ 🔒 มีงานจะฝาก พิมพ์บอกดิฉันได้เลยค่ะ';
 
 function isOwner(senderId) {
   return !!senderId && senderId === cfg('OWNER_LINE_USER_ID');
@@ -719,6 +720,9 @@ function handleEvent(ev) {
   const inGroup = (src.type === 'group' || src.type === 'room');
   const chatId = src.groupId || src.roomId || senderId; // คีย์ห้อง + ความจำ
   const owner = isOwner(senderId);
+
+  // 🏭 กลุ่มทีมผลิต: ส่งต่อทุกข้อความที่เกี่ยวกับเครื่อง/ไลน์ ให้แอปทีมผลิตบันทึกจอดเครื่อง (เงียบ ไม่ตอบในกลุ่ม)
+  if (inGroup) forwardProductionChat(ev, chatId, senderId, text);
 
   // 🩺 เช็คระบบ (เฉพาะเจ้าของ)
   if (owner && /^(เลขา\s*)?(เช็คระบบ|เชคระบบ|ตรวจระบบ|สุขภาพระบบ|status)$/i.test(text)) {
@@ -869,12 +873,13 @@ function handleEvent(ev) {
     return;
   }
 
-  // 1.48) ขอลิงก์บอร์ดทีม (สำหรับแชร์ให้พนักงาน — เห็นเฉพาะงานที่เปิด 👥 ทีม)
+  // 1.48) ขอลิงก์บอร์ดทีม — 🔒 ปิดแล้ว 01/10 (คุณปาล์ม: "บอร์ดงานอะ ไม่ต้องเอาให้คนอื่นดูละ")
   if (/(บอร์ด|board)[^\n]{0,10}(ทีม|พนักงาน)|(ทีม|พนักงาน)[^\n]{0,10}(บอร์ด|board)/i.test(text)) {
-    if (!owner) { lineReply(replyToken, 'ลิงก์บอร์ดทีมขอได้จากคุณปาล์มโดยตรงนะคะ 🙏'); return; }
-    lineReply(replyToken, '📋 ลิงก์บอร์ดทีมค่ะ (แชร์ให้พนักงานได้เลย — เห็นเฉพาะงานที่เปิด 👥 ทีมเห็น):\n' + teamBoardUrl()
-      + '\n\nงานที่ทีมฝากเข้ามา = ทีมเห็นโดยอัตโนมัติ | งานที่คุณปาล์มสั่งเอง = 🔒 ส่วนตัว\nสลับได้จากปุ่มบนการ์ดในบอร์ดของคุณปาล์มค่ะ');
-    logRow(['เปิดบอร์ดทีม', senderId, text, teamBoardUrl()]);
+    if (!owner) { lineReply(replyToken, BOARD_OWNER_ONLY_MSG); logRow(['ขอบอร์ด(ปฏิเสธ)', senderId, text, '']); return; }
+    lineReply(replyToken, 'บอร์ดทีมปิดแล้วค่ะ ตามที่คุณปาล์มสั่งไว้ (01/10) 🔒\n'
+      + 'ตอนนี้บอร์ดงานเป็นของคุณปาล์มคนเดียว ลิงก์บอร์ดทีมเก่าที่เคยแชร์ไปเปิดไม่ได้แล้ว\n'
+      + 'พนักงานยังฝากงานได้ตามเดิม (ทักดิฉันในไลน์ / ฟอร์มฝากงาน) — บอร์ดของคุณปาล์มอยู่ที่ปุ่มนี้ค่ะ', [boardButtonMessage()]);
+    logRow(['ขอบอร์ดทีม(ปิดแล้ว)', senderId, text, '']);
     return;
   }
 
@@ -882,13 +887,16 @@ function handleEvent(ev) {
   // รับทุกการสะกด ลิงก์/ลิ้งค์/ลิงค์/link และประโยคสุภาพ "ขอดูบอร์ดงานหน่อยครับ"
   if (/^(เลขา\s*)?(ขอ)?\s*(ดู|เปิด)?\s*(บอร์ด|board)(งาน)?[\sก-๎a-z]{0,12}$/i.test(text)
       || /(ลิงก์|ลิ้งค์|ลิงค์|link)[^\n]{0,15}(บอร์ด|board)|(บอร์ด|board)(งาน)?[^\n]{0,15}(ลิงก์|ลิ้งค์|ลิงค์|link)/i.test(text)) {
+    // 🔒 ปุ่มนี้มี QUEUE_KEY ของคุณปาล์มในลิงก์ → ส่งเฉพาะคุณปาล์ม (เดิมใครพิมพ์ก็ได้ = รูรั่ว)
+    if (!owner) { lineReply(replyToken, BOARD_OWNER_ONLY_MSG); logRow(['ขอบอร์ด(ปฏิเสธ)', senderId, text, '']); return; }
     lineReply(replyToken, 'นี่เลยค่ะ 📋', [boardButtonMessage()]);
-    logRow(['เปิดบอร์ด', senderId, text, boardUrl()]);
+    logRow(['เปิดบอร์ด', senderId, text, '']);   // ไม่จดลิงก์ (มีรหัส) ลง Log
     return;
   }
 
-  // 2) ถามงานจากบอร์ด → ดึงข้อมูลมาสรุป (เจ้าของเห็นทั้งทีม / พนักงานเห็นเฉพาะของตัวเอง) + แนบปุ่มเปิดบอร์ด
+  // 2) ถามงานจากบอร์ด → ดึงข้อมูลมาสรุป + แนบปุ่มเปิดบอร์ด — 🔒 เฉพาะคุณปาล์ม (01/10)
   if (isBoardQuery(text)) {
+    if (!owner) { lineReply(replyToken, BOARD_OWNER_ONLY_MSG); logRow(['ถามบอร์ด(ปฏิเสธ)', senderId, text, '']); return; }
     const rows = readBoard(senderId, owner);
     const ctx = buildBoardContext(rows, owner);
     const q = 'ข้อมูลงานจากบอร์ด ณ ตอนนี้' + (owner ? ' (ทั้งทีม)' : ' (เฉพาะงานที่คุณฝาก)') + ':\n'
@@ -1089,7 +1097,7 @@ function handleEvent(ev) {
     }
   }
 
-  lineReply(replyToken, reply, taskLogged ? [boardButtonMessage()] : null);
+  lineReply(replyToken, reply, (taskLogged && owner) ? [boardButtonMessage()] : null);   // 🔒 ปุ่มบอร์ดมีรหัสคุณปาล์ม — พนักงานฝากงานไม่ได้ปุ่ม
   if (inGroup) markAwaitingReply(chatId, senderId, reply);
   memAppend(chatId, text, reply);
   logRow(['ทั่วไป', senderId, text, reply]);
@@ -1349,6 +1357,13 @@ function handleScheduledPost(text, chatId, senderId, replyToken, owner) {
   // ยกเว้นสั่งตั้ง "สรุปงาน" ชัดๆ (ตั้ง/ฝาก/นัด) แต่ลืมบอกเวลา → ค่อยถามเวลากลับ
   if (!when && !(isSummary && explicit)) return false;
   if (!owner) { lineReply(replyToken, 'ขออภัยค่ะ การตั้งประกาศเข้ากลุ่มทำได้เฉพาะคุณปาล์มเท่านั้น 🙏'); return true; }
+  // 🔒 สรุปงานจากบอร์ดเข้ากลุ่ม = พักไว้ (01/10 บอร์ดงานเป็นของคุณปาล์มคนเดียว) — ประกาศข้อความธรรมดายังตั้งได้
+  if (isSummary) {
+    lineReply(replyToken, 'สรุปงานจากบอร์ดเข้ากลุ่มพักไว้แล้วค่ะ 🔒 (บอร์ดงานเป็นของคุณปาล์มคนเดียวตั้งแต่ 01/10)\n'
+      + 'อยากดูสรุปงาน พิมพ์ "สรุปงาน" ในแชทนี้ได้เลย · ถ้าจะประกาศอะไรเข้ากลุ่ม บอกข้อความมาได้ค่ะ');
+    logRow(['ตั้งสรุปงานเข้ากลุ่ม(พัก)', senderId, text, '']);
+    return true;
+  }
 
   if (!targets.length) {
     const known = listKnownGroups().map(function (x) { return x.name; }).filter(String);
@@ -1542,7 +1557,11 @@ function sendScheduledNow(row) {
     return { ok: false, msg: 'ไม่พบประกาศรายการนี้ (อาจส่ง/ยกเลิกไปแล้ว)' };
   }
   const d = sh.getRange(r, 1, 1, 7).getValues()[0];
-  const msg = (String(d[3]) === 'สรุปงาน') ? buildGroupWorkSummary() : String(d[5] || '');
+  if (String(d[3]) === 'สรุปงาน') {   // 🔒 พักสรุปงานเข้ากลุ่ม (01/10) — พลิกสถานะ ไม่ลบแถว
+    sh.getRange(r, 7).setValue(SCHED_SUMMARY_PAUSED);
+    return { ok: false, msg: 'สรุปงานจากบอร์ดเข้ากลุ่มพักไว้แล้วค่ะ (บอร์ดงานเป็นของคุณปาล์มคนเดียว) — รายการนี้ไม่ส่ง' };
+  }
+  const msg = String(d[5] || '');
   if (!msg) return { ok: false, msg: 'ประกาศนี้ไม่มีเนื้อหาค่ะ' };
   linePush(String(d[1]), msg);
   if (String(d[4]) === 'ทุกวัน') {
@@ -1558,7 +1577,11 @@ function sendScheduledNow(row) {
            + (String(d[4]) === 'ทุกวัน' ? ' (รอบทุกวันถัดไปยังตั้งอยู่)' : '') };
 }
 
+// 🔒 สถานะของประกาศ "สรุปงาน" ที่คิวค้างอยู่ตอนปิดบอร์ดทีม (01/10) — ไม่ส่ง ไม่ลบแถว
+const SCHED_SUMMARY_PAUSED = 'พักไว้ — บอร์ดส่วนตัว';
+
 // สรุปงานจากบอร์ดสำหรับโพสต์ลงกลุ่ม (เวอร์ชันพนักงาน — ไม่มีตัวเลขการเงินวงใน)
+//   🔒 พักไว้ตั้งแต่ 01/10 — ไม่มีทางไหนเรียกแล้ว (fireDuePosts/sendScheduledNow พลิกสถานะแทน) เก็บไว้เผื่อคุณปาล์มสั่งเปิดใหม่
 function buildGroupWorkSummary() {
   try {
     const rows = readBoard('', true);
@@ -1584,8 +1607,13 @@ function fireDuePosts() {
     if (String(d[i][6]) !== 'รอส่ง') continue;
     const t = (d[i][0] instanceof Date) ? d[i][0].getTime() : 0;
     if (!t || t > now) continue;
+    if (String(d[i][3]) === 'สรุปงาน') {   // 🔒 พักสรุปงานเข้ากลุ่ม (01/10) — ไม่ส่ง พลิกสถานะ ไม่ลบแถว
+      sh.getRange(i + 2, 7).setValue(SCHED_SUMMARY_PAUSED);
+      logRow(['ประกาศสรุปงาน(พัก)', 'ระบบ', String(d[i][2] || d[i][1]), '']);
+      continue;
+    }
     sh.getRange(i + 2, 7).setValue('กำลังส่ง');   // กันส่งซ้ำถ้า trigger ซ้อน
-    const msg = (String(d[i][3]) === 'สรุปงาน') ? buildGroupWorkSummary() : String(d[i][5] || '');
+    const msg = String(d[i][5] || '');
     if (msg) linePush(String(d[i][1]), msg);
     if (String(d[i][4]) === 'ทุกวัน') {
       // เลื่อนไปวันถัดไปเวลาเดิม แล้วกลับเป็น "รอส่ง"
@@ -1891,7 +1919,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-09-30a';
+const CODE_VERSION = '2026-10-01a';
 
 function healthCheck() {
   const L = [];
@@ -1946,6 +1974,14 @@ function healthCheck() {
   const gs = listKnownGroups();
   gs.length ? ok('รู้จัก ' + gs.length + ' กลุ่ม: ' + gs.map(function (g) { return g.name || g.id.slice(0, 8); }).join(', '))
             : warn('ยังไม่รู้จักกลุ่มไหนเลย', 'เชิญดิฉันเข้ากลุ่ม แล้วให้ใครทักในกลุ่ม 1 ข้อความ');
+
+  // 4.5 🏭 แอปทีมผลิต (ส่งต่อข้อความกลุ่มทีมผลิต → บันทึกจอดเครื่อง)
+  if (cfg('PLANT_SHEET_ID') || cfg('PRODUCTION_CHAT_TOKEN')) {
+    const pp = productionAppPing();
+    pp.ok ? ok('เชื่อมแอปทีมผลิตได้ ✓') : bad('เชื่อมแอปทีมผลิตไม่ได้ ✗ (' + pp.why + ')', 'แจ้งแชท origin-hq ให้เช็คแอปทีมผลิต');
+    productionGroupId() ? ok('รู้จักกลุ่มทีมผลิตแล้ว (ส่งต่อข้อความจอดเครื่องได้)')
+                        : warn('ยังไม่รู้จักกลุ่มทีมผลิต', 'เชิญดิฉันเข้ากลุ่มทีมผลิต · ถ้าชื่อกลุ่มไม่มีคำ "ทีมผลิต"/"ฝ่ายผลิต" ให้ตั้ง GROUP_PRODUCTION_ID');
+  }
 
   // 5. ปลุกทีม AI ทันที
   (cfg('ROUTINE_FIRE_URL') && cfg('ROUTINE_TOKEN'))
@@ -2200,6 +2236,92 @@ function findGroupByName(name) {
   return m ? m.id : '';
 }
 
+// ════════════════════════════════════════════════════════════
+//  🏭 ส่งต่อข้อความกลุ่มทีมผลิต → แอปทีมผลิต (origin-hq production-app v5.12 doPost action=lineChat)
+//   แอปทีมผลิตตีความ + บันทึกจอดเครื่อง/เดินเครื่อง/เปลี่ยนโมลด์ลงชีต LineEvents → หน้าแผนผังขึ้นสถานะเอง
+//   เลขาไม่เขียนชีตโรงน้ำเอง · ไม่ตอบในกลุ่ม · พังเงียบ ไม่กระทบงานอื่นของเลขา
+//   สเปก: origin-hq/production-app/แจ้ง-palm-hq-แชทจอดเครื่อง.md
+// ════════════════════════════════════════════════════════════
+const PRODUCTION_CHAT_HINT = /จอด|หยุด|เครื่อง|ไลน์|เดิน|โมล|เปลี่ยนหัว|เปลี่ยนไซ|เปลี่ยนขนาด|ไฟ|ผลิตต่อ|ซ่อม/;
+const PRODUCTION_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbyz9gSSkms44VWcnD3wtZx9C33aG1r5LAjxVPMjD_EcqzwzxU2UBtVVd15qfO_idObE/exec';
+
+// กลุ่มทีมผลิต = Script Property GROUP_PRODUCTION_ID ถ้าตั้งไว้ · ไม่ตั้ง = กลุ่มที่ชื่อมีคำ "ทีมผลิต"/"ฝ่ายผลิต"
+//   (เทียบแบบมีคำนั้นในชื่อเท่านั้น ไม่ใช้เทียบรายคำแบบหลวม — กันส่งข้อความกลุ่มอื่นไปบันทึกจอดเครื่องผิด)
+function productionGroupId() {
+  const set = cfg('GROUP_PRODUCTION_ID');
+  if (set) return set;
+  const cache = CacheService.getScriptCache();
+  let gid = cache.get('grp_prod');
+  if (gid === null) {
+    gid = '-';
+    const keys = ['ทีมผลิต', 'ฝ่ายผลิต'].map(normGroupName);
+    listKnownGroups().some(function (g) {
+      const n = normGroupName(g.name);
+      if (n && keys.some(function (k) { return n.indexOf(k) !== -1; })) { gid = g.id; return true; }
+      return false;
+    });
+    cache.put('grp_prod', gid, 600);
+  }
+  return gid === '-' ? '' : gid;
+}
+
+// รหัสเชื่อม = HMAC ของ ID ชีตโรงน้ำ (แอปทีมผลิตคิดแบบเดียวกัน) → ไม่ต้องคัดลอกรหัสไปมา
+//   ถ้าวันหน้าตั้ง CHAT_TOKEN ในแอปทีมผลิต ให้ตั้ง PRODUCTION_CHAT_TOKEN ค่าเดียวกันที่นี่
+function productionChatToken() {
+  if (cfg('PRODUCTION_CHAT_TOKEN')) return cfg('PRODUCTION_CHAT_TOKEN');
+  const sig = Utilities.computeHmacSha256Signature('lakon-line-chat-v1', sheetIdFrom(cfg('PLANT_SHEET_ID')));
+  return sig.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
+}
+
+// ชื่อคนในกลุ่ม (คนที่ไม่ได้แอดเลขาเป็นเพื่อนก็ได้ชื่อ — ใช้ API สมาชิกกลุ่ม ไม่ใช่ profile)
+function groupMemberName(gid, uid) {
+  if (!uid) return '';
+  try {
+    const cache = CacheService.getScriptCache();
+    const ck = 'gmn_' + uid;
+    const hit = cache.get(ck);
+    if (hit) return hit;
+    const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + gid + '/member/' + uid, {
+      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+    });
+    if (res.getResponseCode() === 200) {
+      const n = JSON.parse(res.getContentText()).displayName || '';
+      if (n) { cache.put(ck, n, 21600); return n; }
+    }
+  } catch (e) {}
+  return '';
+}
+
+function forwardProductionChat(ev, chatId, senderId, text) {
+  try {
+    if (!PRODUCTION_CHAT_HINT.test(String(text).replace(/\s+/g, ''))) return;
+    const gid = productionGroupId();
+    if (!gid || chatId !== gid) return;
+    const res = UrlFetchApp.fetch(cfg('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({
+        token: productionChatToken(), action: 'lineChat', text: text,
+        sender: groupMemberName(gid, senderId), messageId: ev.message.id, at: ev.timestamp, group: chatId
+      })
+    });
+    let r = {};
+    try { r = JSON.parse(res.getContentText() || '{}'); } catch (e) {}
+    logRow(['ไลน์ผลิต', senderId, text, r.saved ? r.act + ' ✓' : 'ไม่บันทึก: ' + (r.why || r.error || res.getResponseCode())]);
+  } catch (err) { console.error('forwardProductionChat: ' + err); }
+}
+
+// "เช็คระบบ": ยิง ping หาแอปทีมผลิตด้วยรหัสเชื่อม → true = เชื่อมได้
+function productionAppPing() {
+  try {
+    const res = UrlFetchApp.fetch(cfg('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ token: productionChatToken(), action: 'ping' })
+    });
+    const r = JSON.parse(res.getContentText() || '{}');
+    return { ok: !!r.success, why: r.error || r.message || ('HTTP ' + res.getResponseCode()) };
+  } catch (e) { return { ok: false, why: String(e) }; }
+}
+
 // แปลง "ชื่อกลุ่มตามที่พูด" → group id (ใช้ทั้งส่งทันทีและตั้งเวลา)
 function resolveGroupTarget(target) {
   const map = {
@@ -2241,8 +2363,15 @@ function morningBrief() {
   const rows = readBoard('', true); // เจ้าของเห็นทั้งหมด
   const today = Utilities.formatDate(new Date(), 'GMT+7', 'd/M');
 
+  // 🛒 หน้าร้าน: ยังไม่ปิดยอด / เงินขาด-เกิน / ค้างชำระเกิน 7 วัน — ส่งคุณปาล์มคนเดียว ไม่ลงกลุ่ม
+  let shopWarn = '';
+  try {
+    const al = shopAlerts(plantShopData(), Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd'));
+    if (al.length) shopWarn = '\n\n🛒 หน้าร้านโรงน้ำ ต้องดู:\n' + al.map(function (a) { return '  • ' + a; }).join('\n');
+  } catch (e) { console.error('morningBrief shop: ' + e); }
+
   if (!rows.length) {
-    linePush(owner, '☀️ สวัสดีตอนเช้าค่ะคุณปาล์ม (' + today + ')\nวันนี้ไม่มีงานค้างในบอร์ด เคลียร์หมดค่ะ ✨');
+    linePush(owner, '☀️ สวัสดีตอนเช้าค่ะคุณปาล์ม (' + today + ')\nวันนี้ไม่มีงานค้างในบอร์ด เคลียร์หมดค่ะ ✨' + shopWarn);
     return;
   }
 
@@ -2256,6 +2385,7 @@ function morningBrief() {
          + urgent.slice(0, 5).map(function (r) { return '  • #' + r[0] + ' ' + r[8]; }).join('\n') + '\n';
   }
   if (waitAI.length) msg += '\n🤖 รอทีม AI ทำ: ' + waitAI.length + ' งาน';
+  msg += shopWarn;
   msg += '\n\nพิมพ์ "เลขา สรุปงาน" เพื่อดูละเอียดได้ค่ะ 🙏';
   linePush(owner, msg);
 }
@@ -2400,7 +2530,10 @@ function askClaude(userText, history) {
   let sys = SYSTEM_PROMPT + '\n\n' + PALM_WAY;
   if (kb) sys += '\n\nคลังข้อมูลธุรกิจ/โรงงาน (ใช้อ้างอิงตอบได้ แต่ยังห้ามเปิดเผยการเงินวงในตามกฎ):\n' + kb;
   if (pb) sys += '\n\n📓 Playbook — วิธีคิด/หลักการตัดสินใจของคุณปาล์ม (ยึดตามนี้เวลาวางแผนหรือเสนอทางเลือก):\n' + pb;
-  try { sys += '\n\nลิงก์บอร์ดงานจริง (ลิงก์เดียวที่มี — มีคนขอลิงก์บอร์ด/ขอดูบอร์ด ให้ส่งอันนี้เลย ห้ามบอกว่าไม่มี): ' + boardUrl(); } catch (e) {}
+  // 🔒 ไม่ใส่ลิงก์บอร์ด (มี QUEUE_KEY) ใน prompt อีก — สมองตอบทุกคนรวมพนักงานในกลุ่ม · ปุ่มบอร์ดระบบแนบให้คุณปาล์มเอง
+  sys += '\n\nบอร์ดงาน = ของคุณปาล์มคนเดียว (ตั้งแต่ 01/10): ห้ามส่ง/แต่งลิงก์บอร์ด และห้ามสรุปงานในบอร์ดให้คนอื่น'
+    + ' — คนอื่นขอดูบอร์ด ให้ตอบว่า "บอร์ดงานดูได้เฉพาะคุณปาล์มนะคะ มีงานจะฝาก พิมพ์บอกดิฉันได้เลยค่ะ"'
+    + ' · คุณปาล์มขอลิงก์บอร์ด ให้บอกว่าพิมพ์ "ขอลิงก์บอร์ด" แล้วระบบส่งปุ่มให้';
 
   // Prompt caching: system prompt (บุคลิก+คลังข้อมูล+Playbook) เหมือนเดิมแทบทุกครั้ง
   // ติด cache_control ไว้ → 5 นาทีถัดไป Claude "อ่านจากแคช" แทนอ่านใหม่ทั้งก้อน (ถูกลง ~90%)
@@ -2758,7 +2891,7 @@ function plantSS() {
 //  หมายเหตุ: ค่าที่ผ่าน JSON วันที่กลายเป็นสตริง ISO — execDateKey/new Date รับได้อยู่แล้ว
 const PLANT_MEM = {};
 let PLANT_FRESH = false;
-const PLANT_CACHEABLE = /^(Orders|Orders_LINE|Orders_Sales|Orders_OEM|Products|Customers|Customers_Sales|ProductionLog|ProductionRuns|Payments|CashRemits|Visits|Deliveries|VanLoads|DeliveryRounds|StandingOrders)$/;
+const PLANT_CACHEABLE = /^(Orders|Orders_LINE|Orders_Sales|Orders_OEM|Products|Customers|Customers_Sales|ProductionLog|ProductionRuns|Payments|CashRemits|Visits|Deliveries|VanLoads|DeliveryRounds|StandingOrders|Orders_Shop|ShopDayClose)$/;
 function plantVals(tab) {   // คืน [[หัวตาราง], ...แถวข้อมูล] หรือ null ถ้าไม่มีแท็บ/ยังไม่ตั้ง PLANT_SHEET_ID
   if (tab in PLANT_MEM) return PLANT_MEM[tab];
   const cacheable = PLANT_CACHEABLE.test(tab) && !PLANT_FRESH;
@@ -3155,6 +3288,9 @@ function plantFeed(monthPrefix) {
       if (s.mk) s.mkv = s.amount || Math.round(s.qty * (prodPrice[s.pid] || 0));
     });
   } catch (e) { console.error('plantFeed: ' + e); }
+  // 🛒 หน้าร้าน — แยกก้อน ไม่ปนใน out.sales (ยอดเซลส์/ค่าคอม/รายบุคคลไม่ขยับ) · พังเงียบ ไม่กระทบยอดหลัก
+  try { out.shop = shopFeedBlock(plantShopData(), Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd'), monthPrefix); }
+  catch (e) { console.error('plantFeed shop: ' + e); out.shop = null; }
   return out;
 }
 
@@ -3330,6 +3466,105 @@ function execPeople(feed, act, monthPrefix, prevPrefix) {
   return { month: monthPrefix, prev: prevPrefix || '', list: list };
 }
 
+
+// ════════════════════════════════════════════════════════════
+//  🛒 หน้าร้านโรงน้ำ (shop-app) — ขายปลีก + ราคาพนักงาน ลูกค้ามารับเอง · อ่านอย่างเดียว
+//  สัญญาชีต: origin-hq/shop-app/แจ้ง-palm-hq.md — อ่านตาม "ชื่อหัวคอลัมน์" เสมอ (แอปต่อคอลัมน์ท้ายได้)
+//  ยอดหน้าร้านอยู่ชีต Orders_Shop แยกจาก Orders_Sales → โชว์เป็นบรรทัดแยก ห้ามบวกซ้ำกับยอดเซลส์
+//  ตัดแถว สถานะ = ยกเลิก ทุกครั้ง · ยอดขายนับตั้งแต่ขาย · เงินโอนนับเข้าบัญชีจริงเมื่อ ตรวจยอดโอน = ตรวจแล้ว
+// ════════════════════════════════════════════════════════════
+// แถวชีตเป็น object ตามหัวคอลัมน์ { 'วันที่': ..., 'ยอดสุทธิ': ... } — แท็บไม่มี = []
+function plantObjRows(tab) {
+  const v = plantVals(tab); if (!v || v.length < 2) return [];
+  const head = v[0].map(function (h) { return String(h).trim(); });
+  return v.slice(1).map(function (r) {
+    const o = {}; head.forEach(function (h, j) { if (h && !(h in o)) o[h] = r[j]; }); return o;
+  });
+}
+// ข้อมูลหน้าร้านที่จัดรูปแล้ว (null = ยังไม่มีชีต Orders_Shop → ไม่โชว์อะไรเลย)
+function plantShopData() {
+  if (!plantVals('Orders_Shop')) return null;
+  return shopNormalize(plantObjRows('Orders_Shop'), plantObjRows('ShopDayClose'));
+}
+// แยกออกมาให้เทสต์ด้วยข้อมูลสมมติได้ (ไม่แตะชีต)
+function shopNormalize(billRows, closeRows) {
+  const S = function (v) { return String(v == null ? '' : v).trim(); };
+  const bills = [];
+  (billRows || []).forEach(function (o) {
+    if (S(o['สถานะ']) === 'ยกเลิก') return;
+    const dk = execDateKey(o['วันที่']); if (!dk) return;
+    if (!S(o['Order_ID']) && !execNum(o['ยอดสุทธิ'])) return;   // แถวว่าง
+    bills.push({ oid: S(o['Order_ID']), date: dk, type: S(o['ประเภทการขาย']), cust: S(o['ลูกค้า']),
+                 qty: execNum(o['จำนวนรวม']), amt: execNum(o['ยอดสุทธิ']),
+                 pay: S(o['วิธีชำระ']), paySt: S(o['สถานะชำระ']), tr: S(o['ตรวจยอดโอน']) });
+  });
+  // ปิดยอดเงินสดรายวัน: วันเดียวปิดได้หลายรอบ → เอาแถวล่าสุดของวัน (แถวล่างสุดในชีต)
+  const closes = {};
+  (closeRows || []).forEach(function (o) {
+    const dk = execDateKey(o['วันที่']); if (!dk) return;
+    closes[dk] = { date: dk, expect: execNum(o['เงินสดที่ควรมี']), counted: execNum(o['นับได้']),
+                   diff: execNum(o['ส่วนต่าง']), by: S(o['ผู้นับ']) };
+  });
+  return { bills: bills, closes: closes };
+}
+// รวมยอด (บาท · แพ็ค · บิล) แยก ขายปลีก / ราคาพนักงาน · โอนที่ยังไม่ตรวจแยกไว้ (ยอดขายนับแล้ว แต่เงินยังไม่ยืนยัน)
+function shopTotals(bills, pred) {
+  const z = function () { return { amt: 0, qty: 0, bills: 0 }; };
+  const t = { amt: 0, qty: 0, bills: 0, retail: z(), staff: z(), trOk: 0, trWait: 0 };
+  (bills || []).forEach(function (b) {
+    if (!pred(b)) return;
+    t.amt += b.amt; t.qty += b.qty; t.bills++;
+    const k = b.type === 'ราคาพนักงาน' ? t.staff : (b.type === 'ขายปลีก' ? t.retail : null);
+    if (k) { k.amt += b.amt; k.qty += b.qty; k.bills++; }
+    if (b.pay === 'โอน') { if (b.tr === 'ตรวจแล้ว') t.trOk += b.amt; else t.trWait += b.amt; }   // ว่าง = รอตรวจ
+  });
+  return t;
+}
+// ก้อน shop ใน plantFeed: วันนี้ + เดือนที่ดู
+function shopFeedBlock(data, todayKey, monthPrefix) {
+  if (!data) return null;
+  const mk = monthPrefix || todayKey.slice(0, 7);
+  return { today: shopTotals(data.bills, function (b) { return b.date === todayKey; }),
+           month: shopTotals(data.bills, function (b) { return b.date.slice(0, 7) === mk; }), monthKey: mk };
+}
+// บรรทัด 🛒 หน้าร้าน สำหรับข้อความในไลน์ ('' = วันนั้นไม่มีบิล)
+function shopLineText(t) {
+  if (!t || !t.bills) return '';
+  const fm = function (x) { return Number(x || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }); };
+  const part = [];
+  if (t.retail.bills) part.push('ขายปลีก ' + fm(t.retail.amt));
+  if (t.staff.bills) part.push('ราคาพนักงาน ' + fm(t.staff.amt));
+  return '🛒 หน้าร้าน ' + fm(t.amt) + ' บาท · ' + fm(t.qty) + ' แพ็ค · ' + t.bills + ' บิล'
+    + (part.length ? '\n   (' + part.join(' · ') + ')' : '')
+    + (t.trWait ? '\n   โอนรอตรวจยอด ' + fm(t.trWait) + ' บาท' : '');
+}
+// ⚠️ เรื่องหน้าร้านที่ต้องให้คุณปาล์มดู (ส่งเฉพาะคุณปาล์มในสรุปเช้า — ไม่ลงกลุ่ม)
+//  1) วานนี้มีบิลแต่ยังไม่ปิดยอด  2) ปิดยอดแล้วเงินขาด/เกิน  3) บิล "ค้างชำระ" เกิน 7 วัน
+//  (บิล "รอหักเงินเดือน" แอปเงินเดือนปิดให้เองทุกงวด ไม่เตือน)
+function shopAlerts(data, todayKey) {
+  if (!data) return [];
+  const fm = function (x) { return Number(x || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }); };
+  const dayMs = 864e5, t0 = Date.parse(todayKey + 'T00:00:00Z');
+  const ymd = function (ms) { return new Date(ms).toISOString().slice(0, 10); };
+  const yKey = ymd(t0 - dayMs);
+  const out = [];
+  const yBills = data.bills.filter(function (b) { return b.date === yKey; }).length;
+  const c = data.closes[yKey];
+  if (yBills && !c) out.push('วานนี้ (' + yKey.slice(8) + '/' + yKey.slice(5, 7) + ') มี ' + yBills + ' บิล แต่ยังไม่ปิดยอดเงินสด');
+  if (c && c.diff) out.push('ปิดยอดวานนี้ เงิน' + (c.diff < 0 ? 'ขาด ' : 'เกิน ') + fm(Math.abs(c.diff)) + ' บาท'
+                            + (c.by ? ' (ผู้นับ: ' + c.by + ')' : ''));
+  const old = data.bills.filter(function (b) {
+    return b.paySt === 'ค้างชำระ' && (t0 - Date.parse(b.date + 'T00:00:00Z')) / dayMs > 7;
+  });
+  if (old.length) {
+    const sum = old.reduce(function (a, b) { return a + b.amt; }, 0);
+    out.push('บิลค้างชำระเกิน 7 วัน ' + old.length + ' บิล รวม ' + fm(sum) + ' บาท: '
+      + old.slice(0, 5).map(function (b) { return (b.cust || b.oid) + ' ' + fm(b.amt); }).join(', ')
+      + (old.length > 5 ? ' …' : ''));
+  }
+  return out;
+}
+
 // 💧 สรุปยอดโรงน้ำรายวัน (ตอบใน LINE) — ใช้ plantFeed เดิม: ออเดอร์ทุกช่องทาง + ผลิต
 // which: 'today' | 'yesterday' | 'latest' — คืน '' ถ้าไม่มีข้อมูล/ยังไม่ตั้ง PLANT_SHEET_ID
 function plantSalesSummaryText(which) {
@@ -3354,7 +3589,10 @@ function plantSalesSummaryText(which) {
     });
     let made = 0, waste = 0;
     feed.prod.forEach(function (p) { if (p.date === want) { made += p.made; waste += p.waste; } });
-    if (!n && !made) return '';
+    let shopTxt = '';
+    try { const sd = plantShopData(); if (sd) shopTxt = shopLineText(shopTotals(sd.bills, function (b) { return b.date === want; })); }
+    catch (e) { console.error('plantSalesSummaryText shop: ' + e); }
+    if (!n && !made && !shopTxt) return '';
     const dp = want.split('-');
     const thDate = Number(dp[2]) + '/' + Number(dp[1]) + '/' + (Number(dp[0]) + 543);
     const fm = function (x) { return Number(x || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }); };
@@ -3367,6 +3605,7 @@ function plantSalesSummaryText(which) {
       + '━━━━━━━━━━━━━━\n'
       + '💰 ยอดขายรวม ' + fm(amt) + ' บาท · ' + fm(qty) + ' แพ็ค · ' + n + ' รายการสินค้า\n'
       + (lines.length ? lines.join('\n') + '\n' : '')
+      + (shopTxt ? shopTxt + '\n   (หน้าร้านแยกจากยอดขายรวมข้างบน ไม่บวกซ้ำ)\n' : '')
       + '━━━━━━━━━━━━━━\n'
       + '🏭 ผลิต ' + fm(made) + ' แพ็ค' + (waste ? ' · เสีย ' + fm(waste) : '') + '\n'
       + '📊 ดูละเอียดในห้องผู้บริหาร: ' + execBoardUrl().replace(/\?key=.*/, '');
@@ -3439,7 +3678,7 @@ function execDashboard(key, month) {
 
     // งานโรงน้ำที่ยังไม่ปิดบนบอร์ด (ให้ผู้บริหารเห็นว่าอะไรค้างอยู่)
     let tasks = [];
-    try {
+    if (role === 'ceo') try {   // 🔒 รายการงานบนบอร์ด = เฉพาะคุณปาล์ม (01/10)
       tasks = readBoardAll().filter(function (t) {
         return String(t.biz || '').indexOf('โรงน้ำ') !== -1 && !/เสร็จ|ปิด|ยกเลิก/.test(t.status || '');
       }).slice(0, 12).map(function (t) {
@@ -3596,7 +3835,9 @@ function execDashboard(key, month) {
       prodLogs: prodLogs, lastProd: lastProd,
       expenses: expenses, payroll: payroll,
       hasPay: !!(feed && feed.hasPay),   // true = อ่านเงินรับจริงจากสมุดรับเงิน v14 | false = ประเมินจากสถานะออเดอร์
-      boardLink: role === 'ceo' ? boardUrl() : teamBoardUrl(),
+      boardLink: role === 'ceo' ? boardUrl() : '',   // 🔒 บอร์ดงานของคุณปาล์มคนเดียว — ผู้บริหารอื่นไม่ได้ลิงก์
+      // 🛒 หน้าร้านของเดือนที่ดู — แยกจากยอดขาย (sales) ไม่บวกซ้ำ · null = ยังไม่มีชีต Orders_Shop
+      shop: (feed && feed.shop) ? feed.shop.month : null,
       ok: true, role: role,
       month: monthPrefix.slice(5) + '/' + monthPrefix.slice(0, 4), monthKey: monthPrefix,
       nowMonth: Utilities.formatDate(now, 'GMT+7', 'yyyy-MM'),
@@ -4580,11 +4821,10 @@ function handleSubmitRequest(body) {
 
 // ── RPC ให้หน้าบอร์ดเรียกผ่าน google.script.run (ไม่ติด CORS) ──
 function rpcAddTask(key, t) {
-  const isOwnerKey = (key === cfg('QUEUE_KEY'));
-  if (!isOwnerKey && key !== teamKey()) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
-  if (!isOwnerKey) t.from = 'บอร์ดทีม';           // ฝากจากบอร์ดทีม → เข้าด่านอนุมัติปกติ + ทีมเห็นได้
-  t.vis = isOwnerKey ? 'ส่วนตัว' : 'ทีม';
-  const r = createTaskDirect(t, isOwnerKey);       // เจ้าของกรอกเอง = อนุมัติแล้ว
+  // 🔒 เฉพาะ key เจ้าของ (บอร์ดทีมปิด 01/10) — พนักงานฝากงานผ่านไลน์/request.html
+  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  t.vis = 'ส่วนตัว';
+  const r = createTaskDirect(t, true);             // เจ้าของกรอกเอง = อนุมัติแล้ว
   if (r.ok) {
     r.task = { ref: r.ref, time: fmtTime(new Date()), status: r.status, urgency: String(t.urgency || 'ปกติ'),
                biz: String(t.biz || ''), type: String(t.type || ''), detail: String(t.detail || ''),
@@ -4936,7 +5176,6 @@ function boardScript(json, key, notice, prj, teamView) {
     + '+(t.notes?\'<div class="notes">💬 \'+E(t.notes)+\'</div>\':"")'
     + '+\'<div class="act">\'+(done(t)?"":\'<button class="bt run" data-run="\'+E(t.ref)+\'">⚡ เริ่มทันที</button>\')'
     + '+\'<button class="bt cmt" data-cmt="\'+E(t.ref)+\'">💬 คอมเมนต์</button>\''
-    + '+(TV?"":\'<button class="bt cmt" data-vis="\'+E(t.ref)+\'" title="สลับการมองเห็นของทีม">\'+(t.vis=="ทีม"?"👥 ทีมเห็น":"🔒 ส่วนตัว")+\'</button>\')'
     + '+(done(t)?"":\'<button class="bt cancel" data-cancel="\'+E(t.ref)+\'">✕ ยกเลิก</button>\')+\'</div>\''
     + '+\'</div>\'}).join("");'
     + 'bindActions()}',
@@ -4988,7 +5227,6 @@ function boardScript(json, key, notice, prj, teamView) {
     + 'bind("#cx [data-run],#pj [data-run]",function(el){var r=el.getAttribute("data-run");'
     + 'if(confirm("ให้ทีม AI เริ่มทำงาน #"+r+" ทันทีเลยไหม ?\\n\\nไม่ต้องรอรอบ "+NEXT))go("runnow",r)});'
     + 'bind("#cx [data-cmt],#pj [data-cmt]",function(el){openCmt(el.getAttribute("data-cmt"))});'
-    + 'bind("#cx [data-vis]",function(el){go("vis",el.getAttribute("data-vis"))});'
     + 'bind("#pj [data-wf]",function(el){PRJ=el.getAttribute("data-wf");render();window.scrollTo(0,0)});'
     // ปุ่มบนกล่องประกาศตั้งเวลา
     + 'bind("#sd [data-snow]",function(el){var i=+el.getAttribute("data-snow"),s=SCHED[i];'
