@@ -715,6 +715,12 @@ function handleEvent(ev) {
       + 'มีอะไรให้ช่วยเรียก "เลขา" ได้เลยค่ะ (จำกลุ่มนี้ไว้เรียบร้อยแล้ว)');
     return;
   }
+  // 🧾 กลุ่มบิลค่าใช้จ่าย: ทุกรูป/ไฟล์/ข้อความ → แอปบัญชีเป็นคนอ่านและตอบ (เลขาไม่ตอบเอง กันตอบซ้อน)
+  if (ev.type === 'message' && ev.message && /^(text|image|file)$/.test(ev.message.type)
+      && ev.source && isExpenseGroup(ev.source.groupId || ev.source.roomId || '')) {
+    handleExpenseGroupEvent(ev);
+    return;
+  }
   // 📷 รับรูป/ไฟล์ → เซฟลง Drive แล้วแนบกับงานล่าสุดของคนส่ง
   if (ev.type === 'message' && ev.message && (ev.message.type === 'image' || ev.message.type === 'file')) {
     handleMediaMessage(ev);
@@ -736,6 +742,16 @@ function handleEvent(ev) {
   // 🩺 เช็คระบบ (เฉพาะเจ้าของ)
   if (owner && /^(เลขา\s*)?(เช็คระบบ|เชคระบบ|ตรวจระบบ|สุขภาพระบบ|status)$/i.test(text)) {
     lineReply(replyToken, healthCheck());
+    return;
+  }
+
+  // 🧾 คุณปาล์มถามเรื่องบิล/รายจ่าย (แชทส่วนตัว) → ถามแอปบัญชี ตอบจากข้อมูลจริง ไม่ให้สมองเลขาเดาตัวเลข
+  //   อยู่ก่อนสรุปยอดขาย เพราะ "ยอดบิล..." ขึ้นต้นด้วย "ยอด" จะถูกจับเป็นยอดขายผิด
+  if (owner && !inGroup && isBillQuestion(text)) {
+    const ans = answerBillQuestion(text);
+    lineReply(replyToken, ans);
+    memAppend(chatId, text, ans);
+    logRow(['ถามบิล', senderId, text, ans.slice(0, 200)]);
     return;
   }
 
@@ -1247,6 +1263,11 @@ function handleReminder(text, chatId, senderId, replyToken) {
 function fireDueReminders() {
   // heartbeat: จดเวลาที่รันล่าสุดไว้ ให้ "เช็คระบบ" ฟ้องได้ถ้า trigger ตั้งไว้แต่ไม่รันจริง (เช่น สิทธิ์ค้าง)
   try { PropertiesService.getScriptProperties().setProperty('LAST_TICK', String(Date.now())); } catch (e) {}
+  // 🧾 เตือนบิลครบกำหนดจากแอปบัญชี — วันละครั้งช่วง 8 โมง (ใช้ trigger ตัวนี้ ไม่ต้องรัน setupTriggers ใหม่)
+  try {
+    const h = Number(Utilities.formatDate(new Date(), 'GMT+7', 'H'));
+    if (h >= 8 && h < 12) expenseDueDaily();
+  } catch (e) { console.error('expenseDueDaily: ' + e); }
   try {
     const sh = remSheet(); if (!sh || sh.getLastRow() < 2) return;
     const n = sh.getLastRow() - 1;
@@ -1939,7 +1960,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-01b';
+const CODE_VERSION = '2026-10-18a';
 
 function healthCheck() {
   const L = [];
@@ -2001,6 +2022,18 @@ function healthCheck() {
     pp.ok ? ok('เชื่อมแอปทีมผลิตได้ ✓') : bad('เชื่อมแอปทีมผลิตไม่ได้ ✗ (' + pp.why + ')', 'แจ้งแชท origin-hq ให้เช็คแอปทีมผลิต');
     productionGroupId() ? ok('รู้จักกลุ่มทีมผลิตแล้ว (ส่งต่อข้อความจอดเครื่องได้)')
                         : warn('ยังไม่รู้จักกลุ่มทีมผลิต', 'เชิญดิฉันเข้ากลุ่มทีมผลิต · ถ้าชื่อกลุ่มไม่มีคำ "ทีมผลิต"/"ฝ่ายผลิต" ให้ตั้ง GROUP_PRODUCTION_ID');
+  }
+
+  // 4.55 🧾 แอปบัญชี (กลุ่มบิลค่าใช้จ่าย → รายจ่าย · เตือนบิล · ถามบิล)
+  if (cfg('PLANT_SHEET_ID') || cfg('FINANCE_CHAT_TOKEN')) {
+    const fp = financeAppPing();
+    const minor = Number((fp.version.match(/^v0\.(\d+)/) || [])[1] || 0);
+    if (!fp.ok) bad('เชื่อมแอปบัญชีไม่ได้ ✗ (' + fp.why + ')', 'แจ้งแชท origin-hq ให้เช็ค finance-app');
+    else if (/^v0\./.test(fp.version) && minor < 10) warn('แอปบัญชีเป็น ' + fp.version + ' — ต้อง v0.10 ขึ้นไป (ตอบในกลุ่ม/เตือนบิล/ถามบิล)', 'แจ้งแชท origin-hq ให้ merge + deploy finance-app v0.10');
+    else ok('เชื่อมแอปบัญชีได้ ✓ (' + fp.version + (fp.ai ? ' · AI อ่านบิลได้' : ' · ยังไม่ใส่ ANTHROPIC_API_KEY ที่แอปบัญชี') + ')');
+    listKnownGroups().some(function (g) { return isExpenseGroup(g.id); })
+      ? ok('รู้จักกลุ่มบิลค่าใช้จ่ายแล้ว (ส่งบิลเข้าแอปบัญชี)')
+      : warn('ยังไม่รู้จักกลุ่มบิลค่าใช้จ่าย', 'เชิญดิฉันเข้ากลุ่ม "บิลค่าใช้จ่าย 🧾" · ชื่อกลุ่มไม่มีคำนี้ให้ตั้ง GROUP_EXPENSE_ID');
   }
 
   // 4.6 📚 เรียนรู้แชทกลุ่ม + 💸 ค่าสมองวันนี้
@@ -2299,7 +2332,10 @@ function productionGroupId() {
 // รหัสเชื่อม = HMAC ของ ID ชีตโรงน้ำ (แอปทีมผลิตคิดแบบเดียวกัน) → ไม่ต้องคัดลอกรหัสไปมา
 //   ถ้าวันหน้าตั้ง CHAT_TOKEN ในแอปทีมผลิต ให้ตั้ง PRODUCTION_CHAT_TOKEN ค่าเดียวกันที่นี่
 function productionChatToken() {
-  if (cfg('PRODUCTION_CHAT_TOKEN')) return cfg('PRODUCTION_CHAT_TOKEN');
+  return cfg('PRODUCTION_CHAT_TOKEN') || lakonChatToken();
+}
+// แอปโรงน้ำทุกตัวที่รับแชทจากเลขา (ทีมผลิต · บัญชี) คิดรหัสจากชีตกลางเดียวกัน → ได้ค่าเดียวกัน
+function lakonChatToken() {
   const sig = Utilities.computeHmacSha256Signature('lakon-line-chat-v1', sheetIdFrom(cfg('PLANT_SHEET_ID')));
   return sig.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
 }
@@ -2351,6 +2387,180 @@ function productionAppPing() {
     const r = JSON.parse(res.getContentText() || '{}');
     return { ok: !!r.success, why: r.error || r.message || ('HTTP ' + res.getResponseCode()) };
   } catch (e) { return { ok: false, why: String(e) }; }
+}
+
+// ════════════════════════════════════════════════════════════
+//  🧾 กลุ่มไลน์ "บิลค่าใช้จ่าย 🧾" → แอปบัญชีโรงน้ำ (origin-hq finance-app v0.10 · SETUP.md หัวข้อ "รายจ่ายจากไลน์")
+//   ทุกข้อความในกลุ่ม (รูป · ไฟล์ · ตัวหนังสือ) ส่งเข้า expenseChat — แอปบัญชีเป็นคนอ่าน/ตอบ เลขาไม่ใช้ AI ตัวเองตอบในกลุ่มนี้
+//   คำตอบ: say = ส่งลงกลุ่มทันที · notify+notice = ส่งหาคุณปาล์ม · reply = ยังไม่ส่ง (รอคุณปาล์มอนุมัติ)
+//   ไม่จดลงแท็บ GroupChat (แอปบัญชีเก็บบทสนทนาเอง · กันข้อมูลเงินเข้าระบบเรียนรู้แชทกลุ่ม — PALM-WAY §10)
+//   + expenseDue วันละครั้ง (ช่วง 8 โมง) · expenseAsk เมื่อคุณปาล์มถามเรื่องบิลในแชทส่วนตัว
+// ════════════════════════════════════════════════════════════
+const FINANCE_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbwQdfDqibpZrpxEYSidLvcEO7amtO_EMND2anBXI_dpAJHpYHYHvJZwSztlzU3Q2Y7y/exec';
+const EXPENSE_GROUP_NAME = 'บิลค่าใช้จ่าย';
+
+// เทียบชื่อกลุ่มเฉพาะตัวอักษร/ตัวเลข (ชื่อจริงมีอีโมจิ "บิลค่าใช้จ่าย 🧾") — แบบเดียวกับฝั่งแอปบัญชี
+function expenseNameKey(x) { return String(x || '').toLowerCase().replace(/[^0-9a-z\u0E00-\u0E7F]/g, ''); }
+
+// ชื่อกลุ่มจาก id — แคช 6 ชม. (ข้อความกลุ่มทุกข้อความผ่านตรงนี้ ห้ามอ่านชีตทุกครั้ง)
+function groupNameOf(chatId) {
+  if (!chatId) return '';
+  const cache = CacheService.getScriptCache();
+  const ck = 'gname_' + chatId;
+  const hit = cache.get(ck);
+  if (hit !== null) return hit;
+  let name = '';
+  try { const g = listKnownGroups().filter(function (x) { return x.id === chatId; })[0]; name = (g && g.name) || ''; } catch (e) {}
+  if (!name && String(chatId).charAt(0) === 'C') {
+    try {
+      const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + chatId + '/summary', {
+        headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+      });
+      if (res.getResponseCode() === 200) name = JSON.parse(res.getContentText()).groupName || '';
+    } catch (e) {}
+  }
+  cache.put(ck, name, name ? 21600 : 600);
+  return name;
+}
+
+// กลุ่มบิล = Script Property GROUP_EXPENSE_ID ถ้าตั้งไว้ · ไม่ตั้ง = กลุ่มที่ชื่อมีคำ "บิลค่าใช้จ่าย"
+function isExpenseGroup(chatId) {
+  if (!chatId || !/^[CR]/.test(String(chatId))) return false;
+  const set = cfg('GROUP_EXPENSE_ID');
+  if (set) return chatId === set;
+  return expenseNameKey(groupNameOf(chatId)).indexOf(expenseNameKey(EXPENSE_GROUP_NAME)) !== -1;
+}
+
+function financeChatToken() { return cfg('FINANCE_CHAT_TOKEN') || lakonChatToken(); }
+
+// เรียกแอปบัญชี — คืน object คำตอบเสมอ (พัง = { success:false, error })
+function financeCall(payload) {
+  try {
+    const res = UrlFetchApp.fetch(cfg('FINANCE_APP_URL') || FINANCE_APP_URL_DEFAULT, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify(Object.assign({ token: financeChatToken() }, payload))
+    });
+    try { return JSON.parse(res.getContentText() || '{}'); }
+    catch (e) { return { success: false, error: 'HTTP ' + res.getResponseCode() + ' (คำตอบไม่ใช่ JSON)' }; }
+  } catch (e) { return { success: false, error: String(e) }; }
+}
+
+// โฟลเดอร์เก็บบิล — แยกจากรูปไลน์ทั่วไป · ไม่แชร์สาธารณะ (เอกสารเงิน) แอปบัญชีรันบัญชีเดียวกันจึงเปิดได้
+function expenseFolder() {
+  const fid = cfg('EXPENSE_FOLDER_ID');
+  if (fid) { try { return DriveApp.getFolderById(sheetIdFrom(fid)); } catch (e) {} }
+  const parent = mediaFolder();
+  const it = parent.getFoldersByName('บิลค่าใช้จ่าย');
+  return it.hasNext() ? it.next() : parent.createFolder('บิลค่าใช้จ่าย');
+}
+
+function saveExpenseMedia(ev) {
+  const res = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/message/' + ev.message.id + '/content', {
+    headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+  });
+  if (res.getResponseCode() !== 200) throw new Error('ดาวน์โหลดจากไลน์ไม่สำเร็จ (HTTP ' + res.getResponseCode() + ')');
+  const blob = res.getBlob();
+  const isImg = ev.message.type === 'image';
+  const mime = blob.getContentType() || (isImg ? 'image/jpeg' : 'application/octet-stream');
+  const stamp = Utilities.formatDate(new Date(), 'GMT+7', 'yyMMdd-HHmmss');
+  const name = isImg ? ('บิล-' + stamp + (mime === 'image/png' ? '.png' : '.jpg')) : (ev.message.fileName || ('บิล-' + stamp));
+  const file = expenseFolder().createFile(blob.setName(name));
+  return { id: file.getId(), url: file.getUrl(), mime: mime, name: name };
+}
+
+// ส่งลงกลุ่ม: ใช้ reply ก่อน (ฟรี ไม่กินโควตา) · replyToken หมดอายุ/ใช้ไม่ได้ → push แทน
+function expenseSay(replyToken, chatId, text) {
+  const code = lineReply(replyToken, text);
+  if (code !== 200) linePush(chatId, text);
+}
+
+// แจ้งคุณปาล์มเมื่อส่งบิลเข้าแอปบัญชีไม่สำเร็จ — ไม่ปล่อยบิลหายเงียบ (แจ้งซ้ำได้ไม่เกินทุก 30 นาที)
+function expenseFailAlert(msg) {
+  try {
+    const c = CacheService.getScriptCache();
+    if (c.get('expfail_alert')) return;
+    c.put('expfail_alert', '1', 1800);
+    linePush(cfg('OWNER_LINE_USER_ID'), '⚠️ ส่งบิลจากกลุ่ม "บิลค่าใช้จ่าย" เข้าแอปบัญชีไม่สำเร็จค่ะ\n' + msg
+      + '\n(พิมพ์ "เช็คระบบ" ดูการเชื่อมแอปบัญชีได้ค่ะ)');
+  } catch (e) {}
+}
+
+function handleExpenseGroupEvent(ev) {
+  const src = ev.source || {};
+  const chatId = src.groupId || src.roomId || '';
+  const senderId = src.userId || '';
+  const m = ev.message || {};
+  const c = CacheService.getScriptCache();
+  if (m.id && c.get('expfw_' + m.id)) return;   // ไลน์ส่ง webhook ซ้ำ → ไม่ส่งซ้ำ (แอปบัญชีกันซ้ำด้วย messageId อีกชั้น)
+  registerGroup(chatId);
+  const sender = groupMemberName(chatId, senderId) || lineUserName(senderId);
+  const body = { action: 'expenseChat', sender: sender, groupName: groupNameOf(chatId), messageId: m.id, at: ev.timestamp, text: '' };
+  if (m.quotedMessageId) body.quotedMessageId = m.quotedMessageId;
+  let what = '';
+  try {
+    if (m.type === 'text') {
+      body.text = String(m.text || '').trim();
+      what = body.text.slice(0, 100);
+    } else {
+      const f = saveExpenseMedia(ev);
+      body.fileId = f.id; body.mime = f.mime; body.fileName = f.name;
+      what = '[' + (m.type === 'image' ? 'รูป' : 'ไฟล์') + '] ' + f.url;
+    }
+  } catch (err) {
+    expenseFailAlert('👤 ' + sender + ' ส่ง' + (m.type === 'image' ? 'รูป' : 'ไฟล์') + ' — ' + err);
+    logRow(['กลุ่มบิล ✗', senderId, m.type, String(err)]);
+    return;
+  }
+  const r = financeCall(body);
+  if (r.success && m.id) c.put('expfw_' + m.id, '1', 21600);
+  // ไม่ดูธง duplicate ของแอปบัญชี: ถ้าเลขาเคยได้คำตอบแล้วจะถูกกันด้วย expfw_ ข้างบน
+  // ที่เหลือ = รอบก่อนเลขาไม่ได้รับคำตอบ (หมดเวลา) → ข้อความยังไม่เคยถึงใคร ต้องส่ง
+  if (r.say) expenseSay(ev.replyToken, chatId, String(r.say));
+  if (r.notify && r.notice) linePush(cfg('OWNER_LINE_USER_ID'), String(r.notice));
+  if (!r.success && m.type !== 'text') {
+    expenseFailAlert('👤 ' + sender + ' ส่ง' + (m.type === 'image' ? 'รูป' : 'ไฟล์') + ' — ' + (r.error || r.message || r.code || 'ไม่ทราบสาเหตุ')
+      + (body.fileId ? '\nไฟล์เก็บไว้แล้ว: https://drive.google.com/file/d/' + body.fileId + '/view' : ''));
+  }
+  logRow(['กลุ่มบิล', senderId, what, r.success ? ((r.act || '') + (r.say ? ' · ตอบในกลุ่ม' : '') + (r.notify ? ' · แจ้งคุณปาล์ม' : '') + (r.reply ? ' · มีข้อความรออนุมัติ' : ''))
+                                                : ('✗ ' + (r.error || r.message || r.code || ''))]);
+}
+
+// ⏰ เตือนบิลครบกำหนด — วันละครั้ง เรียกจาก fireDueReminders (ทุก 15 นาที) ช่วง 8:00–11:59
+//   สำเร็จแล้วจดวันไว้ ไม่เรียกซ้ำ · พลาด = ลองใหม่รอบถัดไป · แอปบัญชีกันเตือนซ้ำในวันเดียวกันอีกชั้น
+function expenseDueDaily(force) {
+  const P = PropertiesService.getScriptProperties();
+  const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+  if (!force && P.getProperty('EXPENSE_DUE_DAY') === today) return;
+  const r = financeCall({ action: 'expenseDue' });
+  if (!r.success) { logRow(['เตือนบิล ✗', '', '', r.error || r.message || r.code || '']); return; }
+  P.setProperty('EXPENSE_DUE_DAY', today);
+  if (r.notify && r.notice) linePush(cfg('OWNER_LINE_USER_ID'), String(r.notice));
+  logRow(['เตือนบิล', '', '', r.act === 'due' ? ('เลย ' + (r.overdue || 0) + ' · วันนี้ ' + (r.today || 0) + ' · ใกล้ ' + (r.soon || 0)) : 'ไม่มีบิลครบกำหนด']);
+}
+
+// คุณปาล์มถามเรื่องบิล/รายจ่ายในแชทส่วนตัวไหม (ต้องมีคำเรื่องบิล + หน้าตาเป็นคำถาม/ขอดู · ไม่ใช่สั่งงาน/ค่าสมอง AI)
+function isBillQuestion(text) {
+  const t = String(text || '').trim();
+  if (!/บิล|ใบเสร็จ|ใบแจ้งหนี้|ใบกำกับ|รายจ่าย|ค่าใช้จ่าย|ค้างจ่าย|ครบกำหนด|สลิปโอน|ผู้ขาย|เจ้าหนี้/.test(t)) return false;
+  if (/สมอง|token|โทเคน|\bapi\b|\bai\b|claude/i.test(t)) return false;
+  if (/บิลขาย|ออกบิล|เปิดบิล|ใบส่งของ|ลูกค้า|ออเดอร์/.test(t)) return false;   // บิลฝั่งขาย = ระบบขาย ไม่ใช่รายจ่าย
+  if (/^(เลขา\s*)?(ฝาก|ประกาศ|ส่ง|สั่ง|สร้าง|ทำ|ช่วยทำ|เตือน|ตั้งเตือน|บอก)/.test(t)) return false;
+  return /\?|ไหม|มั้ย|หรอ|เหรอ|รึเปล่า|ยังไง|อย่างไร|กี่|เมื่อไหร่|เมื่อไร|ตอนไหน|ใคร|อะไร|ที่ไหน|ทำไม|เท่าไหร่|เท่าไร|บ้าง|ยัง$/.test(t)
+      || /^(เลขา\s*)?(สรุป|ดู|เช็ค|เช็ก|ขอ|หา|มี|ยอด)/.test(t);
+}
+
+function answerBillQuestion(text) {
+  const r = financeCall({ action: 'expenseAsk', text: text, sender: 'คุณปาล์ม' });
+  const ans = String(r.answer || r.say || r.notice || '').trim();
+  if (ans) return '🧾 ' + ans;
+  return 'ขออภัยค่ะ ถามแอปบัญชีไม่สำเร็จ' + ((r.why || r.error) ? ' (' + (r.why || r.error) + ')' : '')
+    + ' — ดิฉันไม่เดาตัวเลขเอง ลองเปิดแท็บรายจ่ายในแอปบัญชี หรือถามใหม่อีกครั้งนะคะ';
+}
+
+// "เช็คระบบ": ping แอปบัญชี → { ok, version, ai, why }
+function financeAppPing() {
+  const r = financeCall({ action: 'ping' });
+  return { ok: !!r.success, version: String(r.version || ''), ai: !!r.ai, why: r.error || r.message || '' };
 }
 
 // แปลง "ชื่อกลุ่มตามที่พูด" → group id (ใช้ทั้งส่งทันทีและตั้งเวลา)
@@ -2620,6 +2830,7 @@ function lineReply(replyToken, text, extraMessages) {
     muteHttpExceptions: true
   });
   rememberBotMsgIds(res);
+  return res.getResponseCode();
 }
 
 function linePush(to, text) {
