@@ -44,8 +44,9 @@ const SYSTEM_PROMPT = [
   'ราคาซื้อจากซัพพลายเออร์ ดีลลับ เงินเดือน/ข้อมูลพนักงาน สูตรลับ',
   'เมื่อถูกถามเรื่องพวกนี้ ให้ปฏิเสธอย่างสุภาพและมั่นใจ (สั้นๆ) แล้วบอกว่าจะส่งเรื่องให้คุณปาล์มโดยตรง',
   '',
-  'ห้ามกุข้อมูลระบบ: รายชื่อกลุ่มที่อยู่ สถานะระบบ คิวงาน — ระบบตอบเองเมื่อถูกถาม',
-  'ถ้าผู้ใช้ถามเรื่องพวกนี้แล้วมาถึงคุณ แปลว่าระบบไม่มีข้อมูล ให้ตอบว่าไม่ทราบและแนะนำคำสั่ง เช่น "รายชื่อกลุ่ม" "เช็คระบบ"',
+  'ห้ามกุข้อมูลระบบ: สถานะระบบ ยอดขาย บิล/รายจ่าย รายชื่อกลุ่ม คิวงาน — ตัวเลข/สถานะจริงมาจากคำสั่งของระบบเท่านั้น',
+  'อ่านเจตนา ไม่ใช่ดูคำตายตัว (คุณปาล์ม: "ต้องอ่านบริบทได้ ไม่ใช่ดูคำตายตัว"): ถ้าเข้าใจว่าผู้ใช้อยากได้สิ่งที่มีคำสั่งรองรับ',
+  '→ เรียกคำสั่งนั้นเองด้วยบล็อก RUN (ดูหัวข้อ "⚙️ คำสั่งระบบ" ด้านล่าง) ห้ามตอบว่าไม่มีข้อมูล/ทำไม่ได้ และห้ามบอกให้ผู้ใช้ไปพิมพ์คำสั่งใหม่',
   '',
   'มารยาทในกลุ่ม: ถ้าอยู่ในกลุ่มไลน์ ให้ตอบสั้น กระชับ เป็นธรรมชาติเหมือนสมาชิกคนหนึ่ง',
   'พูดเฉพาะเรื่องที่ถูกถามถึงเท่านั้น ไม่ต้องสรุป/แทรกทุกเรื่องที่คนอื่นคุยกัน',
@@ -168,6 +169,20 @@ const SYSTEM_PROMPT = [
   'ประกาศเข้ากลุ่มไลน์ตามชื่อกลุ่ม, สรุปแชทในกลุ่ม, ตามงานค้างให้ทุกเย็น',
   'บอร์ดไอเดีย: "ไอเดีย <ข้อความ>" แปะทันที, "ดูไอเดีย", "ทำไอเดีย <เลข>", "พับไอเดีย <เลข>"',
   'เฉพาะคุณปาล์ม: "เช็คระบบ" (ตรวจสุขภาพระบบ), "รายชื่อกลุ่ม", "อนุมัติ <เลขงาน>", "เสร็จ <เลขงาน>"',
+  '',
+  '⚙️ คำสั่งระบบที่คุณเรียกเองได้ — ผู้ใช้ไม่ต้องพิมพ์คำตายตัว พูดแบบไหนก็ได้ คุณอ่านเจตนาจากข้อความ+บทสนทนาแล้วเรียกเลย (ผู้ใช้ไม่เห็นบล็อก):',
+  '[[RUN]]{"cmd":"<ชื่อคำสั่ง>", ...ค่าเพิ่มเติม}[[/RUN]]',
+  'ระบบจะทำคำสั่งแล้วต่อผลจริงท้ายคำตอบให้เอง → ตอบนำสั้นๆ พอ (เช่น "ได้ค่ะ เช็คให้เลยนะคะ") ห้ามเดา/แต่งผลเอง ห้ามเคลมว่าทำเสร็จก่อนเห็นผล',
+  '- health = ตรวจสุขภาพระบบ: เวอร์ชันโค้ดที่รันจริง การเชื่อมแอปต่างๆ trigger ค่าที่ยังขาด',
+  '    (เช่น "เช็คสุขภาพระบบ" "ระบบโอเคไหม" "ระบบล่มรึเปล่า" "เช็คหน่อย" ที่บทสนทนาไม่ได้พูดถึงเรื่องอื่นอยู่) — คุณปาล์มเท่านั้น',
+  '- sales {"which":"today|yesterday|latest","biz":"cafe|plant|both"} = สรุปยอดขายจริงจากระบบร้าน/ระบบขายโรงน้ำ',
+  '    — คุณปาล์มได้ทุกธุรกิจ · คนอื่นได้เฉพาะยอดร้าน Old Days และเฉพาะในกลุ่มร้าน',
+  '- bill {"q":"คำถามเรื่องบิลเต็มประโยค"} = ถามแอปบัญชีโรงน้ำ (บิล ค้างจ่าย ครบกำหนด ยอดรายจ่าย เลขบัญชีผู้ขาย) — คุณปาล์ม แชทส่วนตัวเท่านั้น',
+  '- groups = รายชื่อกลุ่มไลน์ที่ดิฉันอยู่ — คุณปาล์มเท่านั้น',
+  '- staff = ทะเบียนพนักงานที่ DM ได้ — คุณปาล์มเท่านั้น',
+  '- chatid = chat id ของห้องนี้ (ไว้ตั้งค่า)',
+  'ผู้ส่งไม่มีสิทธิ์คำสั่งนั้น (เช่น พนักงานขอเช็คระบบ) → ห้ามเรียก ตอบสุภาพว่าเป็นเรื่องที่คุณปาล์มดูแลเอง',
+  'เจตนากำกวมระหว่างคำสั่งกับเรื่องที่คุยค้างอยู่ → ถามกลับสั้นๆ พร้อมตัวเลือก (เช่น "เช็คระบบ หรือเช็คร่างประกาศเมื่อกี้คะ")',
   '',
   'บริบทธุรกิจ: โรงน้ำดื่ม "ละกอน" ผลิต/ส่งน้ำดื่ม สั่งผ่าน LINE app | ร้านคาเฟ่ กาแฟ/เครื่องดื่ม'
 ].join('\n');
@@ -739,9 +754,11 @@ function handleEvent(ev) {
   // 🏭 กลุ่มทีมผลิต: ส่งต่อทุกข้อความที่เกี่ยวกับเครื่อง/ไลน์ ให้แอปทีมผลิตบันทึกจอดเครื่อง (เงียบ ไม่ตอบในกลุ่ม)
   if (inGroup) forwardProductionChat(ev, chatId, senderId, text);
 
-  // 🩺 เช็คระบบ (เฉพาะเจ้าของ)
-  if (owner && /^(เลขา\s*)?(เช็คระบบ|เชคระบบ|ตรวจระบบ|สุขภาพระบบ|status)$/i.test(text)) {
+  // 🩺 เช็คระบบ (เฉพาะเจ้าของ) — ทางลัดรับคำใกล้เคียง ("เช็คสุขภาพระบบ" "ระบบโอเคไหม" …)
+  //   คำกำกวมอย่าง "เช็คหน่อย" ปล่อยให้สมอง AI อ่านบริบทแล้วเรียก [[RUN]]{"cmd":"health"} เอง
+  if (owner && isHealthCheckAsk(text)) {
     lineReply(replyToken, healthCheck());
+    logRow(['เช็คระบบ', senderId, text, '']);
     return;
   }
 
@@ -761,26 +778,12 @@ function handleEvent(ev) {
   // คนอื่นถามได้เฉพาะ "ในกลุ่ม Old Days" และได้เฉพาะยอดร้าน — การ์ดยอดร้านลงกลุ่มนั้น
   // อยู่แล้วทุกเย็น ข้อความนี้ไม่มีค่าคอม/ต้นทุน จึงไม่ใช่การเงินวงใน (แก้เคสพนักงานโดนปฏิเสธ)
   if (/(สรุปยอด|ยอดขาย|รายงานการขาย|^ยอด|ยอด(ร้าน|โรงน้ำ|ละกอน|วันนี้|เมื่อวาน|ล่าสุด))/.test(text.trim())) {
-    let odG = '';
-    try { const og = listKnownGroups().filter(function (x) { return x.id === chatId; })[0]; odG = (og && og.name) || ''; } catch (e2) {}
-    const inOldDaysGroup = /old ?days/i.test(odG);
-    if (owner || inOldDaysGroup) {
-    const which = /เมื่อวาน/.test(text) ? 'yesterday' : (/วันนี้/.test(text) ? 'today' : 'latest');
-    const askCafe  = !owner || /old ?days|คาเฟ่|ร้านกาแฟ|ยอดร้าน/i.test(text) || inOldDaysGroup;
-    const askPlant = owner && /โรงน้ำ|ละกอน|น้ำดื่ม|โรงงาน/i.test(text);
-    const both = owner && !askCafe && !askPlant;
-    const parts = [];
-    if (askCafe || both) {
-      const s = oldDaysSummaryText(which);
-      parts.push(s || '☕ Old Days: ยังไม่มียอดของวันที่ขอในระบบร้านค่ะ (อีเมลสรุปจาก POS ปกติเข้าราว 17:40 แล้วระบบดึงเข้าภายใน 1 ชั่วโมง)');
-    }
-    if (askPlant || both) {
-      const p = plantSalesSummaryText(which);
-      parts.push(p || '💧 โรงน้ำ: ยังไม่มีออเดอร์ของวันที่ขอในระบบขาย-โรงงานค่ะ');
-    }
-    lineReply(replyToken, parts.join('\n\n'));
-    logRow(['สรุปยอด', senderId, text, both ? 'ทั้งสอง' : (askCafe ? 'ร้าน' : 'โรงน้ำ')]);
-    return;
+    const a = salesArgsFromText(text, owner);
+    const out = salesSummaryReply(a.which, a.biz, owner, chatId);
+    if (out) {
+      lineReply(replyToken, out);
+      logRow(['สรุปยอด', senderId, text, a.biz]);
+      return;
     }
     // ไม่ใช่เจ้าของและไม่ได้ถามในกลุ่มร้าน → ปล่อยไหลไปตามกติกาการเงินวงในด้านล่าง
   }
@@ -790,28 +793,19 @@ function handleEvent(ev) {
 
   // ดูรายชื่อกลุ่มที่เลขาอยู่/รู้จัก (เฉพาะเจ้าของ)
   if (owner && /(รายชื่อกลุ่ม|กลุ่มไหนบ้าง|อยู่กลุ่มไหนบ้าง|รู้จักกลุ่มไหน)/i.test(text)) {
-    const gs = listKnownGroups();
-    lineReply(replyToken, gs.length
-      ? 'กลุ่มที่ดิฉันอยู่ตอนนี้ค่ะ:\n' + gs.map(function (g, i) { return (i + 1) + '. ' + (g.name || '(ไม่ทราบชื่อ) ' + g.id); }).join('\n')
-        + '\n\nสั่งประกาศได้เลย เช่น "เลขา ประกาศในกลุ่ม' + (gs[0].name ? ' ' + gs[0].name : '') + ' ว่า ..."'
-      : 'ยังไม่รู้จักกลุ่มไหนเลยค่ะ — เชิญดิฉันเข้ากลุ่มก่อน แล้วให้ใครก็ได้ทักในกลุ่มสัก 1 ข้อความนะคะ');
+    lineReply(replyToken, groupsListText());
     return;
   }
 
   // ดูทะเบียนพนักงานที่ DM ได้ (เฉพาะเจ้าของ)
   if (owner && /^(เลขา\s*)?(รายชื่อ|ทะเบียน)พนักงาน$/i.test(text)) {
-    const st = listStaff();
-    lineReply(replyToken, st.length
-      ? '👥 พนักงานที่ดิฉันติดต่อ DM ได้ (' + st.length + ' คน):\n'
-        + st.map(function (x, i) { return (i + 1) + '. ' + x.name + (x.nick ? ' (เรียก: ' + x.nick + ')' : ''); }).join('\n')
-        + '\n\nสั่งได้เลย เช่น "ฝากบอกคุณ' + (st[0].nick || st[0].name) + ' ว่า ..."\n(ตั้งชื่อเรียกสั้นๆ ได้ในชีตแท็บ Staff คอลัมน์ "ชื่อเรียก")'
-      : 'ยังไม่มีใครในทะเบียนเลยค่ะ — ใครทักดิฉัน (เดี่ยวหรือในกลุ่ม) ระบบจะจดให้อัตโนมัติค่ะ');
+    lineReply(replyToken, staffListText());
     return;
   }
 
   // คำสั่งช่วยหา chat/group id (ไว้ตั้งค่าส่งรายงานเข้ากลุ่ม)
   if (/^(เลขา\s*)?(group\s*id|groupid|chat\s*id|ไอดีกลุ่ม)$/i.test(text)) {
-    lineReply(replyToken, 'chat id ของที่นี่:\n' + chatId + '\n(type: ' + (src.type || 'user') + ')');
+    lineReply(replyToken, chatIdText(chatId, src.type));
     return;
   }
 
@@ -967,6 +961,9 @@ function handleEvent(ev) {
   const preCtx = ownerCtx + groupCtx + schedCtx + staffCtx;
   const p = parseBlocks(askClaude(preCtx ? (preCtx + 'คำถาม/คำสั่ง: ' + text) : text, history));
   let reply = p.reply;
+  // ⚙️ สมองเข้าใจเจตนาแล้วเรียกคำสั่งระบบเอง (เช็คระบบ/สรุปยอด/ถามบิล …) → ต่อผลจริงท้ายคำตอบ
+  const ran = runCommandBlocks(p.all.RUN, { owner: owner, inGroup: inGroup, chatId: chatId, srcType: src.type, text: text });
+  if (ran) reply = (reply ? reply + '\n\n' : '') + ran;
 
   // 3.1 ถ้าเป็นการฝากงาน → คัดแยกตาม assignee
   let taskLogged = false;
@@ -1960,7 +1957,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-18a';
+const CODE_VERSION = '2026-10-18b';
 
 function healthCheck() {
   const L = [];
@@ -2911,11 +2908,105 @@ function boardSheetId() {
 
 // แยกบล็อกซ่อน [[TASK]]{...}[[/TASK]] ฯลฯ ออกจากคำตอบ
 // บล็อกชนิดเดียวกันมีได้หลายอัน (เช่น SENDGROUP/SCHEDULE บล็อกละกลุ่ม) — blocks = อันแรก, all = ทุกอัน
+// ════════════════════════════════════════════════════════════
+//  ⚙️ คำสั่งระบบ — ใช้ได้ 2 ทาง: พิมพ์ตรง (ทางลัด regex ใน handleEvent) หรือสมอง AI เข้าใจเจตนาแล้วเรียกเอง ([[RUN]])
+//   คุณปาล์ม 18/10: "ต้องอ่านบริบทได้ ไม่ใช่ดูคำตายตัว" · ห้ามตอบว่าทำไม่ได้/ให้พิมพ์ใหม่ ถ้ามีคำสั่งที่ทำได้อยู่แล้ว
+//   สิทธิ์เช็คที่นี่ชั้นเดียว (owner / แชทส่วนตัว) — สมองเรียกผิดสิทธิ์ = ไม่ทำ
+// ════════════════════════════════════════════════════════════
+const SEC_COMMANDS = {
+  health: { owner: true, run: function () { return healthCheck(); } },
+  sales:  { owner: false, run: function (a, c) {
+    const which = /^(today|yesterday|latest)$/.test(String(a.which)) ? String(a.which) : 'latest';
+    const biz = /^(cafe|plant|both)$/.test(String(a.biz)) ? String(a.biz) : (c.owner ? 'both' : 'cafe');
+    return salesSummaryReply(which, biz, c.owner, c.chatId);
+  } },
+  bill:   { owner: true, privateOnly: true, run: function (a, c) { return answerBillQuestion(String(a.q || c.text || '')); } },
+  groups: { owner: true, run: function () { return groupsListText(); } },
+  staff:  { owner: true, run: function () { return staffListText(); } },
+  chatid: { owner: false, run: function (a, c) { return chatIdText(c.chatId, c.srcType); } }
+};
+
+function runCommandBlocks(list, ctx) {
+  const out = [], done = {};
+  let ran = 0;
+  (list || []).forEach(function (b) {
+    const name = String((b && b.cmd) || '').toLowerCase().trim();
+    const cmd = SEC_COMMANDS[name];
+    if (!cmd || done[name] || ran >= 4) return;   // ไม่รู้จัก/ซ้ำ = ข้าม · ทำจริงไม่เกิน 4 คำสั่งต่อคำตอบ
+    if (cmd.owner && !ctx.owner) { logRow(['RUN(ไม่มีสิทธิ์)', '', name, '']); return; }
+    if (cmd.privateOnly && ctx.inGroup) { logRow(['RUN(ในกลุ่ม-ไม่ทำ)', '', name, '']); return; }
+    done[name] = true; ran++;
+    try { const t = cmd.run(b || {}, ctx); if (t) out.push(t); logRow(['RUN', '', name, String(t || '').slice(0, 120)]); }
+    catch (e) { console.error('RUN ' + name + ': ' + e); out.push('⚠️ ทำคำสั่ง ' + name + ' ไม่สำเร็จค่ะ (' + e + ')'); }
+  });
+  return out.join('\n\n');
+}
+
+// ทางลัดเช็คระบบ: รับคำใกล้เคียง แต่ต้องเป็นข้อความสั้นที่หมายถึงระบบรวม ("เช็คระบบขายให้หน่อยว่าออเดอร์…" ไม่ใช่)
+function isHealthCheckAsk(text) {
+  let t = String(text || '').trim().toLowerCase().replace(/\s+/g, '').replace(/^เลขา/, '').replace(/[?!.~]+$/, '');
+  t = t.replace(/(ครับ|ค่ะ|คะ|ค้าบ|นะ|จ้า|จ้ะ|หน่อย|ให้หน่อย|ที|ด้วย)+$/, '');
+  if (t.length > 30) return false;
+  return /^(status|health|healthcheck)$/.test(t)
+      || /^(ช่วย)?(เช็ค|เชค|เช็ก|ตรวจ|ดู)(สุขภาพ|สถานะ)?ระบบ(ทั้งหมด|รวม|เลขา)?$/.test(t)
+      || /^(สุขภาพ|สถานะ)ระบบ(เป็นไง|เป็นยังไง|ล่ะ)?$/.test(t)
+      || /^ระบบ(เลขา)?(โอเค|ok|ปกติ|พร้อม|เป็นไง|เป็นยังไง|ยังดี|ยังดีอยู่|ล่ม|พัง|มีปัญหา)(ดี)?(ไหม|มั้ย|ป่าว|รึเปล่า|หรือเปล่า|อยู่ไหม|อยู่มั้ย|ยัง|อะ|ปะ|ป่ะ)?$/.test(t);
+}
+
+// "ยอดร้านวันนี้" "ยอดโรงน้ำเมื่อวาน" "สรุปยอด" → ช่วงเวลา + ธุรกิจ (ไม่ระบุ = เจ้าของได้ทั้งคู่ · คนอื่นได้ร้าน)
+function salesArgsFromText(text, owner) {
+  const which = /เมื่อวาน/.test(text) ? 'yesterday' : (/วันนี้/.test(text) ? 'today' : 'latest');
+  const cafe = /old ?days|คาเฟ่|ร้านกาแฟ|ยอดร้าน/i.test(text);
+  const plant = /โรงน้ำ|ละกอน|น้ำดื่ม|โรงงาน/i.test(text);
+  return { which: which, biz: !owner ? 'cafe' : (cafe && plant) || (!cafe && !plant) ? 'both' : (cafe ? 'cafe' : 'plant') };
+}
+
+// สรุปยอดขาย — อ่านสดจากชีตของแต่ละบริษัท ไม่ผ่านสมอง AI
+//   เจ้าของถามได้ทุกที่ทุกธุรกิจ · คนอื่นได้เฉพาะยอดร้านในกลุ่ม Old Days (การ์ดยอดร้านลงกลุ่มนั้นทุกเย็นอยู่แล้ว)
+//   คืน '' = ไม่มีสิทธิ์ (ให้ไหลไปกติกาการเงินวงในตามเดิม)
+function salesSummaryReply(which, biz, owner, chatId) {
+  const inOldDaysGroup = /old ?days/i.test(groupNameOf(chatId) || '');
+  if (!owner && !inOldDaysGroup) return '';
+  if (!owner) biz = 'cafe';
+  else if (inOldDaysGroup && biz === 'both') biz = 'cafe';   // ถามในกลุ่มร้านแบบไม่ระบุ = ยอดร้าน (ไม่เอายอดโรงน้ำโชว์กลุ่มพนักงานร้าน)
+  const parts = [];
+  if (biz === 'cafe' || biz === 'both') {
+    const s = oldDaysSummaryText(which);
+    parts.push(s || '☕ Old Days: ยังไม่มียอดของวันที่ขอในระบบร้านค่ะ (อีเมลสรุปจาก POS ปกติเข้าราว 17:40 แล้วระบบดึงเข้าภายใน 1 ชั่วโมง)');
+  }
+  if (biz === 'plant' || biz === 'both') {
+    const pl = plantSalesSummaryText(which);
+    parts.push(pl || '💧 โรงน้ำ: ยังไม่มีออเดอร์ของวันที่ขอในระบบขาย-โรงงานค่ะ');
+  }
+  return parts.join('\n\n');
+}
+
+function groupsListText() {
+  const gs = listKnownGroups();
+  return gs.length
+    ? 'กลุ่มที่ดิฉันอยู่ตอนนี้ค่ะ:\n' + gs.map(function (g, i) { return (i + 1) + '. ' + (g.name || '(ไม่ทราบชื่อ) ' + g.id); }).join('\n')
+      + '\n\nสั่งประกาศได้เลย เช่น "เลขา ประกาศในกลุ่ม' + (gs[0].name ? ' ' + gs[0].name : '') + ' ว่า ..."'
+    : 'ยังไม่รู้จักกลุ่มไหนเลยค่ะ — เชิญดิฉันเข้ากลุ่มก่อน แล้วให้ใครก็ได้ทักในกลุ่มสัก 1 ข้อความนะคะ';
+}
+
+function staffListText() {
+  const st = listStaff();
+  return st.length
+    ? '👥 พนักงานที่ดิฉันติดต่อ DM ได้ (' + st.length + ' คน):\n'
+      + st.map(function (x, i) { return (i + 1) + '. ' + x.name + (x.nick ? ' (เรียก: ' + x.nick + ')' : ''); }).join('\n')
+      + '\n\nสั่งได้เลย เช่น "ฝากบอกคุณ' + (st[0].nick || st[0].name) + ' ว่า ..."\n(ตั้งชื่อเรียกสั้นๆ ได้ในชีตแท็บ Staff คอลัมน์ "ชื่อเรียก")'
+    : 'ยังไม่มีใครในทะเบียนเลยค่ะ — ใครทักดิฉัน (เดี่ยวหรือในกลุ่ม) ระบบจะจดให้อัตโนมัติค่ะ';
+}
+
+function chatIdText(chatId, srcType) {
+  return 'chat id ของที่นี่:\n' + chatId + '\n(type: ' + (srcType || 'user') + ')';
+}
+
 function parseBlocks(raw) {
   let reply = String(raw);
   const blocks = {};
   const all = {};
-  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN', 'IDEA', 'ADDNOTE', 'REMEMBER', 'FORGET', 'DM'].forEach(function (name) {
+  ['TASK', 'ALERT', 'SENDGROUP', 'SCHEDULE', 'PLAN', 'IDEA', 'ADDNOTE', 'REMEMBER', 'FORGET', 'DM', 'RUN'].forEach(function (name) {
     const re = new RegExp('\\[\\[' + name + '\\]\\]([\\s\\S]*?)\\[\\[\\/' + name + '\\]\\]');
     let m;
     while ((m = reply.match(re))) {
@@ -4761,6 +4852,8 @@ function boardChat(q) {
     try { const pend = listPendingPosts(400); if (pend.length) ctx += '(ประกาศตั้งเวลาค้างอยู่:\n' + pend.join('\n') + ')\n\n'; } catch (e) {}
     const p = parseBlocks(askClaude(ctx + 'คุณปาล์ม (เจ้าของ) พิมพ์มาจากแอปบอร์ดงาน: ' + q, history));
     let reply = p.reply;
+    const ran = runCommandBlocks(p.all.RUN, { owner: true, inGroup: false, chatId: chatId, srcType: 'board', text: q });
+    if (ran) reply = (reply ? reply + '\n\n' : '') + ran;
     const OWNER = cfg('OWNER_LINE_USER_ID') || 'board-owner';
 
     if (p.blocks.TASK) {
