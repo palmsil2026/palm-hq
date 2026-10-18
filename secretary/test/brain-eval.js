@@ -26,6 +26,7 @@ function runScenario(sc, brainAnswer) {
   const hist = [];
   (sc.history || []).forEach(h => { hist.push({ role: 'user', content: h[0] }); hist.push({ role: 'assistant', content: h[1] }); });
   ctx.memGet = () => hist.slice();
+  if (sc.pending) ctx.listPendingPosts = () => sc.pending.slice();
   const uid = sc.who === 'owner' ? H.OWNER : ('Ustaff' + (sc.who || 'A'));
   const source = sc.where && sc.where !== 'dm'
     ? { type: 'group', groupId: sc.where === 'บิลค่าใช้จ่าย 🧾' ? H.EXP_GID : gid(sc.where), userId: uid }
@@ -41,7 +42,7 @@ function runScenario(sc, brainAnswer) {
   return {
     crash, brainCalled: chat.length > 0, request: chat[0] || null,
     raw, blocks: parsed.all || {}, runs: ((parsed.all || {}).RUN || []).map(b => String(b.cmd || '')),
-    reply: H.replyText(S), pushes: S.pushes.map(p => ({ to: p.to, text: p.messages[0].text })),
+    reply: H.replyText(S), msgCount: S.replies.length ? S.replies[0].messages.length : 0, ctx, gid, pushes: S.pushes.map(p => ({ to: p.to, text: p.messages[0].text })),
     finance: H.finCalls(S), logs: S.logs
   };
 }

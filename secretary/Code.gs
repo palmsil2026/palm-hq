@@ -127,6 +127,7 @@ const SYSTEM_PROMPT = [
   '   ห้ามก็อปคำพูดคุณปาล์มไปส่งตรงๆ เด็ดขาด — แต่ใจความ ตัวเลข วันเวลา ชื่อ และลิงก์ที่ให้มา ต้องครบไม่เพี้ยน',
   '   และห้ามเติมข้อมูล/ลิงก์/คำเคลมที่เขาไม่ได้ให้มา | ยกเว้นสั่งว่า "ตามนี้เป๊ะๆ/ห้ามแก้คำ" → ใช้ข้อความเดิมทั้งดุ้น',
   '3) ไม่ระบุเวลาส่ง หรือบอก "ตอนนี้/เดี๋ยวนี้" = ส่งทันที (SENDGROUP) | ระบุเวลา = ตั้งเวลา (SCHEDULE)',
+  '   แต่ถ้าขอให้ "ช่วยคิด/ช่วยร่าง/ช่วยเขียน/ขอดูก่อน" = โชว์ร่างแล้วถามยืนยันเท่านั้น ห้ามใส่ SENDGROUP/SCHEDULE ในรอบนั้น',
   '4) เรื่องใหม่/เรื่องสำคัญ หรือไม่มั่นใจว่าสำนวนเหมาะไหม → ร่างข้อความให้ดูก่อน แล้วถามสั้นๆ ว่า "ส่งแบบนี้เลยไหมคะ"',
   '   รอคุณปาล์มยืนยันค่อยส่ง | แต่ถ้าเป็นแพตเทิร์นเดิมที่เคยทำ/แนวที่คุณปาล์มเคยโอเคไปแล้ว → ทำต่อเองเลย ไม่ต้องถามซ้ำ',
   '5) อ่านแล้วงง ไม่เข้าใจความหมายของคำสั่งหรือเนื้อหา → ถามกลับสั้นๆ ตรงจุดก่อน อย่าเดามั่วแล้วส่งออก',
@@ -173,6 +174,7 @@ const SYSTEM_PROMPT = [
   '⚙️ คำสั่งระบบที่คุณเรียกเองได้ — ผู้ใช้ไม่ต้องพิมพ์คำตายตัว พูดแบบไหนก็ได้ คุณอ่านเจตนาจากข้อความ+บทสนทนาแล้วเรียกเลย (ผู้ใช้ไม่เห็นบล็อก):',
   '[[RUN]]{"cmd":"<ชื่อคำสั่ง>", ...ค่าเพิ่มเติม}[[/RUN]]',
   'ระบบจะทำคำสั่งแล้วต่อผลจริงท้ายคำตอบให้เอง → ตอบนำสั้นๆ พอ (เช่น "ได้ค่ะ เช็คให้เลยนะคะ") ห้ามเดา/แต่งผลเอง ห้ามเคลมว่าทำเสร็จก่อนเห็นผล',
+  '🔢 เลขงาน/เลขโปรเจกต์ (#REQ… #PRJ…) และคำว่า "ส่งแล้ว/ตั้งเวลาแล้ว/ยกเลิกแล้ว" ระบบเติมให้เองหลังทำสำเร็จ — ห้ามพิมพ์เลขเอง ห้ามใส่ XXXX ห้ามยืนยันล่วงหน้า',
   '- health = ตรวจสุขภาพระบบ: เวอร์ชันโค้ดที่รันจริง การเชื่อมแอปต่างๆ trigger ค่าที่ยังขาด',
   '    (เช่น "เช็คสุขภาพระบบ" "ระบบโอเคไหม" "ระบบล่มรึเปล่า" "เช็คหน่อย" ที่บทสนทนาไม่ได้พูดถึงเรื่องอื่นอยู่) — คุณปาล์มเท่านั้น',
   '- sales {"which":"today|yesterday|latest","biz":"cafe|plant|both"} = สรุปยอดขายจริงจากระบบร้าน/ระบบขายโรงน้ำ',
@@ -181,6 +183,7 @@ const SYSTEM_PROMPT = [
   '- groups = รายชื่อกลุ่มไลน์ที่ดิฉันอยู่ — คุณปาล์มเท่านั้น',
   '- staff = ทะเบียนพนักงานที่ DM ได้ — คุณปาล์มเท่านั้น',
   '- chatid = chat id ของห้องนี้ (ไว้ตั้งค่า)',
+  '- board = แนบปุ่มเปิดบอร์ดงาน (มีรหัสคุณปาล์มในลิงก์) — คุณปาล์มเท่านั้น',
   'ผู้ส่งไม่มีสิทธิ์คำสั่งนั้น (เช่น พนักงานขอเช็คระบบ) → ห้ามเรียก ตอบสุภาพว่าเป็นเรื่องที่คุณปาล์มดูแลเอง',
   'เจตนากำกวมระหว่างคำสั่งกับเรื่องที่คุยค้างอยู่ → ถามกลับสั้นๆ พร้อมตัวเลือก (เช่น "เช็คระบบ หรือเช็คร่างประกาศเมื่อกี้คะ")',
   '',
@@ -777,7 +780,9 @@ function handleEvent(ev) {
   // เจ้าของถามได้ทุกที่ (ไม่ระบุบริษัท → ตอบทั้งคู่ ไม่ถามกลับ)
   // คนอื่นถามได้เฉพาะ "ในกลุ่ม Old Days" และได้เฉพาะยอดร้าน — การ์ดยอดร้านลงกลุ่มนั้น
   // อยู่แล้วทุกเย็น ข้อความนี้ไม่มีค่าคอม/ต้นทุน จึงไม่ใช่การเงินวงใน (แก้เคสพนักงานโดนปฏิเสธ)
-  if (/(สรุปยอด|ยอดขาย|รายงานการขาย|^ยอด|ยอด(ร้าน|โรงน้ำ|ละกอน|วันนี้|เมื่อวาน|ล่าสุด))/.test(text.trim())) {
+  // ทางลัดเฉพาะข้อความ "ขอยอด" สั้นๆ · ในกลุ่มต้องเรียกเลขาหรือถามสั้นมาก (แชทจริง: คำบ่น/ข้อเสนอ/สั่งงานที่มี "ยอดขาย" เคยโดนตอบเป็นสรุปยอด)
+  //   ที่เหลือให้สมองอ่านเจตนา แล้วเรียก [[RUN]] sales เองถ้าอยากได้ยอดจริง
+  if (isSalesAsk(text) && (!inGroup || isAddressedToSecretary(ev, text) || text.replace(/\s+/g, '').length <= 20)) {
     const a = salesArgsFromText(text, owner);
     const out = salesSummaryReply(a.which, a.biz, owner, chatId);
     if (out) {
@@ -962,7 +967,8 @@ function handleEvent(ev) {
   const p = parseBlocks(askClaude(preCtx ? (preCtx + 'คำถาม/คำสั่ง: ' + text) : text, history));
   let reply = p.reply;
   // ⚙️ สมองเข้าใจเจตนาแล้วเรียกคำสั่งระบบเอง (เช็คระบบ/สรุปยอด/ถามบิล …) → ต่อผลจริงท้ายคำตอบ
-  const ran = runCommandBlocks(p.all.RUN, { owner: owner, inGroup: inGroup, chatId: chatId, srcType: src.type, text: text });
+  const runCtx = { owner: owner, inGroup: inGroup, chatId: chatId, srcType: src.type, text: text };
+  const ran = runCommandBlocks(p.all.RUN, runCtx);
   if (ran) reply = (reply ? reply + '\n\n' : '') + ran;
 
   // 3.1 ถ้าเป็นการฝากงาน → คัดแยกตาม assignee
@@ -1123,7 +1129,7 @@ function handleEvent(ev) {
     }
   }
 
-  lineReply(replyToken, reply, (taskLogged && owner) ? [boardButtonMessage()] : null);   // 🔒 ปุ่มบอร์ดมีรหัสคุณปาล์ม — พนักงานฝากงานไม่ได้ปุ่ม
+  lineReply(replyToken, reply, (runCtx.extra && owner) ? runCtx.extra : (taskLogged && owner) ? [boardButtonMessage()] : null);   // 🔒 ปุ่มบอร์ดมีรหัสคุณปาล์ม — พนักงานฝากงานไม่ได้ปุ่ม
   if (inGroup) markAwaitingReply(chatId, senderId, reply);
   memAppend(chatId, text, reply);
   logRow(['ทั่วไป', senderId, text, reply]);
@@ -1836,6 +1842,9 @@ function analyzeImage(blob, context) {
           { type: 'image', source: { type: 'base64', media_type: blob.getContentType(), data: Utilities.base64Encode(bytes) } },
           { type: 'text', text: 'คุณเป็นเลขาของธุรกิจโรงน้ำดื่ม "ละกอน" และร้านคาเฟ่ '
               + 'มีคนส่งรูปนี้เข้ามาในแชท ช่วยตัดสินว่าควรเก็บรูปนี้ไว้ใช้ทำงานต่อไหม\n\n'
+              + 'กิจการของเราเอง (ไม่ใช่คู่แข่ง/ธุรกิจอื่น): บจก.ออริจิ้น แล็บส์ (โรงน้ำ ละกอน/เพียวซ่า/งาน OEM) · โรงขวด P&K · ร้านกาแฟ Old Days · บจก.รุจิพล ซัพพลาย\n'
+              + 'เอกสารเงินทุกชนิด (สลิปโอน ใบเสร็จ บิล ค่าน้ำมัน เลขไมล์) = เกี่ยวข้องเสมอ แม้โอนเข้าบัญชีชื่อบุคคลในครอบครัวเจ้าของ · ห้ามตัดสินว่าสลิปปลอม (ไม่ใช่หน้าที่ของคุณ)\n'
+              + 'อย่ายึดหัวข้อเก่าในบริบท — รูปใหม่อาจเป็นคนละเรื่องกับที่คุยค้างอยู่\n\n'
               + (context ? ('บริบทตอนที่ส่งรูปมา:\n' + context + '\n\n') : '(คนส่งไม่ได้พิมพ์ข้อความอะไรมาพร้อมรูป)\n\n')
               + 'ตอบตามรูปแบบนี้เป๊ะๆ 3 บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
               + 'เกี่ยวข้อง: ใช่ หรือ ไม่\n'
@@ -2778,11 +2787,13 @@ function askClaude(userText, history) {
   // 🔒 ไม่ใส่ลิงก์บอร์ด (มี QUEUE_KEY) ใน prompt อีก — สมองตอบทุกคนรวมพนักงานในกลุ่ม · ปุ่มบอร์ดระบบแนบให้คุณปาล์มเอง
   sys += '\n\nบอร์ดงาน = ของคุณปาล์มคนเดียว (ตั้งแต่ 01/10): ห้ามส่ง/แต่งลิงก์บอร์ด และห้ามสรุปงานในบอร์ดให้คนอื่น'
     + ' — คนอื่นขอดูบอร์ด ให้ตอบว่า "บอร์ดงานดูได้เฉพาะคุณปาล์มนะคะ มีงานจะฝาก พิมพ์บอกดิฉันได้เลยค่ะ"'
-    + ' · คุณปาล์มขอลิงก์บอร์ด ให้บอกว่าพิมพ์ "ขอลิงก์บอร์ด" แล้วระบบส่งปุ่มให้';
+    + ' · คุณปาล์มขอดู/ขอลิงก์บอร์ด (พูดแบบไหนก็ได้) → ใส่ [[RUN]]{"cmd":"board"}[[/RUN]] ระบบแนบปุ่มเปิดบอร์ดให้เอง ห้ามบอกให้พิมพ์คำสั่ง';
 
   // Prompt caching: system prompt (บุคลิก+คลังข้อมูล+Playbook) เหมือนเดิมแทบทุกครั้ง
   // ติด cache_control ไว้ → 5 นาทีถัดไป Claude "อ่านจากแคช" แทนอ่านใหม่ทั้งก้อน (ถูกลง ~90%)
-  const messages = (history || []).concat([{ role: 'user', content: userText }]);
+  // ⏰ บอกเวลาจริงทุกครั้ง (แชทจริงเคยตอบ "ดิฉันไม่มีนาฬิกา" ตอนถามว่าประกาศเลยเวลาหรือยัง) — ต่อท้ายข้อความ ไม่ใส่ system กันแคชพัง
+  const nowTxt = Utilities.formatDate(new Date(), 'GMT+7', 'EEEE d MMMM yyyy HH:mm');
+  const messages = (history || []).concat([{ role: 'user', content: userText + '\n\n(เวลาตอนนี้: ' + nowTxt + ' น. เวลาไทย)' }]);
   const payload = {
     model: MODEL,
     max_tokens: 4096,   // เผื่อโควตาให้โหมดคิดก่อนตอบด้วย ไม่งั้นคำตอบยาว ๆ จะถูกตัดกลางคัน
@@ -2816,9 +2827,17 @@ function askClaude(userText, history) {
 //  LINE messaging
 // ════════════════════════════════════════════════════════════
 // extraMessages: array ของ message object เพิ่มเติม (เช่นปุ่มเปิดบอร์ด) ต่อท้ายข้อความปกติ — รวมกันได้สูงสุด 5 ข้อความ/ครั้งตามลิมิตของ LINE
+// ล้างข้อความก่อนส่งไลน์: ไลน์ไม่แสดง **ตัวหนา** (เห็นเป็นดอกจัน) · ตัดบรรทัด "Powered by …" ที่เคยหลุดถึงพนักงาน
+function cleanOut(text) {
+  return String(text == null ? '' : text)
+    .replace(/\*\*([^*\n]+)\*\*/g, '$1').replace(/__([^_\n]+)__/g, '$1')
+    .replace(/^[ \t]*(?:\*\*)?(?:powered|generated) by [^\n]*$/gim, '')
+    .replace(/\n{3,}/g, '\n\n').trim() || '…';
+}
+
 function lineReply(replyToken, text, extraMessages) {
   if (!replyToken) return;
-  const messages = [{ type: 'text', text: text }].concat(extraMessages || []).slice(0, 5);
+  const messages = [{ type: 'text', text: cleanOut(text) }].concat(extraMessages || []).slice(0, 5);
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'post',
     contentType: 'application/json',
@@ -2836,7 +2855,7 @@ function linePush(to, text) {
     method: 'post',
     contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
-    payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: text }] }),
+    payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: cleanOut(text) }] }),
     muteHttpExceptions: true
   });
   // ส่งเข้ากลุ่ม/ห้อง → เปิด "หน้าต่างถามต่อ" 30 นาที (คนในกลุ่มถามเรื่องประกาศได้โดยไม่ต้องเรียกเลขา)
@@ -2923,7 +2942,8 @@ const SEC_COMMANDS = {
   bill:   { owner: true, privateOnly: true, run: function (a, c) { return answerBillQuestion(String(a.q || c.text || '')); } },
   groups: { owner: true, run: function () { return groupsListText(); } },
   staff:  { owner: true, run: function () { return staffListText(); } },
-  chatid: { owner: false, run: function (a, c) { return chatIdText(c.chatId, c.srcType); } }
+  chatid: { owner: false, run: function (a, c) { return chatIdText(c.chatId, c.srcType); } },
+  board:  { owner: true, run: function (a, c) { (c.extra = c.extra || []).push(boardButtonMessage()); return '📋 ปุ่มเปิดบอร์ดอยู่ด้านล่างค่ะ'; } }
 };
 
 function runCommandBlocks(list, ctx) {
@@ -2951,6 +2971,14 @@ function isHealthCheckAsk(text) {
       || /^(ช่วย)?(เช็ค|เชค|เช็ก|ตรวจ|ดู)(สุขภาพ|สถานะ)?ระบบ(ทั้งหมด|รวม|เลขา)?$/.test(t)
       || /^(สุขภาพ|สถานะ)ระบบ(เป็นไง|เป็นยังไง|ล่ะ)?$/.test(t)
       || /^ระบบ(เลขา)?(โอเค|ok|ปกติ|พร้อม|เป็นไง|เป็นยังไง|ยังดี|ยังดีอยู่|ล่ม|พัง|มีปัญหา)(ดี)?(ไหม|มั้ย|ป่าว|รึเปล่า|หรือเปล่า|อยู่ไหม|อยู่มั้ย|ยัง|อะ|ปะ|ป่ะ)?$/.test(t);
+}
+
+// ข้อความ "ขอยอด" ล้วน ๆ (สั้น ไม่ใช่สั่งงาน/บ่น/เสนอ) — ไม่เข้าเงื่อนไข = ให้สมองอ่านเจตนา (มี RUN sales)
+function isSalesAsk(text) {
+  const t = String(text || '').trim().replace(/^เลขา\s*/, '');
+  if (!/(สรุปยอด|ยอดขาย|รายงานการขาย|^ยอด|ยอด(ร้าน|โรงน้ำ|ละกอน|วันนี้|เมื่อวาน|ล่าสุด))/.test(t)) return false;
+  if (t.replace(/\s+/g, '').length > 40) return false;
+  return !/ทีม\s*ai|ระบบ|แอป|ทำ(ให้|ระบบ)|ฝาก|แจ้ง|ส่ง.*(กลุ่ม|ให้)|ตั้ง|ทุกวัน|ประจำวัน|เสนอ|ขาดทุน|ไม่พอ|น้อย|ตก|ปิดร้าน|เปิดร้าน/i.test(t);
 }
 
 // "ยอดร้านวันนี้" "ยอดโรงน้ำเมื่อวาน" "สรุปยอด" → ช่วงเวลา + ธุรกิจ (ไม่ระบุ = เจ้าของได้ทั้งคู่ · คนอื่นได้ร้าน)
@@ -5032,7 +5060,7 @@ function linePushChecked(to, text) {
       method: 'post',
       contentType: 'application/json',
       headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
-      payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: text }] }),
+      payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: cleanOut(text) }] }),
       muteHttpExceptions: true
     });
     return res.getResponseCode() === 200;

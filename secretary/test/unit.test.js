@@ -264,4 +264,34 @@ t('กลุ่ม Old Days: พนักงานถามยอด = ยอด
   }
 });
 
+t('cleanOut: ตัด **ตัวหนา** และบรรทัด "Powered by …" ก่อนส่งไลน์ (แชทจริงเคยหลุด)', () => {
+  const { ctx } = makeEnv();
+  assert.strictEqual(ctx.cleanOut('**สรุป** งาน\n\n\n\nPowered by Kimi K2.5 by MoonshotAI.'), 'สรุป งาน');
+  assert.strictEqual(ctx.cleanOut('ราคา 5*3 = 15'), 'ราคา 5*3 = 15');
+});
+
+t('isSalesAsk: ขอยอดสั้นๆ = ทางลัด · สั่งงาน/บ่น/เสนอที่มีคำว่ายอดขาย = ให้สมองคิด', () => {
+  const { ctx } = makeEnv();
+  ['สรุปยอดวันนี้', 'ยอดร้านเมื่อวาน', 'เลขา ยอดขายวันนี้', 'ยอดโรงน้ำล่าสุด'].forEach(x => assert.ok(ctx.isSalesAsk(x), 'ควรจับ: ' + x));
+  ['ช่วยแจ้งทีม AI ให้ทำระบบส่งสรุปยอดขายประจำวันลงกลุ่มได้หน่อย', 'วันนี้ขาดทุนอีกแล้ว ยอดขายไม่พอค่าใช้จ่ายเลยครับ',
+   'เสนอว่าอาทิตย์หน้าเปิดร้านสายลงได้ไหม ช่วงเช้ายอดขายน้อยมาก'].forEach(x => assert.ok(!ctx.isSalesAsk(x), 'ไม่ควรจับ: ' + x));
+});
+
+t('RUN board (คุณปาล์ม) → แนบปุ่มบอร์ดท้ายคำตอบ · พนักงานเรียกไม่ได้', () => {
+  let e = makeEnv({ ai: () => 'ได้ค่ะ\n[[RUN]]{"cmd":"board"}[[/RUN]]' });
+  e.ctx.handleEvent(dm(OWNER, 'งานในบอร์ดดูตรงไหนนะ'));
+  assert.strictEqual(e.S.replies[0].messages.length, 2);
+  e = makeEnv({ ai: () => 'ได้ค่ะ\n[[RUN]]{"cmd":"board"}[[/RUN]]' });
+  e.ctx.handleEvent(dm('Ustaff', 'งานในบอร์ดดูตรงไหน'));
+  assert.ok(!e.S.replies.length || e.S.replies[0].messages.length === 1);
+});
+
+t('สมองรู้เวลาปัจจุบัน: ต่อท้ายข้อความล่าสุด (ไม่ใส่ system กันแคชพัง)', () => {
+  const { ctx, S } = makeEnv({ ai: () => 'ได้ค่ะ' });
+  ctx.handleEvent(dm(OWNER, 'วันนี้วันอะไรนะ'));
+  const msgs = S.prompts.find(b => b.system).messages;
+  assert.ok(/\(เวลาตอนนี้: .+ น\. เวลาไทย\)$/.test(msgs[msgs.length - 1].content));
+  assert.ok(!/เวลาตอนนี้/.test(JSON.stringify(S.prompts.find(b => b.system).system)));
+});
+
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');
