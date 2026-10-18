@@ -294,4 +294,13 @@ t('สมองรู้เวลาปัจจุบัน: ต่อท้า
   assert.ok(!/เวลาตอนนี้/.test(JSON.stringify(S.prompts.find(b => b.system).system)));
 });
 
+t('หากลุ่มจากชื่อเรียกอื่น: "ร้านกาแฟ"/"คาเฟ่" = กลุ่ม Old Days (แชทจริงเคยหาไม่เจอ) · ไม่มีกลุ่มร้าน = ไม่เดา', () => {
+  const { ctx } = makeEnv();
+  const base = ctx.listKnownGroups;
+  ctx.listKnownGroups = () => base().concat([{ id: 'Cod0000000000000000000000000000000', name: 'Old Days ทีมร้าน ☕' }]);
+  ['ร้านกาแฟ', 'กลุ่มร้านกาแฟ', 'คาเฟ่'].forEach(x => assert.strictEqual(ctx.findGroupByName(x), 'Cod0000000000000000000000000000000', x));
+  ctx.listKnownGroups = base;
+  assert.strictEqual(ctx.findGroupByName('ร้านกาแฟ'), '');
+});
+
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');

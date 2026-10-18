@@ -1966,7 +1966,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-18b';
+const CODE_VERSION = '2026-10-18c';
 
 function healthCheck() {
   const L = [];
@@ -2303,7 +2303,13 @@ function findGroupByName(name) {
   for (let i = 0; i < gs.length; i++) if (gs[i].n.indexOf(q) !== -1) return gs[i].id;     // ชื่อกลุ่มมีคำที่พิมพ์
   for (let i = 0; i < gs.length; i++) if (q.indexOf(gs[i].n) !== -1) return gs[i].id;     // คำที่พิมพ์มีชื่อกลุ่ม
   const m = matchGroupInText(name);                                                       // เทียบรายคำ (บริษัท↔บจก ฯลฯ)
-  return m ? m.id : '';
+  if (m) return m.id;
+  // ชื่อเรียกอื่นของร้าน: "ร้านกาแฟ/คาเฟ่/กาแฟ" = กลุ่ม Old Days (แชทจริง: "กลุ่มร้านกาแฟ" เคยหาไม่เจอ) — ใช้เมื่อมีกลุ่มร้านกลุ่มเดียว ไม่เดามั่ว
+  if (/ร้านกาแฟ|กาแฟ|คาเฟ่|cafe|olddays/i.test(q)) {
+    const shop = listKnownGroups().filter(function (g) { return /old ?days|คาเฟ่|กาแฟ/i.test(String(g.name || '')); });
+    if (shop.length === 1) return shop[0].id;
+  }
+  return '';
 }
 
 // ════════════════════════════════════════════════════════════

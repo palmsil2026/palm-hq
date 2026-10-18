@@ -30,7 +30,7 @@ const SCENARIOS = [
 
   // ── ยอดขาย: ไม่ต้องพูดคำว่า "ยอด" ──
   { id: 'S1', title: '"เมื่อวานโรงน้ำขายได้กี่บาท"', who: 'owner', where: 'dm', text: 'เมื่อวานโรงน้ำขายได้กี่บาท',
-    expect: { brain: true, run: 'sales', fn: r => (((r.blocks.RUN || []).find(b => b.cmd === 'sales') || {}).which === 'yesterday' ? '' : 'sales ควรเป็น which=yesterday'), replyNot: [NO_RETYPE] } },
+    expect: { brain: true, run: 'sales', fn: r => (((r.all.RUN || []).find(b => b.cmd === 'sales') || {}).which === 'yesterday' ? '' : 'sales ควรเป็น which=yesterday'), replyNot: [NO_RETYPE] } },
   { id: 'S2', title: '"ร้านวันนี้ขายดีไหม"', who: 'owner', where: 'dm', text: 'ร้านวันนี้เป็นไงบ้าง ขายดีไหม',
     expect: { brain: true, run: 'sales', replyNot: [NO_RETYPE] } },
   { id: 'S3', title: 'ทางลัดเดิม "สรุปยอดวันนี้"', who: 'owner', where: 'dm', text: 'สรุปยอดวันนี้', expect: { brain: false, reply: [/ยอดร้าน\(today\)/, /ยอดโรงน้ำ\(today\)/] } },
@@ -101,7 +101,7 @@ const SCENARIOS = [
     text: 'ส่งไปกลุ่มไหน ไม่เห็นมี', expect: { brain: true, replyNot: [/ส่งให้แล้ว|ส่งเรียบร้อยแล้ว|ส่งไปแล้วค่ะ/] } },
   { id: 'R10', title: '(จริง) "กลุ่มร้านกาแฟ" = กลุ่ม Old Days → ส่งถูกกลุ่ม หรือถามยืนยัน', who: 'owner', where: 'dm',
     text: 'ประกาศลงกลุ่มร้านกาแฟหน่อยว่าแอปร้านอัปเดตแล้ว ใช้ได้เลย',
-    expect: { brain: true, fn: r => { const sg = (r.blocks.SENDGROUP || [])[0]; if (!sg) return /Old Days|ไหมคะ|มั้ยคะ|\?/.test(r.raw) ? '' : 'ไม่ส่งและไม่ถามยืนยัน';
+    expect: { brain: true, fn: r => { const sg = r.blocks.SENDGROUP; if (!sg) return /Old Days|ไหมคะ|มั้ยคะ|\?/.test(r.raw) ? '' : 'ไม่ส่งและไม่ถามยืนยัน';
       const id = r.ctx.resolveGroupTarget(sg.target); return id === r.gid('Old Days ทีมร้าน') ? '' : 'target "' + sg.target + '" หากลุ่ม Old Days ไม่เจอ'; } } },
   { id: 'R11', title: '(จริง) "ช่วยคิดคำประกาศ" → โชว์ร่างก่อน ห้ามส่งทันที', who: 'owner', where: 'dm',
     text: 'ช่วยคิดคำประกาศหน่อย จะบอกว่าแอปร้านเวอร์ชันแรกเสร็จแล้ว ให้ทุกคนกดลิงก์สร้างโปรไฟล์ จะให้คุณประกาศในกลุ่มร้าน',

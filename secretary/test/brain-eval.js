@@ -41,7 +41,7 @@ function runScenario(sc, brainAnswer) {
   const parsed = raw ? ctx.parseBlocks(raw) : { reply: '', all: {} };
   return {
     crash, brainCalled: chat.length > 0, request: chat[0] || null,
-    raw, blocks: parsed.all || {}, runs: ((parsed.all || {}).RUN || []).map(b => String(b.cmd || '')),
+    raw, blocks: parsed.blocks || {}, all: parsed.all || {}, runs: ((parsed.all || {}).RUN || []).map(b => String(b.cmd || '')),   // blocks = บล็อกแรกของแต่ละชนิด · all = ทุกบล็อก
     reply: H.replyText(S), msgCount: S.replies.length ? S.replies[0].messages.length : 0, ctx, gid, pushes: S.pushes.map(p => ({ to: p.to, text: p.messages[0].text })),
     finance: H.finCalls(S), logs: S.logs
   };
@@ -110,7 +110,7 @@ async function main() {
     process.exit(report(brainList.map(sc => ({ sc, bad: check(sc, runScenario(sc, answers[sc.id] || ''), 'full') }))) ? 1 : 0);
   }
   if (mode === 'grade') {
-    const answers = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+    const answers = JSON.parse(fs.readFileSync(process.argv[3] || path.join(__dirname, 'brain-answers.json'), 'utf8'));
     const rows = brainList.filter(sc => sc.id in answers).map(sc => {
       const r = runScenario(sc, answers[sc.id]);
       return { sc, r, bad: check(sc, r, 'full') };
