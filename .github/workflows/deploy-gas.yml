@@ -42,6 +42,9 @@ jobs:
           echo "  ✓ secretary/Code.gs"
           grep -qE "^const CODE_VERSION = '" secretary/Code.gs || { echo "::error::ไม่เจอ CODE_VERSION ใน Code.gs"; exit 1; }
 
+      - name: ทดสอบเส้นทางเลขา (ล้ม = ไม่ส่งขึ้น)
+        run: node secretary/test/unit.test.js
+
       - name: ติดตั้ง clasp
         run: npm install -g @google/clasp@3.4.0
 
