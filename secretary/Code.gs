@@ -305,6 +305,7 @@ function doGet(e) {
   // 🌙 ตัวเรียนรู้แชทกลุ่ม (Routine) ขอแชทใหม่ของแต่ละกลุ่ม — LEARN_KEY เท่านั้น
   if (p.action === 'learnFeed') {
     if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
+    if (String(p.mode || '') === 'people') return jsonOut(learnFeedPeople());
     return jsonOut(learnFeed(String(p.force || '') === '1'));
   }
   if (p.action === 'aiqueue') {
@@ -1973,7 +1974,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-19b';
+const CODE_VERSION = '2026-10-20a';
 
 function healthCheck() {
   const L = [];
@@ -6241,9 +6242,12 @@ const LEARN_PROMPT = [
   'เป้าหมาย: ให้เลขาเข้าใจว่าแต่ละกลุ่มทำงานกันจริงอย่างไร เพื่อช่วยประสานงาน ตรวจปัญหา และเชื่อมแชทคนเข้ากับระบบของโรงงาน',
   '',
   'กติกา:',
-  '- จดเฉพาะเรื่องงาน · ห้ามจดเงินเดือน/ค่าคอมรายคน เรื่องส่วนตัว สุขภาพ ความสัมพันธ์ ข้อมูลติดต่อส่วนตัว และตัวเลขการเงินวงใน',
+  '- จดเรื่องงานเป็นหลัก · เรื่องส่วนตัวแตะได้นิดหน่อยเฉพาะที่กระทบงาน เขียนกลาง ๆ สั้น ๆ (เช่น "ช่วงนี้ลาบ่อย ต้องดูแลครอบครัว")',
+  '- ห้ามจด: เงินเดือน/ค่าคอมรายคน ตัวเลขการเงินวงใน เลขบัญชี/เบอร์/ที่อยู่ส่วนตัว อาการ/โรค/การวินิจฉัยสุขภาพ ศาสนา การเมือง เพศวิถี เรื่องชู้สาว',
   '- จดตามที่เห็นในแชทจริงเท่านั้น ห้ามเดา · ไม่แน่ใจให้เขียนว่า "(ดูเหมือนว่า…)"',
-  '- ไม่ตัดสินคน ไม่ให้คะแนนใคร — จดบทบาท/งาน ไม่ใช่นิสัย',
+  '- ลักษณะ/นิสัยรายคน (people[].style — คุณปาล์มขอ 19/10 "อยากวิเคราะห์ลักษณะนิสัยหรือเรื่องรายบุคคลด้วย"):',
+  '  เขียนจากพฤติกรรมที่เห็นในแชทจริง: วิธีสื่อสาร (ตอบไว/ช้า ละเอียด/สั้น) ความรับผิดชอบ-การตามงาน ความริเริ่ม จุดแข็ง จุดที่ควรช่วยหรือระวัง และวิธีคุย/มอบงานให้คนนี้ได้ผล',
+  '  บรรยายพฤติกรรม ไม่ใช้คำตีตรา (เขียน "ตอบช้าเกิน 2 ชม. หลายครั้ง" ไม่ใช่ "ขี้เกียจ") · เป็นธรรม เห็นทั้งดีและที่ควรปรับ · รวมกับลักษณะเดิมที่ให้มา ไม่ทิ้งของเดิมที่ยังจริง',
   '- ภาษาไทย สั้น อ่านง่าย',
   '',
   'ระบบที่บริษัทมีอยู่แล้ว (ใช้ตอนเสนอ systemIdeas):',
@@ -6253,10 +6257,16 @@ const LEARN_PROMPT = [
   'ตอบเป็น JSON อย่างเดียว ห้ามมีข้อความอื่น:',
   '{"profile":"แฟ้มกลุ่มฉบับใหม่ทั้งก้อน (รวมของเดิม+ที่เรียนเพิ่ม ตัดของที่ล้าสมัย ไม่เกิน ' + LEARN_PROFILE_MAX + ' ตัวอักษร) หัวข้อ: 🎯 กลุ่มนี้มีไว้ทำอะไร / 👥 ใครทำอะไร / 🔁 งานประจำ+ขั้นตอนที่ทำกันจริง / ⚠️ ปัญหาที่เกิดบ่อย+ใครมักแก้ / 🗣️ ศัพท์-ชื่อเรียกเฉพาะ",',
   ' "events":[{"date":"yyyy-MM-dd","type":"ปัญหา|งาน|ตัดสินใจ|ประกาศ|อื่นๆ","text":"เกิดอะไร 1 ประโยค","people":"ชื่อที่เกี่ยว"}],',
-  ' "people":[{"name":"ชื่อตามที่โชว์ในแชท","role":"ในกลุ่มนี้รับผิดชอบ/มักทำเรื่องอะไร 1 ประโยค"}],',
+  ' "people":[{"name":"ชื่อตามที่โชว์ในแชท","role":"ในกลุ่มนี้รับผิดชอบ/มักทำเรื่องอะไร 1 ประโยค","style":"ลักษณะการทำงาน/นิสัยของคนนี้ฉบับใหม่ทั้งก้อน รวมของเดิม ไม่เกิน 4 ประโยค (ข้อมูลยังไม่พอ = เว้นว่าง)"}],',
   ' "systemIdeas":[{"topic":"เรื่องที่แจ้งกันในแชทซ้ำ ๆ แต่ยังไม่มีระบบรับ (สั้น)","evidence":"ตัวอย่าง/บ่อยแค่ไหน","system":"ระบบที่ควรรับ"}]}',
   'events ไม่เกิน 10 อันที่สำคัญจริง · systemIdeas ไม่เกิน 3 และเฉพาะที่เห็นซ้ำจริง (ไม่มีให้ [])'
 ].join('\n');
+
+// โหมดเก็บนิสัยย้อนหลัง (feed mode=people) — อ่านแชทเก่าเฉพาะเพื่อแฟ้มคน ไม่แตะแฟ้มกลุ่ม/เหตุการณ์/จุดต่อระบบ
+const LEARN_PEOPLE_PROMPT = LEARN_PROMPT.split('ตอบเป็น JSON อย่างเดียว')[0]
+  + 'รอบนี้ทำเฉพาะแฟ้มคน: อ่านแชทแล้วสรุปบทบาท + ลักษณะ/นิสัยของแต่ละคนที่คุยในแชทนี้\n'
+  + 'ตอบเป็น JSON อย่างเดียว ห้ามมีข้อความอื่น:\n'
+  + '{"people":[{"name":"ชื่อตามที่โชว์ในแชท","role":"ในกลุ่มนี้รับผิดชอบ/มักทำเรื่องอะไร 1 ประโยค","style":"ลักษณะการทำงาน/นิสัยฉบับใหม่ทั้งก้อน รวมของเดิม ไม่เกิน 4 ประโยค (ข้อมูลไม่พอ = เว้นว่าง)"}]}';
 
 function learnSheet(name, head) {
   const id = boardSheetId(); if (!id) return null;
@@ -6268,7 +6278,7 @@ function learnSheet(name, head) {
 const LEARN_HEAD = {
   GroupKnowledge: ['chatId', 'ชื่อกลุ่ม', 'แฟ้มกลุ่ม', 'อัปเดตเมื่อ', 'เรียนถึง(ms)', 'ข้อความที่เรียนแล้ว'],
   GroupEvents: ['วันที่', 'chatId', 'กลุ่ม', 'ประเภท', 'เหตุการณ์', 'คนเกี่ยวข้อง', 'จดเมื่อ'],
-  PeopleKnowledge: ['ชื่อ', 'userId', 'บทบาทตามกลุ่ม(JSON)', 'อัปเดตเมื่อ'],
+  PeopleKnowledge: ['ชื่อ', 'userId', 'บทบาทตามกลุ่ม(JSON)', 'อัปเดตเมื่อ', 'ลักษณะ/นิสัย (สะสม)', 'อัปเดตลักษณะ'],
   ChatToSystem: ['เรื่อง', 'กลุ่ม', 'ตัวอย่าง/หลักฐาน', 'ระบบที่ควรรับ', 'พบซ้ำ(คืน)', 'พบครั้งแรก', 'พบล่าสุด', 'สถานะ']
 };
 
@@ -6285,12 +6295,22 @@ function readGroupKnowledge() {
 
 // เรียก Claude ให้อ่านแชทใหม่ของ 1 กลุ่ม → object ผลการเรียน หรือ null (ไม่เลื่อน "เรียนถึง" ถ้าพัง)
 // ข้อความให้ "ผู้สรุป" อ่าน (ใช้ทั้งโหมด Routine และโหมดเรียกสมองตรง — เนื้อเดียวกัน)
-function learnUserText(gName, oldProfile, msgs, ideaTopics) {
+function learnUserText(gName, oldProfile, msgs, ideaTopics, peopleOnly) {
   const lines = msgs.map(function (m) {
     return '[' + Utilities.formatDate(new Date(m.t), 'GMT+7', 'yyyy-MM-dd HH:mm') + '] ' + (m.name || 'ไม่ทราบชื่อ') + ': ' + String(m.text).slice(0, 500);
   }).join('\n');
+  // ลักษณะเดิมของคนที่คุยในแชทชุดนี้ → ผู้สรุปเขียนต่อจากของเดิม (สะสม ไม่เริ่มใหม่ทุกคืน)
+  let notes = '';
+  try {
+    const st = peopleStyleMap();
+    const seen = {};
+    msgs.forEach(function (m) { if (m.name && st[m.name] && !seen[m.name]) seen[m.name] = st[m.name]; });
+    const ks = Object.keys(seen);
+    if (ks.length) notes = 'ลักษณะ/นิสัยเดิมที่จดไว้ของคนในแชทนี้:\n' + ks.map(function (k) { return '- ' + k + ': ' + seen[k]; }).join('\n') + '\n\n';
+  } catch (e) {}
+  if (peopleOnly) return 'กลุ่ม: "' + gName + '" (รอบนี้ทำเฉพาะแฟ้มคน)\n\n' + notes + 'แชท ' + msgs.length + ' ข้อความ (เก่า→ใหม่):\n' + lines;
   return 'กลุ่ม: "' + gName + '"\n\n'
-    + 'แฟ้มกลุ่มเดิม:\n' + (oldProfile || '(ยังไม่มี — นี่คือการเรียนครั้งแรก)') + '\n\n'
+    + 'แฟ้มกลุ่มเดิม:\n' + (oldProfile || '(ยังไม่มี — นี่คือการเรียนครั้งแรก)') + '\n\n' + notes
     + (ideaTopics.length ? 'จุดต่อระบบที่จดไว้แล้ว (ถ้าเจอเรื่องเดิมซ้ำ ใช้ชื่อ topic เดิมเป๊ะ):\n- ' + ideaTopics.join('\n- ') + '\n\n' : '')
     + 'แชทใหม่ ' + msgs.length + ' ข้อความ (เก่า→ใหม่):\n' + lines;
 }
@@ -6437,6 +6457,44 @@ function learnKey() {
 }
 function learnKeyOk(key) { return !!key && (key === learnKey() || key === cfg('QUEUE_KEY')); }
 
+// โหมดเก็บนิสัยย้อนหลัง: อ่านแชททั้งหมดของแต่ละกลุ่มทีละก้อน ด้วย "เรียนนิสัยถึง" แยก (PEOPLE_CURSOR) ไม่แตะ "เรียนถึง" ปกติ
+function peopleCursors() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('PEOPLE_CURSOR') || '{}'); } catch (e) { return {}; } }
+function learnFeedPeople() {
+  const names = {}; listKnownGroups().forEach(function (g) { names[g.id] = g.name; });
+  const cur = peopleCursors();
+  let minC = Infinity; Object.keys(names).forEach(function (id) { minC = Math.min(minC, cur[id] || 0); });
+  if (minC === Infinity) return { ok: true, mode: 'people', instructions: LEARN_PEOPLE_PROMPT, groups: [] };
+  const byChat = {};
+  chatRowsSince(minC).forEach(function (m) {
+    if (!(m.chat in names) || m.t <= (cur[m.chat] || 0)) return;
+    (byChat[m.chat] = byChat[m.chat] || []).push(m);
+  });
+  const groups = Object.keys(byChat).map(function (id) {
+    const all = byChat[id], batch = all.slice(0, LEARN_MAX_MSGS);
+    return { chatId: id, name: names[id], upTo: batch[batch.length - 1].t, count: batch.length, more: all.length > batch.length,
+             text: learnUserText(names[id], '', batch, [], true) };
+  });
+  return { ok: true, mode: 'people', version: CODE_VERSION, instructions: LEARN_PEOPLE_PROMPT + '\n\n' + PALM_WAY, groups: groups,
+           note: 'รอบแฟ้มคน: ตอบ JSON {"people":[...]} → POST action=learnSave mode=people พร้อม chatId/upTo/count' };
+}
+function learnSavePeople(p) {
+  const id = String(p.chatId || ''), upTo = Number(p.upTo);
+  const names = {}; listKnownGroups().forEach(function (g) { names[g.id] = g.name; });
+  if (!(id in names)) return { ok: false, error: 'ไม่รู้จักกลุ่มนี้' };
+  if (!upTo || upTo > Date.now() + 60000) return { ok: false, error: 'upTo ไม่ถูกต้อง' };
+  const cur = peopleCursors();
+  if (upTo <= (cur[id] || 0)) return { ok: true, skipped: 'เรียนนิสัยถึงตรงนี้แล้ว' };
+  let j = null; try { j = JSON.parse(String(p.result || '')); } catch (e) {}
+  if (!j || !Array.isArray(j.people)) return { ok: false, error: 'result ต้องเป็น JSON ที่มี people' };
+  const uidOf = {};
+  chatRowsSince(cur[id] || 0).forEach(function (m) { if (m.chat === id && m.t <= upTo && m.name && m.uid) uidOf[m.name] = m.uid; });
+  upsertPeopleKnowledge(names[id], j.people.slice(0, 40), uidOf);
+  cur[id] = upTo;
+  PropertiesService.getScriptProperties().setProperty('PEOPLE_CURSOR', JSON.stringify(cur));
+  logRow(['เรียนนิสัยรายคน(Routine)', 'ระบบ', names[id], j.people.length + ' คน']);
+  return { ok: true, saved: names[id], people: j.people.length };
+}
+
 function learnFeed(force) {
   const c = learnCollect(force);
   const topics = ideaTopicsNow();
@@ -6451,6 +6509,7 @@ function learnFeed(force) {
 
 function learnSave(p) {
   if (!learnKeyOk(p.key)) return { ok: false, error: 'unauthorized' };
+  if (String(p.mode || '') === 'people') return learnSavePeople(p);
   const id = String(p.chatId || ''), upTo = Number(p.upTo), n = Number(p.count) || 0;
   const gk = readGroupKnowledge();
   const names = {}; listKnownGroups().forEach(function (g) { names[g.id] = g.name; });
@@ -6494,26 +6553,37 @@ function learnDone(p) {
   return { ok: true };
 }
 
+// { ชื่อ: ลักษณะสะสม } จากแท็บ PeopleKnowledge (คอลัมน์ 5)
+function peopleStyleMap() {
+  const s = learnSheet('PeopleKnowledge', LEARN_HEAD.PeopleKnowledge); const out = {};
+  if (!s || s.getLastRow() < 2) return out;
+  s.getRange(2, 1, s.getLastRow() - 1, 6).getValues().forEach(function (r) { if (r[0] && r[4]) out[String(r[0])] = String(r[4]); });
+  return out;
+}
+
 function upsertPeopleKnowledge(gName, people, uidOf) {
   const s = learnSheet('PeopleKnowledge', LEARN_HEAD.PeopleKnowledge);
   if (!s || !people || !people.length) return;
   const n = s.getLastRow();
-  const rows = n >= 2 ? s.getRange(2, 1, n - 1, 4).getValues() : [];
+  const rows = n >= 2 ? s.getRange(2, 1, n - 1, 6).getValues() : [];
   const idx = {};
   rows.forEach(function (r, i) { idx[String(r[1] || '') || ('n:' + r[0])] = i; idx['n:' + r[0]] = i; });
   const now = new Date();
   people.forEach(function (p) {
-    if (!p || !p.name || !p.role) return;
+    if (!p || !p.name || (!p.role && !p.style)) return;
     const name = String(p.name).trim(), uid = uidOf[name] || '';
+    const style = String(p.style || '').trim().slice(0, 1200);
     const i = (uid && uid in idx) ? idx[uid] : idx['n:' + name];
     if (i != null) {
       let roles = {}; try { roles = JSON.parse(rows[i][2] || '{}'); } catch (e) {}
-      roles[gName] = String(p.role).slice(0, 200);
-      rows[i] = [rows[i][0] || name, rows[i][1] || uid, JSON.stringify(roles), now];
-      s.getRange(i + 2, 1, 1, 4).setValues([rows[i]]);
+      if (p.role) roles[gName] = String(p.role).slice(0, 200);
+      rows[i] = [rows[i][0] || name, rows[i][1] || uid, JSON.stringify(roles), now,
+                 style || rows[i][4] || '', style ? now : (rows[i][5] || '')];   // ว่าง = เก็บของเดิม
+      s.getRange(i + 2, 1, 1, 6).setValues([rows[i]]);
     } else {
-      const r = [name, uid, JSON.stringify(function () { const o = {}; o[gName] = String(p.role).slice(0, 200); return o; }()), now];
-      s.appendRow(r); rows.push(r); idx['n:' + name] = rows.length - 1; if (uid) idx[uid] = rows.length - 1;
+      const o = {}; if (p.role) o[gName] = String(p.role).slice(0, 200);
+      const r = [name, uid, JSON.stringify(o), now, style, style ? now : ''];
+      s.getRange(s.getLastRow() + 1, 1, 1, 6).setValues([r]); rows.push(r); idx['n:' + name] = rows.length - 1; if (uid) idx[uid] = rows.length - 1;
     }
   });
 }
@@ -6620,12 +6690,13 @@ function handleKnowledgeCommand(text, replyToken) {
   if (m) {
     const s = learnSheet('PeopleKnowledge', LEARN_HEAD.PeopleKnowledge);
     const q = m[1].trim().replace(/^(คุณ|พี่|น้อง)/, '');
-    const rows = (s && s.getLastRow() >= 2) ? s.getRange(2, 1, s.getLastRow() - 1, 4).getValues() : [];
+    const rows = (s && s.getLastRow() >= 2) ? s.getRange(2, 1, s.getLastRow() - 1, 6).getValues() : [];
     const hit = rows.filter(function (r) { return String(r[0]).indexOf(q) !== -1; }).slice(0, 3);
     if (!hit.length) { lineReply(replyToken, 'ยังไม่มีแฟ้มของ "' + q + '" ค่ะ (ดิฉันจดจากคนที่คุยในกลุ่ม หลังเรียนรู้แชทแล้ว)'); return true; }
     lineReply(replyToken, hit.map(function (r) {
       let roles = {}; try { roles = JSON.parse(r[2] || '{}'); } catch (e) {}
-      return '👤 ' + r[0] + '\n' + Object.keys(roles).map(function (g) { return '• ' + g + ': ' + roles[g]; }).join('\n');
+      return '👤 ' + r[0] + '\n' + Object.keys(roles).map(function (g) { return '• ' + g + ': ' + roles[g]; }).join('\n')
+        + (r[4] ? '\n🧭 ลักษณะการทำงาน: ' + r[4] : '');
     }).join('\n\n').slice(0, 4900));
     return true;
   }
