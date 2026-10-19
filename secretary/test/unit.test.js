@@ -359,4 +359,50 @@ t('productionNudge: ไม่รู้จักกลุ่มฝ่ายผล
   assert.strictEqual(prodCalls(S).length, 0); assert.strictEqual(S.pushes.length, 0);
 });
 
+// ── 📨 สรุปบิล + คำถาม ลงกลุ่มบิล (แอปบัญชี v0.12 · คุณปาล์ม 20/10) ──
+const SAY = '🧾 สรุปบิลวันนี้ค่ะ\n**โรงน้ำ**\n1) ค่าไฟ 0,000 บาท\n2) ??? ร้านไหนคะ\n\n\n(ตอบเลขข้อได้เลย)';
+t('expenseOutbox: ได้ say → ส่งลงกลุ่มบิลตามตัวอักษรเป๊ะ (ไม่ตัด ** ไม่ยุบบรรทัด) → แจ้ง expenseOutboxSent ok+msgId → notice หาคุณปาล์ม', () => {
+  let n2 = 0;
+  const { ctx, S } = makeEnv({ financeResp: b => {
+    if (b.action === 'expenseOutbox') return n2++ === 0 ? { success: true, act: 'say', outId: 'OUT1', say: SAY } : { success: true, act: 'none' };
+    if (b.action === 'expenseOutboxSent') return { success: true, notify: true, notice: 'ส่งสรุปบิลลงกลุ่มแล้วค่ะ' };
+    return {}; } });
+  S.pushResp = { sentMessages: [{ id: 'LM777' }] };
+  ctx.expenseOutboxTick();
+  const g = S.pushes.filter(p => p.to === EXP_GID);
+  assert.strictEqual(g.length, 1); assert.strictEqual(g[0].messages[0].text, SAY);
+  const back = finCalls(S).filter(b => b.action === 'expenseOutboxSent');
+  assert.strictEqual(back.length, 1); assert.strictEqual(back[0].outId, 'OUT1'); assert.strictEqual(back[0].ok, true); assert.strictEqual(back[0].msgId, 'LM777'); assert.strictEqual(back[0].token, expectToken);
+  assert.ok(S.pushes.some(p => p.to === OWNER && /ส่งสรุปบิลลงกลุ่มแล้ว/.test(p.messages[0].text)));
+  assert.strictEqual(S.anthropic, 0);
+});
+
+t('expenseOutbox: act none → ไม่ส่งอะไร ไม่แจ้งกลับ', () => {
+  const { ctx, S } = makeEnv({ financeResp: () => ({ success: true, act: 'none' }) });
+  ctx.expenseOutboxTick();
+  assert.strictEqual(S.pushes.length, 0); assert.strictEqual(finCalls(S).filter(b => b.action === 'expenseOutboxSent').length, 0);
+});
+
+t('expenseOutbox: ไม่รู้จักกลุ่มบิล → ไม่ส่ง และไม่แจ้งกลับ (แอปบัญชีส่งใหม่เอง)', () => {
+  const { ctx, S } = makeEnv({ financeResp: b => (b.action === 'expenseOutbox' ? { success: true, act: 'say', outId: 'O2', say: 'x' } : {}) });
+  ctx.listKnownGroups = () => [{ id: OTHER_GID, name: 'กลุ่มคุยเล่น' }];
+  ctx.expenseOutboxTick();
+  assert.strictEqual(S.pushes.length, 0); assert.strictEqual(finCalls(S).filter(b => b.action === 'expenseOutboxSent').length, 0);
+});
+
+t('expenseOutbox: ไลน์ส่งไม่ผ่าน / ข้อความยาวเกิน → แจ้งกลับ ok:false + สาเหตุ', () => {
+  const { ctx, S } = makeEnv({ financeResp: b => (b.action === 'expenseOutbox' ? { success: true, act: 'say', outId: 'O3', say: 'ก'.repeat(5001) } : { success: true }) });
+  ctx.expenseOutboxTick();
+  const back = finCalls(S).filter(b => b.action === 'expenseOutboxSent');
+  assert.strictEqual(back.length, 1); assert.strictEqual(back[0].ok, false); assert.ok(/5,000/.test(back[0].error));
+  assert.strictEqual(S.pushes.length, 0);
+});
+
+t('คนในกลุ่มบิล Reply ใส่ข้อความสรุป ("1 โอนแล้ว") → expenseChat พร้อม quotedMessageId · เลขาไม่ตอบเอง', () => {
+  const { ctx, S } = makeEnv({ financeResp: () => ({ success: true, act: 'update' }) });
+  ctx.handleEvent(ev('text', { text: '1 โอนแล้ว', quotedMessageId: 'LM777' }));
+  const b = finCalls(S).filter(x => x.action === 'expenseChat');
+  assert.strictEqual(b.length, 1); assert.strictEqual(b[0].quotedMessageId, 'LM777'); assert.strictEqual(S.anthropic, 0);
+});
+
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');

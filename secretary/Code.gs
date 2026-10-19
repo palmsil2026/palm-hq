@@ -1295,6 +1295,7 @@ function fireDueReminders() {
   try { fireDuePosts(); } catch (err) { console.error('fireDuePosts: ' + err); }
   // 💸 ย้ายค่าสมองของวันก่อน ๆ ลงแท็บ AIUsage · 📚 เรียนรู้แชทกลุ่มตอนกลางคืน (ทำท้ายสุด — งานยาว ไม่ให้ถ่วงเตือน/ประกาศ)
   flushAiUsage();
+  try { expenseOutboxTick(); } catch (err) { console.error('expenseOutboxTick: ' + err); }   // 📨 สรุปบิลลงกลุ่มบิล (แอปบัญชีคุมเวลาเอง)
   try { productionNudge(); } catch (err) { console.error('productionNudge: ' + err); }   // 🙋 ถามจอดเครื่องที่เงียบ (ก่อนงานเรียนรู้ที่ยาว)
   try { maybeLearnTick(); } catch (err) { console.error('maybeLearnTick: ' + err); }
 }
@@ -1974,7 +1975,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-20a';
+const CODE_VERSION = '2026-10-20b';
 
 function healthCheck() {
   const L = [];
@@ -2045,6 +2046,7 @@ function healthCheck() {
     if (!fp.ok) bad('เชื่อมแอปบัญชีไม่ได้ ✗ (' + fp.why + ')', 'แจ้งแชท origin-hq ให้เช็ค finance-app');
     else if (/^v0\./.test(fp.version) && minor < 10) warn('แอปบัญชีเป็น ' + fp.version + ' — ต้อง v0.10 ขึ้นไป (ตอบในกลุ่ม/เตือนบิล/ถามบิล)', 'แจ้งแชท origin-hq ให้ merge + deploy finance-app v0.10');
     else ok('เชื่อมแอปบัญชีได้ ✓ (' + fp.version + (fp.ai ? ' · AI อ่านบิลได้' : ' · ยังไม่ใส่ ANTHROPIC_API_KEY ที่แอปบัญชี') + ')');
+    if (fp.ok && /^v0\./.test(fp.version) && minor >= 10 && minor < 12) warn('สรุปบิลลงกลุ่มต้องใช้แอปบัญชี v0.12 ขึ้นไป (ตอนนี้ ' + fp.version + ')', 'แจ้งแชท origin-hq ให้ deploy finance-app v0.12');
     listKnownGroups().some(function (g) { return isExpenseGroup(g.id); })
       ? ok('รู้จักกลุ่มบิลค่าใช้จ่ายแล้ว (ส่งบิลเข้าแอปบัญชี)')
       : warn('ยังไม่รู้จักกลุ่มบิลค่าใช้จ่าย', 'เชิญดิฉันเข้ากลุ่ม "บิลค่าใช้จ่าย 🧾" · ชื่อกลุ่มไม่มีคำนี้ให้ตั้ง GROUP_EXPENSE_ID');
@@ -2580,6 +2582,53 @@ function expenseDueDaily(force) {
   P.setProperty('EXPENSE_DUE_DAY', today);
   if (r.notify && r.notice) linePush(cfg('OWNER_LINE_USER_ID'), String(r.notice));
   logRow(['เตือนบิล', '', '', r.act === 'due' ? ('เลย ' + (r.overdue || 0) + ' · วันนี้ ' + (r.today || 0) + ' · ใกล้ ' + (r.soon || 0)) : 'ไม่มีบิลครบกำหนด']);
+}
+
+// 📨 สรุปบิล + คำถาม ลงกลุ่มบิล (แอปบัญชี v0.12 · คุณปาล์ม 20/10: "อันไหนที่คุณอ่านมาได้และแยกได้แล้วก็แค่เขียนเป็นสรุปให้เค้าเช็ค…
+//   ค่อยถามแค่รายการที่คุณอ่านมาแล้วไม่รู้จริงๆ") — แอปบัญชีเขียนข้อความ + คุมเวลาเอง (07–20 น. · รอหยุดส่งรูป 30 นาที)
+//   เลขาแค่ถาม expenseOutbox ทุกรอบ 15 นาที → ได้ say = ส่งลงกลุ่ม "ตามตัวอักษร" (มีเลขข้อที่คนตอบอ้างถึง ห้ามเรียบเรียง) → แจ้งผลกลับ expenseOutboxSent
+//   คนในกลุ่มตอบกลับ ("1 โอนแล้ว" / Reply ใส่สรุป) ไหลเข้า expenseChat ตามเดิม (แนบ quotedMessageId)
+function expenseGroupId() {
+  const set = cfg('GROUP_EXPENSE_ID');
+  if (set) return set;
+  const g = listKnownGroups().filter(function (x) { return isExpenseGroup(x.id); })[0];
+  return g ? g.id : '';
+}
+// ส่งข้อความเข้ากลุ่มแบบตามตัวอักษรเป๊ะ (ไม่ผ่าน cleanOut) — คืน { ok, msgId, error }
+function linePushExact(to, text) {
+  try {
+    const t = String(text || '');
+    if (!t.trim()) return { ok: false, error: 'ข้อความว่าง' };
+    if (t.length > 5000) return { ok: false, error: 'ข้อความยาว ' + t.length + ' ตัวอักษร เกินที่ไลน์รับ (5,000)' };
+    const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
+      payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: t }] })
+    });
+    const code = res.getResponseCode();
+    if (code !== 200) return { ok: false, error: 'LINE HTTP ' + code + ' ' + String(res.getContentText() || '').slice(0, 150) };
+    rememberBotMsgIds(res);
+    let id = ''; try { id = ((JSON.parse(res.getContentText()) || {}).sentMessages || [])[0].id || ''; } catch (e) {}
+    return { ok: true, msgId: id };
+  } catch (e) { return { ok: false, error: String(e) }; }
+}
+function expenseOutboxTick() {
+  for (let i = 0; i < 3; i++) {   // ปกติมีทีละ 1 ข้อความ · กันค้างหลายอันได้ไม่เกิน 3 ต่อรอบ
+    const r = financeCall({ action: 'expenseOutbox' });
+    if (!r || r.act !== 'say' || !r.outId || !r.say) {
+      if (r && r.success === false) logRow(['สรุปบิลลงกลุ่ม ✗', '', '', r.error || r.message || '']);
+      return;
+    }
+    const gid = expenseGroupId();
+    if (!gid) { logRow(['สรุปบิลลงกลุ่ม', '', String(r.outId), 'ยังไม่รู้จักกลุ่มบิล — ไม่ส่ง (แอปบัญชีส่งใหม่เอง)']); return; }
+    const sent = linePushExact(gid, r.say);
+    const back = financeCall(sent.ok
+      ? Object.assign({ action: 'expenseOutboxSent', outId: r.outId, ok: true }, sent.msgId ? { msgId: sent.msgId } : {})
+      : { action: 'expenseOutboxSent', outId: r.outId, ok: false, error: sent.error });
+    logRow(['สรุปบิลลงกลุ่ม', '', String(r.outId), sent.ok ? 'ส่งแล้ว ' + (sent.msgId || '') : 'ส่งไม่ได้: ' + sent.error]);
+    if (back && back.notify && back.notice) linePush(cfg('OWNER_LINE_USER_ID'), String(back.notice));
+    if (!sent.ok) return;
+  }
 }
 
 // คุณปาล์มถามเรื่องบิล/รายจ่ายในแชทส่วนตัวไหม (ต้องมีคำเรื่องบิล + หน้าตาเป็นคำถาม/ขอดู · ไม่ใช่สั่งงาน/ค่าสมอง AI)
