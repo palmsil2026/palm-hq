@@ -135,7 +135,16 @@ const SCENARIOS = [
     history: [['ตั้งประกาศกลุ่มร้านพรุ่งนี้ 9:30 ว่าร้านเปิด 10 โมง', 'ได้ค่ะ\n\n⏰ ตั้งเวลาประกาศ #7 แล้วค่ะ']],
     text: 'ประกาศอันนี้ใส่น้ำเสียงน่ารักๆ ของคุณได้ไหม', expect: { brain: true, replyNot: [/อันไหน|ไม่เห็นเนื้อหา/], anyBlock: ['SCHEDULE'] } },
   { id: 'R22', title: 'คุณปาล์มขอบอร์ดแบบภาษาพูด → สมองเรียก board เอง', who: 'owner', where: 'dm', text: 'งานในบอร์ดตอนนี้เปิดดูตรงไหนนะ ส่งมาที',
-    expect: { brain: true, replyNot: [NO_RETYPE], fn: r => (r.runs.indexOf('board') !== -1 || r.msgCount === 2 ? '' : 'ควรแนบปุ่มบอร์ด') } }
+    expect: { brain: true, replyNot: [NO_RETYPE], fn: r => (r.runs.indexOf('board') !== -1 || r.msgCount === 2 ? '' : 'ควรแนบปุ่มบอร์ด') } },
+  { id: 'R23', title: '(จริง 19/10) "ขอยอดขายของเซลล์รายคน" → ยอดแยกรายเซลส์ ไม่ใช่สรุปรวม', who: 'owner', where: 'dm', text: 'ขอยอดขาย ของเซลล์รายคนหน่อยครับ',
+    expect: { brain: true, run: 'salesby', fn: r => (((r.all.RUN || []).find(b => b.cmd === 'salesby') || {}).by === 'seller' ? '' : 'salesby ควรเป็น by=seller'), replyNot: [NO_RETYPE] } },
+  { id: 'R24', title: '(จริง 19/10) ติว่า "อ่านดีดีครับผมขออะไร" หลังตอบผิดเรื่อง → ย้อนอ่านคำถามแล้วดึงยอดรายเซลส์', who: 'owner', where: 'dm',
+    history: [['ขอยอดขาย ของเซลล์รายคนหน่อยครับ', '💧 สรุปยอดโรงน้ำ (ถึงตอนนี้) ค่ะ\n💰 ยอดขายรวม 0,000 บาท · 000 แพ็ค']],
+    text: 'อ่านดีดีครับผมขออะไร', expect: { brain: true, run: 'salesby', replyNot: [NO_RETYPE] } },
+  { id: 'R25', title: '"ลูกค้าเจ้าไหนซื้อเยอะสุดเดือนนี้"', who: 'owner', where: 'dm', text: 'เดือนนี้ลูกค้าเจ้าไหนซื้อเยอะสุด',
+    expect: { brain: true, run: 'salesby', fn: r => { const b = (r.all.RUN || []).find(x => x.cmd === 'salesby') || {}; return b.by === 'customer' && b.range === 'month' ? '' : 'ควรเป็น by=customer range=month'; } } },
+  { id: 'R26', title: 'เซลส์ถามยอดรายคนในกลุ่มเซลส์ → ไม่เปิดยอดแยก', who: 'staff', where: 'ทีมเซลล์', text: 'เลขา ขอยอดขายเซลล์รายคนเดือนนี้หน่อยครับ',
+    expect: { brain: false, reply: [/ไม่เปิดเผย/], replyNot: [/ยอดแยก\(/, /ยอดโรงน้ำ\(/] } },
 ];
 
 module.exports = { SCENARIOS, GROUPS, STAFF };

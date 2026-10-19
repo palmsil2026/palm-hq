@@ -82,7 +82,7 @@ function makeEnv(opts) {
   ctx.loadKBCached = () => ''; ctx.loadPlaybookCached = () => ''; ctx.listPendingPosts = () => []; ctx.listStaff = () => [];
   ctx.boardUrl = () => 'https://board'; ctx.handleKnowledgeCommand = () => false; ctx.tryAnswerPendingQuestion = () => false;
   ctx.handlePlanVerdict = () => false; ctx.handleManualDone = () => false;
-  ctx.oldDaysSummaryText = w => '☕ ยอดร้าน(' + w + ')'; ctx.plantSalesSummaryText = w => '💧 ยอดโรงน้ำ(' + w + ')';
+  ctx.oldDaysSummaryText = w => '☕ ยอดร้าน(' + w + ')'; ctx.plantSalesSummaryText = w => '💧 ยอดโรงน้ำ(' + w + ')'; ctx.plantSalesBreakdownText = (r, b) => '📊 ยอดแยก(' + r + ',' + b + ')';
   return { ctx, S };
 }
 const finCalls = S => S.fetches.filter(f => f.url === FIN_URL).map(f => f.body);

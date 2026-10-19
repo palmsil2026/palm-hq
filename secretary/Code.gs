@@ -179,6 +179,9 @@ const SYSTEM_PROMPT = [
   '    (เช่น "เช็คสุขภาพระบบ" "ระบบโอเคไหม" "ระบบล่มรึเปล่า" "เช็คหน่อย" ที่บทสนทนาไม่ได้พูดถึงเรื่องอื่นอยู่) — คุณปาล์มเท่านั้น',
   '- sales {"which":"today|yesterday|latest","biz":"cafe|plant|both"} = สรุปยอดขายจริงจากระบบร้าน/ระบบขายโรงน้ำ',
   '    — คุณปาล์มได้ทุกธุรกิจ · คนอื่นได้เฉพาะยอดร้าน Old Days และเฉพาะในกลุ่มร้าน',
+  '- salesby {"range":"today|yesterday|week|month|prevmonth","by":"seller|customer|product|line|day"} = ยอดโรงน้ำ "แยกราย" จากระบบขายจริง',
+  '    (เช่น "ยอดเซลส์รายคน" "ใครขายได้เยอะสุด" "ลูกค้าเจ้าไหนซื้อเยอะ" "สินค้าตัวไหนขายดี" "เดือนนี้รายวัน") — คุณปาล์ม แชทส่วนตัวเท่านั้น',
+  '    ถ้าคุณปาล์มติว่าตอบไม่ตรง (เช่น "อ่านดีๆ ผมขออะไร") ให้ย้อนดูคำถามก่อนหน้าในบทสนทนา แล้วเรียกคำสั่งที่ตรงกับที่เขาขอจริง',
   '- bill {"q":"คำถามเรื่องบิลเต็มประโยค"} = ถามแอปบัญชีโรงน้ำ (บิล ค้างจ่าย ครบกำหนด ยอดรายจ่าย เลขบัญชีผู้ขาย) — คุณปาล์ม แชทส่วนตัวเท่านั้น',
   '- groups = รายชื่อกลุ่มไลน์ที่ดิฉันอยู่ — คุณปาล์มเท่านั้น',
   '- staff = ทะเบียนพนักงานที่ DM ได้ — คุณปาล์มเท่านั้น',
@@ -787,6 +790,7 @@ function handleEvent(ev) {
     const out = salesSummaryReply(a.which, a.biz, owner, chatId);
     if (out) {
       lineReply(replyToken, out);
+      memAppend(chatId, text, out.slice(0, 1500));   // จำไว้ — ถามต่อ/ติว่าไม่ตรง สมองจะรู้ว่าเพิ่งตอบอะไรไป
       logRow(['สรุปยอด', senderId, text, a.biz]);
       return;
     }
@@ -1966,7 +1970,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-18c';
+const CODE_VERSION = '2026-10-19a';
 
 function healthCheck() {
   const L = [];
@@ -2945,6 +2949,10 @@ const SEC_COMMANDS = {
     const biz = /^(cafe|plant|both)$/.test(String(a.biz)) ? String(a.biz) : (c.owner ? 'both' : 'cafe');
     return salesSummaryReply(which, biz, c.owner, c.chatId);
   } },
+  // ยอดแยกรายเซลส์/ลูกค้า/สินค้า = ตัวเลขเงินวงใน → คุณปาล์ม แชทส่วนตัวเท่านั้น (เซลส์ในกลุ่มไม่ควรเห็นยอดกันเอง)
+  salesby: { owner: true, privateOnly: true, run: function (a) {
+    return plantSalesBreakdownText(String(a.range || 'today'), String(a.by || 'seller')) || '💧 ยังดึงยอดจากระบบขายโรงน้ำไม่ได้ค่ะ';
+  } },
   bill:   { owner: true, privateOnly: true, run: function (a, c) { return answerBillQuestion(String(a.q || c.text || '')); } },
   groups: { owner: true, run: function () { return groupsListText(); } },
   staff:  { owner: true, run: function () { return staffListText(); } },
@@ -2984,7 +2992,9 @@ function isSalesAsk(text) {
   const t = String(text || '').trim().replace(/^เลขา\s*/, '');
   if (!/(สรุปยอด|ยอดขาย|รายงานการขาย|^ยอด|ยอด(ร้าน|โรงน้ำ|ละกอน|วันนี้|เมื่อวาน|ล่าสุด))/.test(t)) return false;
   if (t.replace(/\s+/g, '').length > 40) return false;
-  return !/ทีม\s*ai|ระบบ|แอป|ทำ(ให้|ระบบ)|ฝาก|แจ้ง|ส่ง.*(กลุ่ม|ให้)|ตั้ง|ทุกวัน|ประจำวัน|เสนอ|ขาดทุน|ไม่พอ|น้อย|ตก|ปิดร้าน|เปิดร้าน/i.test(t);
+  if (/ทีม\s*ai|ระบบ|แอป|ทำ(ให้|ระบบ)|ฝาก|แจ้ง|ส่ง.*(กลุ่ม|ให้)|ตั้ง|ทุกวัน|ประจำวัน|เสนอ|ขาดทุน|ไม่พอ|น้อย|ตก|ปิดร้าน|เปิดร้าน/i.test(t)) return false;
+  // ขอยอด "แยก/เทียบ/ช่วงอื่น" ไม่ใช่สรุปรวมวันเดียว → ให้สมองอ่านเจตนาแล้วเรียก salesby (คุณปาล์ม 19/10 ขอยอดเซลส์รายคน แต่ได้ยอดรวม)
+  return !/ราย(คน|ตัว|เซล|ลูกค้า|สินค้า|วัน|เดือน|สาย)|เซล|ของใคร|ใคร|แยก|อันดับ|top|เทียบ|ทำไม|ลูกค้า|สินค้า|สัปดาห์|อาทิตย์|7\s*วัน|เดือน/i.test(t);
 }
 
 // "ยอดร้านวันนี้" "ยอดโรงน้ำเมื่อวาน" "สรุปยอด" → ช่วงเวลา + ธุรกิจ (ไม่ระบุ = เจ้าของได้ทั้งคู่ · คนอื่นได้ร้าน)
@@ -3937,6 +3947,61 @@ function shopAlerts(data, todayKey) {
       + (old.length > 5 ? ' …' : ''));
   }
   return out;
+}
+
+// 📊 ยอดขายโรงน้ำแยกราย เซลส์/ลูกค้า/สินค้า/สาย/วัน (คุณปาล์ม 19/10: "ขอยอดขายของเซลล์รายคน" ได้ยอดรวมกลับไป 2 รอบ)
+//   range: today | yesterday | week (7 วันล่าสุด) | month (เดือนนี้) | prevmonth · by: seller | customer | product | line | day
+//   อ่านจาก plantFeed ตัวเดียวกับสรุปยอด (ชื่อเซลส์รวมตัวสะกดแล้ว · ตัดโปรเจกต์การตลาด) · หน้าร้านแยกบรรทัด ไม่บวกซ้ำ
+function plantSalesBreakdownText(range, by) {
+  try {
+    range = /^(today|yesterday|week|month|prevmonth)$/.test(String(range)) ? String(range) : 'today';
+    by = /^(seller|customer|product|line|day)$/.test(String(by)) ? String(by) : 'seller';
+    const feed = plantFeed('');
+    if (!feed || !feed.sales.length) return '';
+    const D = function (ms) { return Utilities.formatDate(new Date(ms), 'GMT+7', 'yyyy-MM-dd'); };
+    const today = D(Date.now());
+    let from = today, to = today, label = 'วันนี้ (ถึงตอนนี้)';
+    if (range === 'yesterday') { from = to = D(Date.now() - 864e5); label = 'เมื่อวาน'; }
+    if (range === 'week') { from = D(Date.now() - 6 * 864e5); label = '7 วันล่าสุด'; }
+    if (range === 'month') { from = today.slice(0, 8) + '01'; label = 'เดือนนี้ (ถึงตอนนี้)'; }
+    if (range === 'prevmonth') {
+      const d = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1);
+      const mk = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+      from = mk + '-01'; to = mk + '-31'; label = 'เดือนก่อน';
+    }
+    const keyOf = {
+      seller: function (s) { return s.seller || '(ไม่ระบุเซลส์)'; }, customer: function (s) { return s.cust || '(ไม่ระบุลูกค้า)'; },
+      product: function (s) { return s.prod || s.pid || '(ไม่ระบุสินค้า)'; }, line: function (s) { return s.line || 'อื่นๆ'; },
+      day: function (s) { return s.date; }
+    }[by];
+    const g = {}; let amt = 0, qty = 0; const allOrd = {};
+    feed.sales.forEach(function (s) {
+      if (s.mk || s.date < from || s.date > to) return;   // ของโปรเจกต์การตลาดไม่ใช่ยอดขาย
+      const k = keyOf(s);
+      const x = g[k] = g[k] || { amt: 0, qty: 0, ord: {} };
+      x.amt += s.amount; x.qty += s.qty; x.ord[s.oid || (s.date + s.cust)] = 1;
+      amt += s.amount; qty += s.qty; allOrd[s.oid || (s.date + s.cust)] = 1;
+    });
+    const fm = function (x) { return Number(x || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }); };
+    const head = { seller: 'รายเซลส์', customer: 'รายลูกค้า', product: 'รายสินค้า', line: 'รายสายผลิตภัณฑ์', day: 'รายวัน' }[by];
+    const keys = Object.keys(g);
+    if (!keys.length) return '💧 ยอดโรงน้ำ' + head + ' ' + label + ': ยังไม่มีออเดอร์ในระบบขายค่ะ';
+    keys.sort(by === 'day' ? function (a, b) { return a < b ? -1 : 1; } : function (a, b) { return g[b].amt - g[a].amt; });
+    const TOP = 15;
+    const lines = keys.slice(0, TOP).map(function (k, i) {
+      const x = g[k], pct = amt ? Math.round(x.amt / amt * 100) : 0;
+      return (by === 'day' ? '• ' + Number(k.slice(8)) + '/' + Number(k.slice(5, 7)) : (i + 1) + '. ' + k)
+        + ' — ' + fm(x.amt) + ' บาท · ' + fm(x.qty) + ' แพ็ค · ' + Object.keys(x.ord).length + ' บิล' + (by === 'day' ? '' : ' (' + pct + '%)');
+    });
+    if (keys.length > TOP) lines.push('… และอีก ' + (keys.length - TOP) + ' รายการ (ดูครบในห้องผู้บริหาร)');
+    let shopTxt = '';
+    try {
+      const sd = plantShopData();
+      if (sd) { const t = shopTotals(sd.bills, function (b) { return b.date >= from && b.date <= to; }); if (t.bills) shopTxt = '\n🛒 หน้าร้าน (แยก ไม่รวมข้างบน): ' + fm(t.amt) + ' บาท · ' + fm(t.qty) + ' แพ็ค · ' + t.bills + ' บิล'; }
+    } catch (e) {}
+    return '📊 ยอดโรงน้ำ' + head + ' — ' + label + '\n━━━━━━━━━━━━━━\n' + lines.join('\n')
+      + '\n━━━━━━━━━━━━━━\n💰 รวม ' + fm(amt) + ' บาท · ' + fm(qty) + ' แพ็ค · ' + Object.keys(allOrd).length + ' บิล' + shopTxt;
+  } catch (e) { console.error('plantSalesBreakdownText: ' + e); return ''; }
 }
 
 // 💧 สรุปยอดโรงน้ำรายวัน (ตอบใน LINE) — ใช้ plantFeed เดิม: ออเดอร์ทุกช่องทาง + ผลิต
