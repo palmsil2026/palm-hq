@@ -680,6 +680,8 @@ function isAwaitingReply(chatId, senderId) {
 function handleAnnouncementFollowUp(ev, chatId, senderId, text, replyToken) {
   try {
     if (isOwner(senderId)) return;   // ข้อความของคุณปาล์มเอง ไม่ต้องประมวล
+    // กลุ่มฝ่ายผลิต: เลขาฟังเงียบ ๆ + ถามจอดเครื่องตามแอปทีมผลิตเท่านั้น — คำตอบ/กดตอบกลับข้อความถามของเลขา ให้แอปปิดจอดเอง ไม่ให้สมองพูดแทรก
+    if (chatId === productionGroupId()) return;
     const c = CacheService.getScriptCache();
     const ann = c.get('ANN_' + chatId);
     const quotedBot = !!(ev.message && ev.message.quotedMessageId && c.get('BM_' + ev.message.quotedMessageId));
@@ -1292,6 +1294,7 @@ function fireDueReminders() {
   try { fireDuePosts(); } catch (err) { console.error('fireDuePosts: ' + err); }
   // 💸 ย้ายค่าสมองของวันก่อน ๆ ลงแท็บ AIUsage · 📚 เรียนรู้แชทกลุ่มตอนกลางคืน (ทำท้ายสุด — งานยาว ไม่ให้ถ่วงเตือน/ประกาศ)
   flushAiUsage();
+  try { productionNudge(); } catch (err) { console.error('productionNudge: ' + err); }   // 🙋 ถามจอดเครื่องที่เงียบ (ก่อนงานเรียนรู้ที่ยาว)
   try { maybeLearnTick(); } catch (err) { console.error('maybeLearnTick: ' + err); }
 }
 
@@ -1970,7 +1973,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-19a';
+const CODE_VERSION = '2026-10-19b';
 
 function healthCheck() {
   const L = [];
@@ -2322,6 +2325,7 @@ function findGroupByName(name) {
 //   เลขาไม่เขียนชีตโรงน้ำเอง · ไม่ตอบในกลุ่ม · พังเงียบ ไม่กระทบงานอื่นของเลขา
 //   สเปก: origin-hq/production-app/แจ้ง-palm-hq-แชทจอดเครื่อง.md
 // ════════════════════════════════════════════════════════════
+// (เลิกใช้กรองการส่งต่อแล้ว 05/10 — เก็บไว้อ้างอิงคำที่เกี่ยวกับเครื่อง)
 const PRODUCTION_CHAT_HINT = /จอด|หยุด|เครื่อง|ไลน์|เดิน|โมล|เปลี่ยนหัว|เปลี่ยนไซ|เปลี่ยนขนาด|ไฟ|ผลิตต่อ|ซ่อม/;
 const PRODUCTION_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbyz9gSSkms44VWcnD3wtZx9C33aG1r5LAjxVPMjD_EcqzwzxU2UBtVVd15qfO_idObE/exec';
 
@@ -2375,9 +2379,11 @@ function groupMemberName(gid, uid) {
   return '';
 }
 
+// 05/10: ส่งต่อ "ทุกข้อความ" ของกลุ่มฝ่ายผลิต (เลิกกรองด้วย PRODUCTION_CHAT_HINT) — คำตอบสั้น ๆ หลังเลขาถาม
+//   ("ได้แล้วครับ" "ยังครับ" "ช่างเปลี่ยนแล้วครับ ทำงานได้ปกติ") ไม่มีคำในชุดกรองเลยไม่เคยถึงแอป · แอปทีมผลิตมีตัวกรองของตัวเอง
 function forwardProductionChat(ev, chatId, senderId, text) {
   try {
-    if (!PRODUCTION_CHAT_HINT.test(String(text).replace(/\s+/g, ''))) return;
+    if (!String(text || '').trim()) return;
     const gid = productionGroupId();
     if (!gid || chatId !== gid) return;
     const res = UrlFetchApp.fetch(cfg('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
@@ -2391,6 +2397,27 @@ function forwardProductionChat(ev, chatId, senderId, text) {
     try { r = JSON.parse(res.getContentText() || '{}'); } catch (e) {}
     logRow(['ไลน์ผลิต', senderId, text, r.saved ? r.act + ' ✓' : 'ไม่บันทึก: ' + (r.why || r.error || res.getResponseCode())]);
   } catch (err) { console.error('forwardProductionChat: ' + err); }
+}
+
+// 🙋 ถามในกลุ่มฝ่ายผลิตเมื่อแจ้งจอดเครื่อง/เปลี่ยนโมลด์แล้วเงียบ ~1 ชม. (คุณปาล์มอนุมัติ 05/10 · ยืนยันในแชท palm-hq 19/10)
+//   "บางทีเค้าบอกมาแต่ ไม่ได้บอกกลับว่าเดินเครื่องได้ยัง … ถ้าเค้าไม่บอกกลับก็ให้ถามลงไปเลยในกลุ่มโดยเราเว้นช่วงไว้ให้เค้า 1ชม."
+//   เรียกจาก fireDueReminders ทุก 15 นาที · แอปทีมผลิต (v5.15 action=lineNudge) ตัดสินเองทั้งหมดว่าถามไหม/ถามว่าอะไร/ถามครั้งเดียว
+//   (เงียบ ≥60 นาที · วันเดียวกับที่แจ้ง · 07:00–19:00) — เลขาแค่ส่ง text ตามที่แอปให้ · คำตอบไหลกลับผ่าน forwardProductionChat
+function productionNudge() {
+  try {
+    const gid = productionGroupId();
+    if (!gid) return;
+    const res = UrlFetchApp.fetch(cfg('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ token: productionChatToken(), action: 'lineNudge' })
+    });
+    let r = {};
+    try { r = JSON.parse(res.getContentText() || '{}'); } catch (e) {}
+    if (r && r.success && r.ask && r.text) {
+      linePush(gid, String(r.text).slice(0, 1000));
+      logRow(['ถามจอดเครื่อง', 'ระบบ', String(r.kind || '') + ' ' + String(r.id || ''), r.text]);
+    }
+  } catch (err) { console.error('productionNudge: ' + err); }
 }
 
 // "เช็คระบบ": ยิง ping หาแอปทีมผลิตด้วยรหัสเชื่อม → true = เชื่อมได้

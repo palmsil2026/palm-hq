@@ -303,4 +303,60 @@ t('หากลุ่มจากชื่อเรียกอื่น: "ร�
   assert.strictEqual(ctx.findGroupByName('ร้านกาแฟ'), '');
 });
 
+// ── 🏭 กลุ่มฝ่ายผลิต: ส่งต่อทุกข้อความ + ถามเมื่อแจ้งจอดแล้วเงียบ (คุณปาล์ม 05/10 · ยืนยัน 19/10) ──
+const PROD_URL_PART = 'AKfycbyz9gSSkms44VWcnD3wtZx9C33aG1r5LAjxVPMjD_EcqzwzxU2UBtVVd15qfO_idObE';
+const prodCalls = S => S.fetches.filter(f => f.url.indexOf(PROD_URL_PART) !== -1).map(f => f.body);
+
+t('กลุ่มฝ่ายผลิต: คำตอบสั้นที่ไม่มีคำเรื่องเครื่อง ("ช่างเปลี่ยนแล้วครับ ทำงานได้ปกติ" "ได้แล้วครับ") ก็ส่งต่อแอปทีมผลิต · เลขาเงียบ', () => {
+  for (const text of ['ช่างเปลี่ยนแล้วครับ ทำงานได้ปกติ', 'ได้แล้วครับ', 'ยังครับ']) {
+    const { ctx, S } = makeEnv();
+    ctx.handleEvent(ev('text', { text }, PROD_GID));
+    const b = prodCalls(S);
+    assert.strictEqual(b.length, 1, text);
+    assert.strictEqual(b[0].action, 'lineChat'); assert.strictEqual(b[0].text, text); assert.strictEqual(b[0].token, expectToken);
+    assert.strictEqual(S.replies.length + S.pushes.length, 0, 'ไม่ตอบในกลุ่ม');
+  }
+});
+
+t('กลุ่มอื่น / แชทส่วนตัว ไม่ส่งต่อแอปทีมผลิต', () => {
+  const { ctx, S } = makeEnv();
+  ctx.handleEvent(ev('text', { text: 'ขออนุญาตจอดเครื่อง' }, OTHER_GID));
+  ctx.handleEvent(dm('Ustaff1', 'ขออนุญาตจอดเครื่อง'));
+  assert.strictEqual(prodCalls(S).length, 0);
+});
+
+t('productionNudge: แอปบอก ask → ส่งข้อความตามแอปเป๊ะลงกลุ่มฝ่ายผลิต 1 ครั้ง + จด log', () => {
+  const text = '🔧 สอบถามค่ะ เครื่องที่แจ้งจอดตอน 10:00 น. ผ่านมา 1 ชม. 5 นาทีแล้ว ตอนนี้เดินเครื่องได้หรือยังคะ?';
+  const { ctx, S } = makeEnv({ prodResp: b => (b.action === 'lineNudge' ? { success: true, ask: true, id: 'LE9', kind: 'จอดเครื่อง', text } : {}) });
+  ctx.productionNudge();
+  const b = prodCalls(S); assert.strictEqual(b.length, 1); assert.strictEqual(b[0].action, 'lineNudge'); assert.strictEqual(b[0].token, expectToken);
+  assert.strictEqual(S.pushes.length, 1); assert.strictEqual(S.pushes[0].to, PROD_GID); assert.strictEqual(S.pushes[0].messages[0].text, text);
+  assert.ok(S.logs.some(l => l[0] === 'ถามจอดเครื่อง' && /LE9/.test(l[2])));
+});
+
+t('productionNudge: ask:false / ตอบพัง / แอปล่ม → ไม่ส่งอะไรลงกลุ่ม ไม่พัง', () => {
+  for (const o of [{ prodResp: () => ({ success: true, ask: false }) }, { prodResp: () => ({ success: false, error: 'รหัสเชื่อมไม่ถูกต้อง', ask: true, text: 'x' }) },
+                   { prodResp: () => ({ success: true, ask: true }) }, { prodThrow: true }]) {
+    const { ctx, S } = makeEnv(o);
+    ctx.productionNudge();
+    assert.strictEqual(S.pushes.length, 0, JSON.stringify(o.prodResp ? o.prodResp({}) : 'throw'));
+  }
+});
+
+t('หลังเลขาถามจอดเครื่อง พนักงานกดตอบกลับ/พิมพ์เป็นคำถาม → ส่งแอปทีมผลิต แต่สมองเลขาไม่พูดแทรกในกลุ่ม', () => {
+  const { ctx, S } = makeEnv({ prodResp: b => (b.action === 'lineNudge' ? { success: true, ask: true, id: 'LE1', kind: 'จอดเครื่อง', text: 'เดินเครื่องได้หรือยังคะ?' } : { success: true, saved: true, act: 'ปิดการจอด' }),
+                               ai: () => 'รับทราบค่ะ ขอบคุณนะคะ' });
+  ctx.productionNudge();
+  ctx.handleEvent(ev('text', { text: 'เดินแล้วครับ ต้องแจ้งใครอีกไหม?', quotedMessageId: 'Q1' }, PROD_GID));
+  assert.strictEqual(prodCalls(S).filter(b => b.action === 'lineChat').length, 1);
+  assert.strictEqual(S.anthropic, 0, 'ไม่เรียกสมอง'); assert.strictEqual(S.replies.length, 0); assert.strictEqual(S.pushes.length, 1, 'มีแค่ข้อความถามของแอป');
+});
+
+t('productionNudge: ไม่รู้จักกลุ่มฝ่ายผลิต → ไม่ถามแอป ไม่ส่ง', () => {
+  const { ctx, S } = makeEnv({ prodResp: () => ({ success: true, ask: true, text: 'x' }) });
+  ctx.listKnownGroups = () => [{ id: OTHER_GID, name: 'กลุ่มคุยเล่น' }];
+  ctx.productionNudge();
+  assert.strictEqual(prodCalls(S).length, 0); assert.strictEqual(S.pushes.length, 0);
+});
+
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');

@@ -54,6 +54,9 @@ function makeEnv(opts) {
         return resp(200, { groupName: id === EXP_GID ? 'บิลค่าใช้จ่าย 🧾' : id === PROD_GID ? 'ทีมผลิต' : 'กลุ่มคุยเล่น' }); }
       if (url.indexOf('/message/reply') !== -1) { S.replies.push(rec.body); return resp(S.replyCode, { sentMessages: [] }); }
       if (url.indexOf('/message/push') !== -1) { S.pushes.push(rec.body); return resp(200, { sentMessages: [] }); }
+      if (url.indexOf('AKfycbyz9gSSkms44VWcnD3wtZx9C33aG1r5LAjxVPMjD_EcqzwzxU2UBtVVd15qfO_idObE') !== -1) {   // แอปทีมผลิต
+        if (opts.prodThrow) throw new Error('timeout');
+        return resp(200, (opts.prodResp || (() => ({ success: true, saved: false, why: 'ไม่เกี่ยว' })))(rec.body)); }
       if (url === FIN_URL) { if (opts.financeThrow) throw new Error('timeout'); return resp(200, S.financeResp(rec.body)); }
       if (url.indexOf('anthropic.com') !== -1) { S.anthropic++; S.prompts.push(rec.body);
         return resp(200, { content: [{ type: 'text', text: (opts.ai || (() => 'SKIP'))(rec.body) }], usage: { input_tokens: 1, output_tokens: 1 } }); }
