@@ -53,7 +53,7 @@ function makeEnv(opts) {
       if (url.indexOf('/summary') !== -1) { const id = url.split('/group/')[1].split('/')[0];
         return resp(200, { groupName: id === EXP_GID ? 'บิลค่าใช้จ่าย 🧾' : id === PROD_GID ? 'ทีมผลิต' : 'กลุ่มคุยเล่น' }); }
       if (url.indexOf('/message/reply') !== -1) { S.replies.push(rec.body); return resp(S.replyCode, { sentMessages: [] }); }
-      if (url.indexOf('/message/push') !== -1) { S.pushes.push(rec.body); return resp(200, S.pushResp || { sentMessages: [] }); }
+      if (url.indexOf('/message/push') !== -1) { S.pushes.push(rec.body); return resp(S.pushCode || 200, S.pushResp || { sentMessages: [] }); }
       if (url.indexOf('AKfycbyz9gSSkms44VWcnD3wtZx9C33aG1r5LAjxVPMjD_EcqzwzxU2UBtVVd15qfO_idObE') !== -1) {   // แอปทีมผลิต
         if (opts.prodThrow) throw new Error('timeout');
         return resp(200, (opts.prodResp || (() => ({ success: true, saved: false, why: 'ไม่เกี่ยว' })))(rec.body)); }
