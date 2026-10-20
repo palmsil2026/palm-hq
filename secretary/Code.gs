@@ -1279,16 +1279,19 @@ function fireDueReminders() {
     if (h >= 8 && h < 12) expenseDueDaily();
   } catch (e) { console.error('expenseDueDaily: ' + e); }
   try {
-    const sh = remSheet(); if (!sh || sh.getLastRow() < 2) return;
-    const n = sh.getLastRow() - 1;
-    const d = sh.getRange(2, 1, n, 5).getValues();
-    const now = Date.now();
-    for (let i = 0; i < d.length; i++) {
-      if (String(d[i][4]) !== 'รอเตือน') continue;
-      const t = (d[i][0] instanceof Date) ? d[i][0].getTime() : 0;
-      if (!t || t > now) continue;
-      linePush(String(d[i][1]), '🔔 ถึงเวลาแล้วค่ะ — ' + String(d[i][3] || ''));
-      sh.getRange(i + 2, 5).setValue('เตือนแล้ว');
+    // ไม่มีรายการเตือน = ข้ามไปเฉย ๆ ห้าม return — งานข้างล่าง (ประกาศ/สรุปบิล/ผลิต/เรียนรู้) ต้องรันทุกรอบ
+    const sh = remSheet();
+    if (sh && sh.getLastRow() >= 2) {
+      const n = sh.getLastRow() - 1;
+      const d = sh.getRange(2, 1, n, 5).getValues();
+      const now = Date.now();
+      for (let i = 0; i < d.length; i++) {
+        if (String(d[i][4]) !== 'รอเตือน') continue;
+        const t = (d[i][0] instanceof Date) ? d[i][0].getTime() : 0;
+        if (!t || t > now) continue;
+        linePush(String(d[i][1]), '🔔 ถึงเวลาแล้วค่ะ — ' + String(d[i][3] || ''));
+        sh.getRange(i + 2, 5).setValue('เตือนแล้ว');
+      }
     }
   } catch (err) { console.error('fireDueReminders: ' + err); }
   // ยิงประกาศ/สรุปงานที่ตั้งเวลาไว้ด้วย (เกาะ trigger เดิม ไม่ต้องตั้ง trigger ใหม่)
@@ -1975,7 +1978,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-20b';
+const CODE_VERSION = '2026-10-20c';
 
 function healthCheck() {
   const L = [];

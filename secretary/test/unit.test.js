@@ -121,7 +121,7 @@ t('expenseDue: ช่วง 8–11 โมง เรียกวันละค�
 t('expenseDue: ก่อน 8 โมง / หลังเที่ยง ไม่เรียก', () => {
   for (const iso of ['2026-10-19T00:50:00Z' /* 07:50 */, '2026-10-19T05:10:00Z' /* 12:10 */]) {
     const { ctx, S } = makeEnv({ now: new Date(iso) });
-    ctx.fireDueReminders(); assert.strictEqual(finCalls(S).length, 0, iso);
+    ctx.fireDueReminders(); assert.strictEqual(finCalls(S).filter(b => b.action === 'expenseDue').length, 0, iso);
   }
 });
 
@@ -375,6 +375,17 @@ t('expenseOutbox: ได้ say → ส่งลงกลุ่มบิลต�
   assert.strictEqual(back.length, 1); assert.strictEqual(back[0].outId, 'OUT1'); assert.strictEqual(back[0].ok, true); assert.strictEqual(back[0].msgId, 'LM777'); assert.strictEqual(back[0].token, expectToken);
   assert.ok(S.pushes.some(p => p.to === OWNER && /ส่งสรุปบิลลงกลุ่มแล้ว/.test(p.messages[0].text)));
   assert.strictEqual(S.anthropic, 0);
+});
+
+t('fireDueReminders: ชีตเตือนว่าง → ยังรันสรุปบิลลงกลุ่มต่อ (เคย return ออกทั้งฟังก์ชัน สรุปค้าง "รอส่ง")', () => {
+  let n2 = 0;
+  const { ctx, S } = makeEnv({ now: new Date('2026-10-19T07:00:00Z') /* 14:00 พ้นช่วงเตือนบิล */, financeResp: b => {
+    if (b.action === 'expenseOutbox') return n2++ === 0 ? { success: true, act: 'say', outId: 'OUT9', say: 'สรุปบิล' } : { success: true, act: 'none' };
+    return { success: true }; } });
+  ctx.fireDueReminders();
+  assert.ok(finCalls(S).some(b => b.action === 'expenseOutbox'), 'ต้องถาม expenseOutbox');
+  assert.strictEqual(S.pushes.filter(p => p.to === EXP_GID && p.messages[0].text === 'สรุปบิล').length, 1);
+  assert.ok(finCalls(S).some(b => b.action === 'expenseOutboxSent' && b.outId === 'OUT9'));
 });
 
 t('expenseOutbox: act none → ไม่ส่งอะไร ไม่แจ้งกลับ', () => {

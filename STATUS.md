@@ -2,14 +2,19 @@
 
 > ไฟล์นี้ตอบคำถามเดียว: **"โค้ดใน repo กับของที่รันจริง ตรงกันรึยัง"**
 > ประวัติว่าใครแก้อะไรเมื่อไหร่ → ดู `git log` (ไม่ต้องจดซ้ำที่นี่ เลยไม่ต้อง compact)
-> อัปเดตล่าสุด: 2026-10-19 โดยแชท palm-hq — ✅ **GAS = repo = `2026-10-20b`** (สรุปบิลลงกลุ่มบิล · ยืนยัน `?action=version` 19/10) · 📚 Routine เรียนรู้รอบแรกเสร็จ 19/10: 10 กลุ่ม ไม่พลาด · ⚠️ สั่ง deploy เองให้กด **Run workflow** (เลือก `main`) **ห้ามกด Re-run รอบเก่า** — Re-run ใช้โค้ดของวันนั้น เคยทับ 18b ด้วย 18a · 🧪 ชุดสอบเลขา `secretary/test/` (CI รันทุก PR + ก่อน deploy) · ⚠️ กลุ่มบิลยังรอ origin-hq merge+deploy finance-app v0.10
+> อัปเดตล่าสุด: 2026-10-19 โดยแชท palm-hq — ⏳ **repo = `2026-10-20c`** (แก้บั๊ก ชีตเตือนว่างแล้วงานท้าย tick ไม่รัน → สรุปบิลค้าง "รอส่ง") — รอยืนยัน (ล่าสุดที่ยืนยัน `2026-10-20b`) · 📚 Routine เรียนรู้รอบแรกเสร็จ 19/10: 10 กลุ่ม ไม่พลาด · ⚠️ สั่ง deploy เองให้กด **Run workflow** (เลือก `main`) **ห้ามกด Re-run รอบเก่า** — Re-run ใช้โค้ดของวันนั้น เคยทับ 18b ด้วย 18a · 🧪 ชุดสอบเลขา `secretary/test/` (CI รันทุก PR + ก่อน deploy) · ⚠️ กลุ่มบิลยังรอ origin-hq merge+deploy finance-app v0.10
 
 ## ของจริงที่รันอยู่ เทียบกับ repo
 
 | ชิ้นส่วน | ที่รันจริง | สถานะเทียบ repo |
 |---|---|---|
 | หน้าเว็บทั้งหมด (`index.html`, `board/`, `exec/`, `request.html`) | GitHub Pages ของ repo นี้ `palmsil2026.github.io/palm-hq/` | ✅ push `main` = ขึ้นจริงใน ~1 นาที (เฟส 1 แอปผู้บริหารขึ้นแล้ว) |
-| GAS คุณเลขา (`secretary/Code.gs`) — บอท LINE + บอร์ด + exec API + HR | Apps Script deployment `AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J` | ✅ **`2026-10-20b` ตรงกับ repo** (ยืนยัน `?action=version` 19/10) · merge `main` = workflow ส่งขึ้นเอง (เทสต์ล้ม = ไม่ส่ง) · สั่งเอง = Actions → Deploy to Apps Script → **Run workflow** (ห้าม Re-run รอบเก่า) · ตรวจของจริง `…/exec?action=version` หรือ "เช็คระบบ" ในไลน์ |
+| GAS คุณเลขา (`secretary/Code.gs`) — บอท LINE + บอร์ด + exec API + HR | Apps Script deployment `AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J` | ⏳ **repo `2026-10-20c`** — รอ workflow ส่งขึ้น (ยืนยันล่าสุด `2026-10-20b`) · merge `main` = workflow ส่งขึ้นเอง (เทสต์ล้ม = ไม่ส่ง) · สั่งเอง = Actions → Deploy to Apps Script → **Run workflow** (ห้าม Re-run รอบเก่า) · ตรวจของจริง `…/exec?action=version` หรือ "เช็คระบบ" ในไลน์ |
+
+### ⏳ รอยืนยันขึ้น GAS (`2026-10-20c`)
+| งาน | มาจากแชท |
+|---|---|
+| 🐛 **ชีตเตือนว่าง = งานท้าย tick ไม่รันเลย** (คุณปาล์ม 20/10): `fireDueReminders` เคย `return` ออกทั้งฟังก์ชันเมื่อแท็บ Reminders ไม่มีรายการ → `fireDuePosts` / `flushAiUsage` / `expenseOutboxTick` / `productionNudge` / `maybeLearnTick` ไม่เคยรัน · สรุปบิลของแอปบัญชีค้าง "รอส่ง" · แก้เป็นข้ามลูปเตือนเฉย ๆ + เทสต์กันถอย | palm-hq (20/10) |
 
 ### ✅ ขึ้น GAS แล้ว (`2026-10-20b`)
 | งาน | มาจากแชท |
