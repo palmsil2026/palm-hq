@@ -167,7 +167,7 @@ const SYSTEM_PROMPT = [
   'รับ Feedback ปัญหา/ข้อเสนอเรื่องระบบและแอป (ถามอาการให้ชัดแล้วส่งต่อคุณปาล์ม),',
   'จำข้อมูลถาวรลงคลัง ("จำไว้ว่า..." — ลิงก์/ช่องทาง/กติกา, สั่ง "ลืมเรื่อง..." ได้),',
   'ส่ง DM ส่วนตัวถึงพนักงาน (เฉพาะคุณปาล์มสั่ง: "ฝากบอกคุณ... ว่า...", ดูทะเบียน: "รายชื่อพนักงาน"),',
-  'ประกาศเข้ากลุ่มไลน์ตามชื่อกลุ่ม, สรุปแชทในกลุ่ม, ตามงานค้างให้ทุกเย็น',
+  'ประกาศเข้ากลุ่มไลน์ตามชื่อกลุ่ม, สรุปแชทในกลุ่ม',
   'บอร์ดไอเดีย: "ไอเดีย <ข้อความ>" แปะทันที, "ดูไอเดีย", "ทำไอเดีย <เลข>", "พับไอเดีย <เลข>"',
   'เฉพาะคุณปาล์ม: "เช็คระบบ" (ตรวจสุขภาพระบบ), "รายชื่อกลุ่ม", "อนุมัติ <เลขงาน>", "เสร็จ <เลขงาน>"',
   '',
@@ -1156,9 +1156,11 @@ function pushToGroup(propName, text) {
 // ส่งเข้ากลุ่มตาม target ที่คุณปาล์มสั่ง (cafe / sales / group id ตรงๆ / ชื่อ property)
 // ════════════════════════════════════════════════════════════
 //  ⏰ ตามงานค้าง — งานที่ "รอข้อมูล"/"รออนุมัติ" นานเกินไป เลขาเด้งเตือนเอง
-//  ตั้งจำนวนวันได้ที่ NUDGE_DAYS (ค่าเริ่มต้น 2 วัน) — รันวันละครั้งผ่าน trigger
+//  ตั้งจำนวนวันได้ที่ NUDGE_DAYS (ค่าเริ่มต้น 2 วัน)
+//  ⛔ เลิกส่งตามเวลาแล้ว (20/10 ดู RETIRED_TRIGGERS) — ฟังก์ชันเก็บไว้รันเองได้
 // ════════════════════════════════════════════════════════════
-function nudgeStaleTasks() {
+function nudgeStaleTasks(e) {
+  if (retiredTriggerFired(e)) return;
   const owner = cfg('OWNER_LINE_USER_ID');
   if (!owner) return;
   const days = Number(cfg('NUDGE_DAYS')) || 2;
@@ -1278,6 +1280,20 @@ function fireDueReminders() {
     const h = Number(Utilities.formatDate(new Date(), 'GMT+7', 'H'));
     if (h >= 8 && h < 12) expenseDueDaily();
   } catch (e) { console.error('expenseDueDaily: ' + e); }
+  // 🛒 หน้าร้านโรงน้ำ "มีปัญหาเท่านั้น" — วันละครั้งช่วงเช้า (แทนรายงานเช้าที่เลิกไป · ว่าง = ไม่ส่ง)
+  try {
+    const h2 = Number(Utilities.formatDate(new Date(), 'GMT+7', 'H'));
+    if (h2 >= 8 && h2 < 12) shopAlertsDaily();
+  } catch (e) { console.error('shopAlertsDaily: ' + e); }
+  // ⛔ ลบ trigger ที่เลิกใช้ซึ่งติดตั้งอยู่จริง (ครั้งเดียว — ไม่ต้องรอใครกดรัน setupTriggers)
+  try {
+    const P = PropertiesService.getScriptProperties();
+    if (P.getProperty('TRIGGERS_RETIRED') !== RETIRED_TRIGGERS.join(',')) {
+      const n = dropRetiredTriggers();
+      P.setProperty('TRIGGERS_RETIRED', RETIRED_TRIGGERS.join(','));
+      if (n) logRow(['เลิก trigger', 'ระบบ', RETIRED_TRIGGERS.join(', '), 'ลบ ' + n + ' ตัว']);
+    }
+  } catch (e) { console.error('dropRetiredTriggers: ' + e); }
   try {
     // ไม่มีรายการเตือน = ข้ามไปเฉย ๆ ห้าม return — งานข้างล่าง (ประกาศ/สรุปบิล/ผลิต/เรียนรู้) ต้องรันทุกรอบ
     const sh = remSheet();
@@ -1978,7 +1994,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-20c';
+const CODE_VERSION = '2026-10-20d';
 
 function healthCheck() {
   const L = [];
@@ -2093,6 +2109,8 @@ function healthCheck() {
   try {
     const fns = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
     fns.length ? ok('งานอัตโนมัติตั้งไว้: ' + fns.join(', ')) : bad('ยังไม่ได้ตั้ง trigger เลย', 'รันฟังก์ชัน setupTriggers ใน Apps Script 1 ครั้ง');
+    const stale = fns.filter(function (f) { return RETIRED_TRIGGERS.indexOf(f) !== -1; });
+    if (stale.length) warn('trigger ที่เลิกแล้วยังติดตั้งอยู่: ' + stale.join(', ') + ' (ถึงเวลาก็ไม่ส่ง — ลบตัวเองตอนรัน)', 'รันฟังก์ชัน setupTriggers ใน Apps Script 1 ครั้ง ถ้าอยากลบทันที');
     if (fns.indexOf('fireDueReminders') !== -1) {
       const tick = Number(PropertiesService.getScriptProperties().getProperty('LAST_TICK') || 0);
       if (!tick) {
@@ -2692,8 +2710,10 @@ function testPushCafe() {
 //     (Project Settings → Time zone) แล้วรัน setupTriggers() 1 ครั้ง
 // ════════════════════════════════════════════════════════════
 
-// 🌅 รายงานเช้า 8 โมง — สรุปงานค้าง/ด่วน ส่งหาคุณปาล์ม
-function morningBrief() {
+// 🌅 รายงานเช้า — สรุปงานค้าง/ด่วน ส่งหาคุณปาล์ม
+//  ⛔ เลิกส่ง 8 โมงทุกวันแล้ว (20/10 ดู RETIRED_TRIGGERS) — เรื่องที่ต้องตัดสินใจจริงย้ายไป shopAlertsDaily
+function morningBrief(e) {
+  if (retiredTriggerFired(e)) return;
   const owner = cfg('OWNER_LINE_USER_ID');
   if (!owner) { console.warn('ยังไม่ได้ตั้ง OWNER_LINE_USER_ID'); return; }
 
@@ -2731,8 +2751,10 @@ function morningBrief() {
   linePush(owner, msg);
 }
 
-// 🔍 เฝ้าบอร์ดทุก 30 นาที — เจองานด่วน "ใหม่" → เตือนคุณปาล์ม (กันสแปม เตือนเฉพาะงานด่วน)
-function boardWatch() {
+// 🔍 เฝ้าบอร์ด — เจองานด่วน "ใหม่" → เตือนคุณปาล์ม
+//  ⛔ เลิกแล้ว (20/10) — ซ้ำกับ createTaskDirect ที่เด้ง "🔴 งานด่วนมากเข้าใหม่" ตอนงานเข้าอยู่แล้ว
+function boardWatch(e) {
+  if (retiredTriggerFired(e)) return;
   const owner = cfg('OWNER_LINE_USER_ID');
   if (!owner) return;
   const id = boardSheetId();
@@ -2764,16 +2786,30 @@ function boardWatch() {
 }
 
 // ⚙️ ติดตั้ง trigger (รันครั้งเดียวใน editor)
+// ⛔ trigger ที่เลิกแล้ว (คุณปาล์ม 20/10: "รายงานเช้าไม่เอา จริงๆฉันไม่เคยอ่านเลย … ตามงานค้างก็ด้วย เฝ้าบอร์ดงาน ได้ใช้จริงเปล่า")
+//  ส่งทุกวันแม้ไม่มีอะไรเปลี่ยน = เสียงพื้นหลัง + กินโควต้าไลน์ฟรี 300/เดือน · ฟังก์ชันยังอยู่ รันเองได้
+const RETIRED_TRIGGERS = ['morningBrief', 'boardWatch', 'nudgeStaleTasks'];
 function setupTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     const fn = t.getHandlerFunction();
-    if (['morningBrief', 'boardWatch', 'nudgeStaleTasks', 'fireDueReminders'].indexOf(fn) !== -1) ScriptApp.deleteTrigger(t);
+    if (RETIRED_TRIGGERS.concat(['fireDueReminders']).indexOf(fn) !== -1) ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('morningBrief').timeBased().atHour(8).everyDays(1).create();
-  ScriptApp.newTrigger('boardWatch').timeBased().everyMinutes(30).create();
-  ScriptApp.newTrigger('nudgeStaleTasks').timeBased().atHour(17).everyDays(1).create();
   ScriptApp.newTrigger('fireDueReminders').timeBased().everyMinutes(15).create();
-  Logger.log('✅ ตั้ง trigger แล้ว: morningBrief (8 โมง), boardWatch (ทุก 30 นาที), nudgeStaleTasks (17 โมง), fireDueReminders (ทุก 15 นาที)');
+  Logger.log('✅ ตั้ง trigger แล้ว: fireDueReminders (ทุก 15 นาที) · เลิกแล้ว: ' + RETIRED_TRIGGERS.join(', '));
+}
+// ลบ trigger ที่เลิกใช้ที่ยังติดตั้งอยู่ · คืนจำนวนที่ลบ
+function dropRetiredTriggers() {
+  let n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (RETIRED_TRIGGERS.indexOf(t.getHandlerFunction()) !== -1) { ScriptApp.deleteTrigger(t); n++; }
+  });
+  return n;
+}
+// ถูกเรียกจาก trigger เวลาที่เลิกแล้ว (มี e.triggerUid) → ลบ trigger ทิ้ง ไม่ส่งอะไร · รันเองใน editor (ไม่มี e) ยังทำงานปกติ
+function retiredTriggerFired(e) {
+  if (!e || !e.triggerUid) return false;
+  try { dropRetiredTriggers(); } catch (err) { console.error('dropRetiredTriggers: ' + err); }
+  return true;
 }
 
 function isFinanceTopic(text) {
@@ -4002,7 +4038,7 @@ function shopLineText(t) {
     + (part.length ? '\n   (' + part.join(' · ') + ')' : '')
     + (t.trWait ? '\n   โอนรอตรวจยอด ' + fm(t.trWait) + ' บาท' : '');
 }
-// ⚠️ เรื่องหน้าร้านที่ต้องให้คุณปาล์มดู (ส่งเฉพาะคุณปาล์มในสรุปเช้า — ไม่ลงกลุ่ม)
+// ⚠️ เรื่องหน้าร้านที่ต้องให้คุณปาล์มดู (ส่งเฉพาะคุณปาล์ม วันละครั้งเฉพาะวันที่มีรายการ — ไม่ลงกลุ่ม)
 //  1) วานนี้มีบิลแต่ยังไม่ปิดยอด  2) ปิดยอดแล้วเงินขาด/เกิน  3) บิล "ค้างชำระ" เกิน 7 วัน
 //  (บิล "รอหักเงินเดือน" แอปเงินเดือนปิดให้เองทุกงวด ไม่เตือน)
 function shopAlerts(data, todayKey) {
@@ -4027,6 +4063,21 @@ function shopAlerts(data, todayKey) {
       + (old.length > 5 ? ' …' : ''));
   }
   return out;
+}
+// 🛒 วันละครั้งช่วงเช้า (เกาะ fireDueReminders) — มีรายการถึงส่ง ว่าง = เงียบ
+//  อ่านชีตไม่ได้ / ส่งไม่ผ่าน (เช่นโควต้าไลน์หมด 429) → ไม่จดวัน รอบถัดไปลองใหม่
+function shopAlertsDaily() {
+  const P = PropertiesService.getScriptProperties();
+  const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+  if (P.getProperty('SHOP_ALERT_DAY') === today) return;
+  const owner = cfg('OWNER_LINE_USER_ID'); if (!owner) return;
+  const data = plantShopData(); if (!data) return;
+  const al = shopAlerts(data, today);
+  if (al.length) {
+    const sent = linePushExact(owner, '🛒 หน้าร้านโรงน้ำ ต้องดูค่ะ:\n' + al.map(function (a) { return '• ' + a; }).join('\n'));
+    if (!sent.ok) { console.error('shopAlertsDaily: ' + sent.error); return; }
+  }
+  P.setProperty('SHOP_ALERT_DAY', today);
 }
 
 // 📊 ยอดขายโรงน้ำแยกราย เซลส์/ลูกค้า/สินค้า/สาย/วัน (คุณปาล์ม 19/10: "ขอยอดขายของเซลล์รายคน" ได้ยอดรวมกลับไป 2 รอบ)
@@ -6592,7 +6643,7 @@ function learnDone(p) {
   let night = {}; try { night = JSON.parse(P.getProperty('LEARN_NIGHT') || '{}'); } catch (e) {}
   const fail = String(p.failed || '').trim();
   logRow(['เรียนรู้แชทกลุ่ม(จบ)', 'ระบบ', (night.done || []).join(', ') || '-', fail ? 'พลาด: ' + fail : '']);
-  // คุณปาล์มสั่งเรียนเอง → รายงานทันที · รอบกลางคืนปกติ → ไปอยู่ในสรุปเช้า
+  // คุณปาล์มสั่งเรียนเอง → รายงานทันที · รอบกลางคืนปกติ → ไม่ส่ง (ดูได้ที่ "แฟ้มกลุ่ม" / "จุดต่อระบบ")
   if (P.getProperty('LEARN_NOW') === '1') {
     P.deleteProperty('LEARN_NOW');
     const owner = cfg('OWNER_LINE_USER_ID');

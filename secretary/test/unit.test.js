@@ -416,4 +416,63 @@ t('คนในกลุ่มบิล Reply ใส่ข้อความส�
   assert.strictEqual(b.length, 1); assert.strictEqual(b[0].quotedMessageId, 'LM777'); assert.strictEqual(S.anthropic, 0);
 });
 
+// ⛔ เลิกรายงานเช้า / ตามงานค้าง / เฝ้าบอร์ด (20/10) — เหลือหน้าร้าน "มีปัญหาเท่านั้น"
+const fakeTriggers = (names, deleted) => ({
+  getProjectTriggers: () => names.map(fn => ({ getHandlerFunction: () => fn })),
+  deleteTrigger: tr => deleted.push(tr.getHandlerFunction()),
+  newTrigger: fn => ({ timeBased: () => ({ everyMinutes: () => ({ create: () => deleted.push('+' + fn) }),
+                                          atHour: () => ({ everyDays: () => ({ create: () => deleted.push('+' + fn) }) }) }) }) });
+
+t('setupTriggers: ตั้งแค่ fireDueReminders · ลบ morningBrief/boardWatch/nudgeStaleTasks ที่ค้าง', () => {
+  const { ctx } = makeEnv(); const log = [];
+  ctx.ScriptApp = fakeTriggers(['morningBrief', 'boardWatch', 'nudgeStaleTasks', 'fireDueReminders', 'อื่น'], log);
+  ctx.setupTriggers();
+  assert.deepStrictEqual(log, ['morningBrief', 'boardWatch', 'nudgeStaleTasks', 'fireDueReminders', '+fireDueReminders']);
+});
+
+t('fireDueReminders: ลบ trigger ที่เลิกแล้วที่ติดตั้งอยู่จริงเอง ครั้งเดียว (ไม่แตะ fireDueReminders)', () => {
+  const { ctx, S } = makeEnv(); const del = []; let reads = 0;
+  const f = fakeTriggers(['morningBrief', 'boardWatch', 'nudgeStaleTasks', 'fireDueReminders'], del);
+  ctx.ScriptApp = Object.assign({}, f, { getProjectTriggers: () => { reads++; return f.getProjectTriggers(); } });
+  ctx.fireDueReminders(); ctx.fireDueReminders();
+  assert.deepStrictEqual(del, ['morningBrief', 'boardWatch', 'nudgeStaleTasks']);
+  assert.strictEqual(reads, 1, 'จดว่าลบแล้ว รอบถัดไปไม่อ่าน trigger ซ้ำ');
+  assert.ok(S.props.TRIGGERS_RETIRED);
+});
+
+t('morningBrief/boardWatch/nudgeStaleTasks โดน trigger เก่ายิง → ไม่ส่งอะไร และลบ trigger ทิ้ง', () => {
+  for (const fn of ['morningBrief', 'boardWatch', 'nudgeStaleTasks']) {
+    const { ctx, S } = makeEnv(); const del = [];
+    ctx.ScriptApp = fakeTriggers([fn], del);
+    ctx.readBoard = () => [['1', '', 'ใหม่', 'ด่วนมาก', '', '', '', '', 'งาน']];
+    ctx[fn]({ triggerUid: 'T1' });
+    assert.strictEqual(S.pushes.length, 0, fn); assert.deepStrictEqual(del, [fn]);
+  }
+});
+
+const shopData = (closed) => ({ bills: [{ oid: 'S1', date: '2026-10-18', cust: 'ป้าแดง', amt: 120, paySt: 'ชำระแล้ว' }],
+                                 closes: closed ? { '2026-10-18': { diff: 0 } } : {} });
+
+t('หน้าร้าน: มีปัญหา (วานนี้ยังไม่ปิดยอด) → ส่งคุณปาล์มวันละครั้ง ช่วงเช้า', () => {
+  const { ctx, S } = makeEnv(); ctx.plantShopData = () => shopData(false);
+  ctx.fireDueReminders(); ctx.fireDueReminders();
+  const own = S.pushes.filter(p => p.to === OWNER);
+  assert.strictEqual(own.length, 1); assert.ok(/หน้าร้านโรงน้ำ/.test(own[0].messages[0].text) && /ยังไม่ปิดยอด/.test(own[0].messages[0].text));
+  assert.strictEqual(S.props.SHOP_ALERT_DAY, '2026-10-19');
+});
+
+t('หน้าร้าน: ไม่มีปัญหา → เงียบ (ไม่ส่ง "ทุกอย่างปกติ")', () => {
+  const { ctx, S } = makeEnv(); ctx.plantShopData = () => shopData(true);
+  ctx.fireDueReminders();
+  assert.strictEqual(S.pushes.length, 0); assert.strictEqual(S.props.SHOP_ALERT_DAY, '2026-10-19');
+});
+
+t('หน้าร้าน: ส่งไม่ผ่าน (โควต้าไลน์หมด 429) → ไม่จดวัน รอบหน้าลองใหม่ · นอกช่วงเช้าไม่ส่ง', () => {
+  const { ctx, S } = makeEnv(); ctx.plantShopData = () => shopData(false);
+  S.pushCode = 429; ctx.fireDueReminders(); assert.ok(!S.props.SHOP_ALERT_DAY);
+  S.pushCode = 200; ctx.fireDueReminders(); assert.strictEqual(S.props.SHOP_ALERT_DAY, '2026-10-19');
+  const late = makeEnv({ now: new Date('2026-10-19T07:00:00Z') /* 14:00 */ }); late.ctx.plantShopData = () => shopData(false);
+  late.ctx.fireDueReminders(); assert.strictEqual(late.S.pushes.length, 0);
+});
+
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');
