@@ -7,7 +7,7 @@
 |---|---|
 | `harness.js` | ตัวจำลอง GAS, LINE, Drive และแอปบัญชี |
 | `unit.test.js` | เทสต์เส้นทางในโค้ด (คำสั่ง สิทธิ์ กลุ่มบิล ล้างข้อความ ฯลฯ) |
-| `issue.test.js` | 🩺 หมอแอป: แท็กคุณปาล์ม → เคส AppIssues → API issueFeed/issueClaim/issueSave (ชีตจำลอง) — `unit.test.js` เรียกต่อท้ายให้เอง |
+| `issue.test.js` | 🛠️ นักพัฒนา: แท็กคุณปาล์ม → เคส AppIssues → API issueFeed/issueClaim/issueSave (ชีตจำลอง) — `unit.test.js` เรียกต่อท้ายให้เอง |
 | `scenarios.js` | **ข้อสอบสถานการณ์** มีทั้งข้อที่คิดขึ้นเองและข้อที่ดัดแปลงจากแชทจริงใน `SecretaryLog` |
 | `brain-eval.js` | ตัวคุมสอบ รันข้อสอบผ่านโค้ดจริง ส่งข้อที่ต้องคิดให้สมอง แล้วตรวจคำตอบสุดท้ายที่จะออกไลน์ |
 

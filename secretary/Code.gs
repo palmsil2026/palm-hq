@@ -274,7 +274,7 @@ function doPost(e) {
     // 🌙 ตัวเรียนรู้แชทกลุ่ม (Routine) ส่งผลกลับทีละกลุ่ม / แจ้งจบรอบ (form POST)
     if (e && e.parameter && e.parameter.action === 'learnSave') return jsonOut(learnSave(e.parameter));
     if (e && e.parameter && e.parameter.action === 'learnDone') return jsonOut(learnDone(e.parameter));
-    // 🩺 หมอแอป (Routine) รับเคส / ส่งผล (form POST · LEARN_KEY)
+    // 🛠️ นักพัฒนา (Routine) รับเคส / ส่งผล (form POST · LEARN_KEY)
     if (e && e.parameter && e.parameter.action === 'issueClaim') return jsonOut(issueClaim(e.parameter));
     if (e && e.parameter && e.parameter.action === 'issueSave') return jsonOut(issueSave(e.parameter));
     // 💬 แชทคุณเลขาจากบอร์ด — ส่งแบบ POST เพราะคำถามยาวเกิน URL ได้ และคำตอบยาวใช้เวลาคิดนาน
@@ -311,7 +311,7 @@ function doGet(e) {
     if (String(p.mode || '') === 'people') return jsonOut(learnFeedPeople());
     return jsonOut(learnFeed(String(p.force || '') === '1'));
   }
-  // 🩺 หมอแอป (Routine) ดึงเคสปัญหาแอปที่คนแท็กคุณปาล์มแจ้งไว้ — LEARN_KEY เท่านั้น
+  // 🛠️ นักพัฒนา (Routine) ดึงเคสปัญหาแอปที่คนแท็กคุณปาล์มแจ้งไว้ — LEARN_KEY เท่านั้น
   if (p.action === 'issueFeed') {
     if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut(issueFeed());
@@ -835,7 +835,7 @@ function handleEvent(ev) {
   // 👥 จดทะเบียนพนักงานอัตโนมัติ — ใครทักมา (เดี่ยว/กลุ่ม) เก็บชื่อ+ไอดีไว้ให้คุณปาล์มสั่ง DM ได้
   if (senderId && !owner) registerStaff(senderId);
 
-  // 🩺 หมอแอป: คนในกลุ่มแท็กคุณปาล์มแจ้งปัญหา/ถามวิธีใช้แอป → รับเรื่องแทน (30/10) · ไม่ใช่เรื่องแอป = ไหลต่อตามเดิม (เงียบ)
+  // 🛠️ นักพัฒนา: คนในกลุ่มแท็กคุณปาล์มแจ้งปัญหา/ถามวิธีใช้แอป → รับเรื่องแทน (30/10) · ไม่ใช่เรื่องแอป = ไหลต่อตามเดิม (เงียบ)
   if (inGroup && !owner && isPalmMention(ev, text) && handleAppIssueMention(ev, chatId, senderId, text, replyToken)) return;
 
   // ในกลุ่ม: ถ้าไม่ได้เรียกหาเลขา → เงียบ ปล่อยให้คนคุยกันเอง (ทำตัวเป็นธรรมชาติ)
@@ -1915,7 +1915,7 @@ function handleMediaMessage(ev) {
   const inGroup = (src.type === 'group' || src.type === 'room');
   const chatId = src.groupId || src.roomId || senderId;
   if (inGroup) registerGroup(chatId);
-  const openIssue = inGroup ? issueOpenCached(chatId, senderId) : '';   // 🩺 คนนี้เพิ่งแท็กแจ้งปัญหาแอป → รูปที่ตามมาคือหลักฐาน
+  const openIssue = inGroup ? issueOpenCached(chatId, senderId) : '';   // 🛠️ คนนี้เพิ่งแท็กแจ้งปัญหาแอป → รูปที่ตามมาคือหลักฐาน
   try {
     const res = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/message/' + ev.message.id + '/content', {
       headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
@@ -1933,7 +1933,7 @@ function handleMediaMessage(ev) {
       desc = a.desc;
       libCat = a.cat || '';
     }
-    if (openIssue) relevant = true;   // รูปหน้าจอที่ส่งตามเคสหมอแอป เก็บเสมอ
+    if (openIssue) relevant = true;   // รูปหน้าจอที่ส่งตามเคสนักพัฒนา เก็บเสมอ
     if (!relevant) {
       if (!inGroup) {
         lineReply(replyToken, '👀 ดูรูปแล้วค่ะ ดูไม่น่าเกี่ยวกับงาน เลยยังไม่เก็บไว้นะคะ'
@@ -2005,7 +2005,7 @@ function attachMediaToLatestTask(senderId, url, desc) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  🩺 หมอแอป — คนแท็กคุณปาล์มในกลุ่มแจ้งปัญหาแอป → เลขารับเรื่อง → Routine "🩺 หมอแอป" (repo origin-hq) แก้ให้ทันที
+//  🛠️ นักพัฒนา — คนแท็กคุณปาล์มในกลุ่มแจ้งปัญหาแอป → เลขารับเรื่อง → Routine "🛠️ นักพัฒนา" (repo origin-hq) แก้ให้ทันที
 //   คุณปาล์ม 30/10: "รับเรื่องรับปัญหาเกี่ยวกับการใช้งานแอพมาแก้ทันทีเลย โดยที่ไม่ต้องรอฉัน"
 //   ทางเดินเรื่อง: แท็ก @คุณปาล์ม → คัดด้วยสมอง (ISSUE/HOWTO/SKIP) → ชีต AppIssues + ตอบรับ (reply ฟรี) + ปลุก Routine
 //     → Routine: GET issueFeed → POST issueClaim → แก้/PR/merge → POST issueSave → เลขาตอบในกลุ่ม + สรุปคุณปาล์ม (push)
@@ -2018,7 +2018,7 @@ const ISSUE_FINAL = ['แก้แล้ว', 'ตอบวิธีใช้', 
 const ISSUE_WIN_MS = 10 * 60000;        // แชท/รูปรอบ ๆ การแท็ก ±10 นาที
 const ISSUE_MERGE_MS = 30 * 60000;      // คนเดิม กลุ่มเดิม ภายใน 30 นาที = เติมเคสเดิม
 const ISSUE_STALE_MS = 3 * 3600000;     // "กำลังแก้" ค้างเกิน 3 ชม. = รอบก่อนพัง ให้รับใหม่ได้
-const ISSUE_ACK = 'รับเรื่องแล้วค่ะ 🩺 กำลังตรวจให้นะคะ ได้ผลแล้วจะแจ้งในนี้ค่ะ';
+const ISSUE_ACK = 'รับเรื่องแล้วค่ะ 🛠️ ส่งให้นักพัฒนาตรวจแล้วนะคะ ได้ผลแล้วจะแจ้งในนี้ค่ะ';
 
 // แท็กคุณปาล์ม: mention ตรง userId (แม่นสุด) · สำรองข้อความ @Palm / @ปาล์ม
 function isPalmMention(ev, text) {
@@ -2149,18 +2149,18 @@ function handleAppIssueMention(ev, chatId, senderId, text, replyToken) {
       issueSet(R, oi, 'ข้อความ', String(issueGet(R, oi, 'ข้อความ') || '') + '\n+ ' + Utilities.formatDate(new Date(now), 'GMT+7', 'HH:mm') + ' ' + text);
       issueAddImages(R, oi, issueImageUrls(recentGroupRows(chatId, now - ISSUE_WIN_MS, now), senderId));
       issueMarkOpen(chatId, senderId, id);
-      lineReply(replyToken, 'รับข้อมูลเพิ่มแล้วค่ะ 🩺 แนบเข้าเรื่องเดิมให้แล้วนะคะ');
-      logRow(['หมอแอป(เติมเคส)', senderId, text, id]);
+      lineReply(replyToken, 'รับข้อมูลเพิ่มแล้วค่ะ 🛠️ แนบเข้าเรื่องเดิมให้แล้วนะคะ');
+      logRow(['นักพัฒนา(เติมเคส)', senderId, text, id]);
       return true;
     }
     const rows = recentGroupRows(chatId, now - ISSUE_WIN_MS, now);
     const v = classifyAppIssue(text, rows, chatId);
-    if (v.kind === 'SKIP') { logRow(['หมอแอป(ไม่ใช่ปัญหาแอป)', senderId, text, '']); return false; }
+    if (v.kind === 'SKIP') { logRow(['นักพัฒนา(ไม่ใช่ปัญหาแอป)', senderId, text, '']); return false; }
     if (v.kind === 'HOWTO' && v.answer) {
       lineReply(replyToken, v.answer);
       markAwaitingReply(chatId, senderId, v.answer);
       memAppend(chatId, text, v.answer);
-      logRow(['หมอแอป(ตอบวิธีใช้)', senderId, text, v.answer.slice(0, 200)]);
+      logRow(['นักพัฒนา(ตอบวิธีใช้)', senderId, text, v.answer.slice(0, 200)]);
       return true;
     }
     const id = issueCreate(R, { at: new Date(now), groupId: chatId, group: groupNameOf(chatId), senderId: senderId,
@@ -2169,7 +2169,7 @@ function handleAppIssueMention(ev, chatId, senderId, text, replyToken) {
     lineReply(replyToken, ISSUE_ACK);
     memAppend(chatId, text, ISSUE_ACK);
     const fired = maybeFireIssueRoutine(id);
-    logRow(['หมอแอป(เปิดเคส)', senderId, text, id + ' · ' + fired]);
+    logRow(['นักพัฒนา(เปิดเคส)', senderId, text, id + ' · ' + fired]);
     return true;
   } catch (e) { console.error('handleAppIssueMention: ' + e); return false; }
 }
@@ -2193,7 +2193,7 @@ function issueCreate(R, o) {
   } finally { lock.releaseLock(); }
 }
 
-// ปลุก Routine 🩺 หมอแอป (ไม่ตั้ง URL/TOKEN = ไม่ยิง — Routine มีรอบสำรองทุกชั่วโมงเวลางาน) · กันยิงถี่ 2 นาที
+// ปลุก Routine 🛠️ นักพัฒนา (ไม่ตั้ง URL/TOKEN = ไม่ยิง — Routine มีรอบสำรองทุกชั่วโมงเวลางาน) · กันยิงถี่ 2 นาที
 function maybeFireIssueRoutine(id) {
   const url = cfg('ISSUE_ROUTINE_FIRE_URL'), tok = cfg('ISSUE_ROUTINE_TOKEN');
   if (!url || !tok) return 'ไม่ได้ปลุก (ยังไม่ตั้ง ISSUE_ROUTINE_FIRE_URL/TOKEN — รอรอบชั่วโมง)';
@@ -2201,7 +2201,7 @@ function maybeFireIssueRoutine(id) {
   if (c.get('issue_fire_lock')) return 'เพิ่งปลุกไป ไม่ยิงซ้ำ';
   c.put('issue_fire_lock', '1', 120);
   const r = fireRoutine('เคสใหม่ ' + id, url, tok);
-  return r.ok ? 'ปลุกหมอแอปแล้ว' : r.msg;
+  return r.ok ? 'ปลุกนักพัฒนาแล้ว' : r.msg;
 }
 
 // ───── API ให้ Routine (LEARN_KEY) ─────
@@ -2283,11 +2283,11 @@ function issueSave(p) {
   if (reply) sent.group = issueReplyGroup(c, reply, p.id);
   const ownerId = cfg('OWNER_LINE_USER_ID');
   if (ownerId && (palm || st === 'ถามคุณปาล์ม')) {
-    const msg = '🩺 ' + st + ' · ' + (c.group || 'กลุ่ม') + ' · ' + (c.sender || 'ไม่ทราบชื่อ') + '\n'
+    const msg = '🛠️ ' + st + ' · ' + (c.group || 'กลุ่ม') + ' · ' + (c.sender || 'ไม่ทราบชื่อ') + '\n'
       + (palm || ('เรื่องที่แจ้ง: "' + c.text.slice(0, 400) + '"')) + (pr ? '\n🔗 ' + pr : '') + '\n(เคส ' + p.id + ')';
     sent.palm = issuePush(ownerId, [{ type: 'text', text: cleanOut(msg) }], p.id) === 200;
   }
-  logRow(['หมอแอป(ส่งผล)', 'Routine', String(p.id), st + ' · กลุ่ม ' + sent.group + ' · คุณปาล์ม ' + sent.palm]);
+  logRow(['นักพัฒนา(ส่งผล)', 'Routine', String(p.id), st + ' · กลุ่ม ' + sent.group + ' · คุณปาล์ม ' + sent.palm]);
   return { ok: true, id: String(p.id), status: st, sent: sent };
 }
 
@@ -2336,16 +2336,16 @@ function issueHealthLines(ok, warn) {
       const s = String(issueGet(R, i, 'สถานะ'));
       if (s === 'ใหม่') fresh++; else if (s === 'กำลังแก้') doing++;
     }
-    ok('🩺 หมอแอป: เคสค้าง ' + (fresh + doing) + ' เคส (ใหม่ ' + fresh + ' · กำลังแก้ ' + doing + ')');
+    ok('🛠️ นักพัฒนา: เคสค้าง ' + (fresh + doing) + ' เคส (ใหม่ ' + fresh + ' · กำลังแก้ ' + doing + ')');
   } catch (e) { warn('อ่านชีต AppIssues ไม่ได้ (' + e.message + ')'); }
   (cfg('ISSUE_ROUTINE_FIRE_URL') && cfg('ISSUE_ROUTINE_TOKEN'))
-    ? ok('ปลุกหมอแอปทันทีได้ (มีคนแท็กแจ้งปัญหาแอป → เริ่มแก้เลย)')
-    : warn('ปลุกหมอแอปทันทีไม่ได้ — เคสรอรอบทุกชั่วโมงเวลางาน',
-           'claude.ai → Routines → 🩺 หมอแอป → Edit → Add trigger → API → Generate token แล้วใส่ ISSUE_ROUTINE_FIRE_URL + ISSUE_ROUTINE_TOKEN ใน Script properties');
+    ? ok('ปลุกนักพัฒนาทันทีได้ (มีคนแท็กแจ้งปัญหาแอป → เริ่มแก้เลย)')
+    : warn('ปลุกนักพัฒนาทันทีไม่ได้ — เคสรอรอบทุกชั่วโมงเวลางาน',
+           'claude.ai → Routines → 🛠️ นักพัฒนา → Edit → Add trigger → API → Generate token แล้วใส่ ISSUE_ROUTINE_FIRE_URL + ISSUE_ROUTINE_TOKEN ใน Script properties');
   try {
     const f = JSON.parse(PropertiesService.getScriptProperties().getProperty('ISSUE_SEND_FAIL') || 'null');
     if (f && Date.now() - f.at < 3 * 86400000) {
-      warn('ส่งผลหมอแอปถึง' + f.to + 'ไม่ออก (เคส ' + f.id + ' · ' + Utilities.formatDate(new Date(f.at), 'GMT+7', 'd/M HH:mm')
+      warn('ส่งผลนักพัฒนาถึง' + f.to + 'ไม่ออก (เคส ' + f.id + ' · ' + Utilities.formatDate(new Date(f.at), 'GMT+7', 'd/M HH:mm')
            + (f.code === 429 ? ' · โควตาข้อความไลน์เดือนนี้เต็ม' : ' · HTTP ' + f.code) + ')',
            'ผลยังอยู่ในชีต AppIssues (ช่อง ตอบในกลุ่ม/สรุปคุณปาล์ม)' + (f.code === 429 ? ' · โควตารีเซ็ตต้นเดือน หรือเพิ่มแพ็กเกจ LINE OA' : ''));
     }
@@ -2356,7 +2356,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-10-30a';
+const CODE_VERSION = '2026-11-01a';
 
 function healthCheck() {
   const L = [];
@@ -2449,7 +2449,7 @@ function healthCheck() {
     ? ok('ปุ่ม "เริ่มทันที" บนบอร์ดใช้ได้')
     : warn('ปลุกทีม AI ทันทีไม่ได้', 'ตั้ง ROUTINE_FIRE_URL + ROUTINE_TOKEN (หน้า Edit routine → API)');
 
-  // 5.5 🩺 หมอแอป — เคสค้าง · ปลุกทันทีได้ไหม · ส่งผลไม่ออก (โควตาไลน์)
+  // 5.5 🛠️ นักพัฒนา — เคสค้าง · ปลุกทันทีได้ไหม · ส่งผลไม่ออก (โควตาไลน์)
   issueHealthLines(ok, warn);
 
   // 6. คิว + งานค้าง

@@ -1,4 +1,4 @@
-// 🧪 หมอแอป — คนแท็กคุณปาล์มแจ้งปัญหาแอป → ชีต AppIssues → Routine ดึง/รับ/ส่งผล (ข้อมูลสมมติ ชีตจำลอง ไม่แตะของจริง)
+// 🧪 นักพัฒนา — คนแท็กคุณปาล์มแจ้งปัญหาแอป → ชีต AppIssues → Routine ดึง/รับ/ส่งผล (ข้อมูลสมมติ ชีตจำลอง ไม่แตะของจริง)
 //   รัน: node secretary/test/issue.test.js (unit.test.js เรียกต่อท้ายให้เอง)
 const assert = require('assert');
 const { makeEnv, OWNER, OTHER_GID } = require('./harness');
@@ -7,7 +7,7 @@ let n = 0; const t = (name, fn) => { fn(); n++; console.log('✓ ' + name); };
 
 const STAFF = 'Ustaff00000000000000000000000000';
 const H = ['Issue_ID', 'เวลา', 'groupId', 'กลุ่ม', 'senderId', 'ผู้แจ้ง', 'ข้อความ', 'รูป', 'สถานะ', 'รับเมื่อ', 'เสร็จเมื่อ', 'ตอบในกลุ่ม', 'สรุปคุณปาล์ม', 'PR', 'เวอร์ชัน'];   // หัวชีต AppIssues ตามสเปก
-const ACK = 'รับเรื่องแล้วค่ะ 🩺 กำลังตรวจให้นะคะ ได้ผลแล้วจะแจ้งในนี้ค่ะ';
+const ACK = 'รับเรื่องแล้วค่ะ 🛠️ ส่งให้นักพัฒนาตรวจแล้วนะคะ ได้ผลแล้วจะแจ้งในนี้ค่ะ';
 const IMG = 'https://drive.google.com/file/d/Fimg1/view';
 const FIRE = 'https://api.anthropic.com/v1/claude_code/routines/trig_test/fire';
 
@@ -48,7 +48,7 @@ const fires = S => S.fetches.filter(f => f.url === FIRE);
 const ISSUE_AI = () => 'ISSUE';
 const NOW = new Date('2026-10-19T01:30:00Z').getTime();   // ตรงกับ now ของ harness (08:30 ไทย)
 
-t('แท็กคุณปาล์มแจ้งปัญหาแอป → เปิดเคส AppIssues (รูปก่อนแท็กติดมา) + ตอบรับด้วย reply ฟรี + ปลุก Routine หมอแอป', () => {
+t('แท็กคุณปาล์มแจ้งปัญหาแอป → เปิดเคส AppIssues (รูปก่อนแท็กติดมา) + ตอบรับด้วย reply ฟรี + ปลุก Routine นักพัฒนา', () => {
   const E = env({ ai: ISSUE_AI, props: { ISSUE_ROUTINE_FIRE_URL: FIRE, ISSUE_ROUTINE_TOKEN: 'tok' },
     chat: [{ t: NOW - 3 * 60000, chat: OTHER_GID, uid: STAFF, name: 'น้องเซลส์', text: '[ส่งรูป/ไฟล์] หน้าจอแอปเซลส์ค้าง ' + IMG },
            { t: NOW - 2 * 60000, chat: OTHER_GID, uid: 'Uother', name: 'คนอื่น', text: '[ส่งรูป/ไฟล์] รูปคนอื่น https://drive.google.com/file/d/Fnot/view' }] });
@@ -94,7 +94,7 @@ t('ถามวิธีใช้ที่เลขาตอบได้ชั�
   assert.deepStrictEqual(E.S.replies.map(r => r.messages[0].text), ['1) กดเมนู ☰\n2) เลือก "ของแถม" ค่ะ']);
 });
 
-t('คุณปาล์มพิมพ์เอง / ไม่ได้แท็ก / แชทส่วนตัว → ไม่เข้าหมอแอป', () => {
+t('คุณปาล์มพิมพ์เอง / ไม่ได้แท็ก / แชทส่วนตัว → ไม่เข้านักพัฒนา', () => {
   const E = env({ ai: ISSUE_AI });
   E.ctx.handleEvent(tag('@Palm แอปค้าง', { uid: OWNER }));
   E.ctx.handleEvent(tag('แอปค้างอีกแล้ว', { msg: { mention: undefined } }));
@@ -181,7 +181,7 @@ t('issueSave: บันทึกชีต → ตอบในกลุ่มเ�
   assert.strictEqual(g.messages[0].type, 'textV2'); assert.ok(/^\{u\} แก้แล้วค่ะ/.test(g.messages[0].text));
   assert.deepStrictEqual(g.messages[0].substitution.u.mentionee, { type: 'user', userId: STAFF });
   assert.strictEqual(o.to, OWNER);
-  assert.ok(/^🩺 แก้แล้ว · กลุ่มเซลส์ · น้องเซลส์\n/.test(o.messages[0].text), o.messages[0].text);
+  assert.ok(/^🛠️ แก้แล้ว · กลุ่มเซลส์ · น้องเซลส์\n/.test(o.messages[0].text), o.messages[0].text);
   assert.ok(/pull\/999/.test(o.messages[0].text) && /IS261019-001/.test(o.messages[0].text));
   assert.strictEqual(pp(E, { action: 'issueSave', key: 'Lkey', id: 'IS261019-001', result: res }).ok, false);
   assert.strictEqual(E.S.pushes.length, 2);
@@ -198,18 +198,18 @@ t('issueSave: "ถามคุณปาล์ม" → แชทส่วนต�
   assert.strictEqual(F.S.pushes.length, 0);
 });
 
-t('โควตาไลน์เต็ม (429) → ผลยังบันทึกชีต + "เช็คระบบ" โชว์ส่งไม่ออก · เคสค้าง · ยังไม่ตั้งปลุกหมอแอป', () => {
+t('โควตาไลน์เต็ม (429) → ผลยังบันทึกชีต + "เช็คระบบ" โชว์ส่งไม่ออก · เคสค้าง · ยังไม่ตั้งปลุกนักพัฒนา', () => {
   const E = env({ issueRows: seed() }); E.S.pushCode = 429;
   const r = pp(E, { action: 'issueSave', key: 'Lkey', id: 'IS261019-001', result: JSON.stringify({ status: 'แก้แล้ว', reply: 'แก้แล้วค่ะ', palm: 'สรุป' }) });
   assert.deepStrictEqual(r.sent, { group: false, palm: false });
   assert.strictEqual(E.S.pushes.length, 2, 'mention 429 แล้วไม่ลองแบบไม่มี mention ซ้ำ');
   assert.strictEqual(cell(E, 1, 'ตอบในกลุ่ม'), 'แก้แล้วค่ะ');
   const out = E.ctx.healthCheck();
-  assert.ok(/ส่งผลหมอแอปถึงคุณปาล์มไม่ออก \(เคส IS261019-001 .*โควตาข้อความไลน์เดือนนี้เต็ม\)/.test(out), out);
-  assert.ok(/✅ 🩺 หมอแอป: เคสค้าง 2 เคส \(ใหม่ 0 · กำลังแก้ 2\)/.test(out), out);
-  assert.ok(/⚠️ ปลุกหมอแอปทันทีไม่ได้/.test(out));
+  assert.ok(/ส่งผลนักพัฒนาถึงคุณปาล์มไม่ออก \(เคส IS261019-001 .*โควตาข้อความไลน์เดือนนี้เต็ม\)/.test(out), out);
+  assert.ok(/✅ 🛠️ นักพัฒนา: เคสค้าง 2 เคส \(ใหม่ 0 · กำลังแก้ 2\)/.test(out), out);
+  assert.ok(/⚠️ ปลุกนักพัฒนาทันทีไม่ได้/.test(out));
   const F = env({ props: { ISSUE_ROUTINE_FIRE_URL: FIRE, ISSUE_ROUTINE_TOKEN: 'tok' } });
-  assert.ok(/✅ ปลุกหมอแอปทันทีได้/.test(F.ctx.healthCheck()));
+  assert.ok(/✅ ปลุกนักพัฒนาทันทีได้/.test(F.ctx.healthCheck()));
 });
 
 t('mention ใช้ไม่ได้ (400) → ส่งในกลุ่มแบบขึ้นต้นด้วยชื่อแทน', () => {
@@ -221,4 +221,4 @@ t('mention ใช้ไม่ได้ (400) → ส่งในกลุ่ม�
   assert.strictEqual(E.S.pushes[1].to, OTHER_GID);
 });
 
-console.log('\nหมอแอป ผ่านทั้งหมด ' + n + ' ข้อ');
+console.log('\nนักพัฒนา ผ่านทั้งหมด ' + n + ' ข้อ');
