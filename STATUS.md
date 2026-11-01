@@ -2,16 +2,16 @@
 
 > ไฟล์นี้ตอบคำถามเดียว: **"โค้ดใน repo กับของที่รันจริง ตรงกันรึยัง"**
 > ประวัติว่าใครแก้อะไรเมื่อไหร่ → ดู `git log` (ไม่ต้องจดซ้ำที่นี่ เลยไม่ต้อง compact)
-> อัปเดตล่าสุด: 2026-10-30 โดยแชท palm-hq — ✅ **GAS = repo = `2026-10-30a`** (🛠️ นักพัฒนา · ยืนยัน `?action=version` 31/10) · 📚 Routine เรียนรู้รอบแรกเสร็จ 19/10: 10 กลุ่ม ไม่พลาด · ⚠️ สั่ง deploy เองให้กด **Run workflow** (เลือก `main`) **ห้ามกด Re-run รอบเก่า** — Re-run ใช้โค้ดของวันนั้น เคยทับ 18b ด้วย 18a · 🧪 ชุดสอบเลขา `secretary/test/` (CI รันทุก PR + ก่อน deploy) · 🧾 แอปบัญชี v0.12 (คุณปาล์มเช็คระบบ 20/10 ไม่มีคำเตือน) — สรุปบิลลงกลุ่มพร้อมใช้
+> อัปเดตล่าสุด: 2026-11-01 โดยแชท palm-hq — ✅ **GAS = repo = `2026-11-01a`** (🛠️ นักพัฒนา — เปลี่ยนชื่อจาก "หมอแอป" ตามคุณปาล์ม 01/11 · ยืนยัน `?action=version` 01/11 · Routine ทดสอบ Run now ผ่าน: ไม่มีเคสใหม่) · 📚 Routine เรียนรู้รอบแรกเสร็จ 19/10: 10 กลุ่ม ไม่พลาด · ⚠️ สั่ง deploy เองให้กด **Run workflow** (เลือก `main`) **ห้ามกด Re-run รอบเก่า** — Re-run ใช้โค้ดของวันนั้น เคยทับ 18b ด้วย 18a · 🧪 ชุดสอบเลขา `secretary/test/` (CI รันทุก PR + ก่อน deploy) · 🧾 แอปบัญชี v0.12 (คุณปาล์มเช็คระบบ 20/10 ไม่มีคำเตือน) — สรุปบิลลงกลุ่มพร้อมใช้
 
 ## ของจริงที่รันอยู่ เทียบกับ repo
 
 | ชิ้นส่วน | ที่รันจริง | สถานะเทียบ repo |
 |---|---|---|
 | หน้าเว็บทั้งหมด (`index.html`, `board/`, `exec/`, `request.html`) | GitHub Pages ของ repo นี้ `palmsil2026.github.io/palm-hq/` | ✅ push `main` = ขึ้นจริงใน ~1 นาที (เฟส 1 แอปผู้บริหารขึ้นแล้ว) |
-| GAS คุณเลขา (`secretary/Code.gs`) — บอท LINE + บอร์ด + exec API + HR | Apps Script deployment `AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J` | ✅ **`2026-10-30a` ตรงกับ repo** (ยืนยัน `?action=version` 31/10) · merge `main` = workflow ส่งขึ้นเอง (เทสต์ล้ม = ไม่ส่ง) · สั่งเอง = Actions → Deploy to Apps Script → **Run workflow** (ห้าม Re-run รอบเก่า) · ตรวจของจริง `…/exec?action=version` หรือ "เช็คระบบ" ในไลน์ |
+| GAS คุณเลขา (`secretary/Code.gs`) — บอท LINE + บอร์ด + exec API + HR | Apps Script deployment `AKfycbwgxZ_yxK21-GcB0yuZSFw-uT7yr9J322ZyMT2H3QsHgcnEuvvhUP3I-yJH3hq9dC9J` | ✅ **`2026-11-01a` ตรงกับ repo** (ยืนยัน `?action=version` 01/11) · merge `main` = workflow ส่งขึ้นเอง (เทสต์ล้ม = ไม่ส่ง) · สั่งเอง = Actions → Deploy to Apps Script → **Run workflow** (ห้าม Re-run รอบเก่า) · ตรวจของจริง `…/exec?action=version` หรือ "เช็คระบบ" ในไลน์ |
 
-### ✅ ขึ้น GAS แล้ว (`2026-10-30a`) — 🛠️ นักพัฒนา · รอของจริง: เคสแรกจากการแท็กในกลุ่ม
+### ✅ ขึ้น GAS แล้ว (`2026-10-30a` + เปลี่ยนชื่อ `2026-11-01a`) — 🛠️ นักพัฒนา · รอของจริง: เคสแรกจากการแท็กในกลุ่ม
 | งาน | มาจากแชท |
 |---|---|
 | 🩺 **นักพัฒนา** (คุณปาล์ม 30/10: "รับเรื่องรับปัญหาเกี่ยวกับการใช้งานแอพมาแก้ทันทีเลย โดยที่ไม่ต้องรอฉัน"): คนในกลุ่มแท็ก @คุณปาล์ม (mention จริง / `@Palm` `@ปาล์ม`) → สมองเลขาคัด ISSUE/HOWTO/SKIP → ISSUE = แท็บใหม่ **`AppIssues`** (ชีตบอร์ด · `IS`yyMMdd-NNN · ไม่ลบแถว) + รูปของคนแจ้ง ±10 นาที + ตอบรับด้วย reply (ฟรี) + ปลุก Routine "🛠️ นักพัฒนา" (`trig_0162fogQzeJqn2d3VfEGptMt`) · HOWTO = ตอบวิธีใช้เอง · SKIP = เงียบเหมือนเดิม · แท็กซ้ำ/รูปตามมาใน 30 นาที = เติมเคสเดิม · API (รหัส `LEARN_KEY`): `GET issueFeed` · `POST issueClaim` · `POST issueSave` → push ผลลงกลุ่มเดิม (@ผู้แจ้ง) + สรุปคุณปาล์มแชทส่วนตัว · ส่งไม่ออก (429 โควตาไลน์) = จดไว้โชว์ใน "เช็คระบบ" · เทสต์ `secretary/test/issue.test.js` 13 ข้อ | origin-hq → palm-hq |
