@@ -1985,7 +1985,7 @@ function handleMediaMessage(ev) {
       attachMediaToLatestTask(senderId, url);
       if (openIssue) issueAttachMedia(chatId, senderId, url);
       logRow(['รับไฟล์(กลุ่ม)', senderId, base, (desc ? desc + ' ' : '') + url]);
-      if (prodGroup) phOnImage(ev, chatId, senderId, ph, url);
+      if (prodGroup) phOnImage(ev, chatId, senderId, ph, url, { fileId: file.getId(), blob: blob });
       return;
     }
 
@@ -2382,7 +2382,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-02b';
+const CODE_VERSION = '2026-11-02c';
 
 function healthCheck() {
   const L = [];
@@ -2907,11 +2907,11 @@ function phTypedValue(text) {
 }
 
 // บันทึกค่า 1 ครั้ง → คืนข้อความตอบรับ (อยู่ในเกณฑ์/นอกเกณฑ์) · slot: am | pm (+ นับเป็นวัดซ้ำหลังเปลี่ยนสารถ้ามีค้าง)
-function phRecord(ph, by, url, how) {
+function phRecord(ph, by, url, how, extra) {
   const R = phRange();
   return phEdit(function (d, log, n) {
     const slot = n.min < 12 * 60 ? 'am' : 'pm';
-    const rec = { ph: ph, t: n.hhmm, by: by || '', u: url || '', how: how };
+    const rec = Object.assign({ ph: ph, t: n.hhmm, by: by || '', u: url || '', how: how }, extra || {});
     const afterChem = !!(d.chem && !d.chemDone && n.ms > d.chem);
     if (!d[slot] || d[slot].ph == null) d[slot] = rec; else (d.ex = d.ex || []).push(rec);
     if (afterChem && ph != null) { d.chemDone = true; d.chemPh = ph; }
@@ -3004,8 +3004,55 @@ function phOnText(ev, chatId, senderId, text, replyToken) {
   return false;
 }
 
+// 🔁 กันส่งรูปเก่าซ้ำแทนการวัดจริง (คุณปาล์ม 02/11: "ระวังพนักงานเนียนส่งรูปมาซ้ำนะ แบบถ้าลืมหรือขี้เกียจวัด")
+//   ชั้น 1 ไฟล์เดิมเป๊ะ (ลายนิ้วมือไฟล์ MD5 ตรงกับรูป pH ใน 21 วัน) = แน่นอน → บอกในกลุ่มสุภาพ ๆ ให้วัดใหม่ ไม่จดเป็นการวัด + แจ้งคุณปาล์ม
+//   ชั้น 2 คล้ายมาก (แคปจอ/ครอป/เซฟใหม่) = AI เทียบกับรูป pH 2 รูปล่าสุด → ไม่แน่นอน จึง "ไม่ทักในกลุ่ม" จดธงไว้ + แจ้งคุณปาล์มตัดสินเอง (PALM-WAY ข้อ 7)
+function phHash(blob) {
+  try {
+    return Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, blob.getBytes())
+      .map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
+  } catch (e) { return ''; }
+}
+function phAllRecs(log) {
+  const out = [];
+  Object.keys(log).sort().forEach(function (k) {
+    const d = log[k];
+    [d.am, d.pm].concat(d.ex || []).forEach(function (r) { if (r) out.push(Object.assign({ day: k }, r)); });
+  });
+  return out;
+}
+function phDayTime(r) { return Number(r.day.slice(8)) + '/' + Number(r.day.slice(5, 7)) + ' ' + r.t + ' น.'; }
+// AI เทียบรูปใหม่กับรูป pH เก่า (ชุดตรวจเดิม วางที่เดิม หน้าตาคล้ายกันเป็นปกติ) → คืนรูปเก่าที่ "ถ่ายครั้งเดียวกัน" หรือ null
+function phSameShot(blob, prev) {
+  try {
+    const apiKey = cfg('ANTHROPIC_API_KEY'); if (!apiKey || !prev.length) return null;
+    const img = function (b) { return { type: 'image', source: { type: 'base64', media_type: b.getContentType(), data: Utilities.base64Encode(b.getBytes()) } }; };
+    const olds = [];
+    prev.forEach(function (r) { try { const b = DriveApp.getFileById(r.f).getBlob(); if (b.getBytes().length < 3500000) olds.push({ r: r, b: b }); } catch (e) {} });
+    if (!olds.length || blob.getBytes().length > 3500000) return null;
+    const content = [img(blob)].concat(olds.map(function (o) { return img(o.b); })).concat([{ type: 'text', text:
+      'รูปที่ 1 คือรูปตรวจค่า pH ที่เพิ่งส่งมา · รูปที่ 2' + (olds.length > 1 ? '–' + (olds.length + 1) : '') + ' คือรูปตรวจ pH ที่เคยส่งก่อนหน้า '
+      + '(ชุดตรวจเดียวกัน วางที่เดิม หน้าตาคล้ายกันเป็นปกติ)\n'
+      + 'ตัดสินว่ารูปที่ 1 เป็น "ภาพถ่ายใบเดียวกัน" กับรูปเก่ารูปใดไหม คือเอารูปเก่ามาส่งซ้ำ/แคปหน้าจอ/ครอป/ปรับแสง ไม่ได้ถ่ายใหม่\n'
+      + 'ดูรายละเอียดเล็กที่ถ่ายใหม่แล้วจะต่างกันเสมอ: ระดับและผิวน้ำ ฟองอากาศ หยดน้ำ แสงสะท้อน เงา ตำแหน่ง/มุมเอียงของหลอดและของรอบ ๆ มุมกล้อง ฉากหลัง\n'
+      + 'ตอบบรรทัดเดียว: ซ้ำ: <เลขรูปเก่าที่เป็นภาพเดียวกัน เช่น 2> หรือ ซ้ำ: ไม่ · ไม่แน่ใจให้ตอบ ซ้ำ: ไม่' }]);
+    const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({ model: MODEL, max_tokens: 1024, messages: [{ role: 'user', content: content }] })
+    });
+    AI_TAG = 'เทียบรูป pH';
+    const t = claudeText(JSON.parse(res.getContentText()));
+    AI_TAG = '';
+    const m = String(t).match(/ซ้ำ\s*:\s*(\d+)/);
+    const o = m ? olds[Number(m[1]) - 2] : null;
+    return o ? o.r : null;
+  } catch (e) { AI_TAG = ''; console.error('phSameShot: ' + e); return null; }
+}
+
 // 📷 รูปในกลุ่มฝ่ายผลิต — ph = ตัวเลขที่ AI อ่านจากรูป · null = รูปตรวจ pH แต่อ่านไม่ได้ · undefined = ไม่ใช่รูปตรวจ pH
-function phOnImage(ev, chatId, senderId, ph, url) {
+//   media = { fileId, blob } ของรูปนี้ (ไว้กันส่งรูปซ้ำ)
+function phOnImage(ev, chatId, senderId, ph, url, media) {
   try {
     if (!phOn() || !chatId || chatId !== productionGroupId() || isOwner(senderId)) return false;
     const replyToken = ev.replyToken, by = groupMemberName(chatId, senderId);
@@ -3015,19 +3062,51 @@ function phOnImage(ev, chatId, senderId, ph, url) {
       return false;
     }
     phTouch(false);
-    if (ph === null) {
-      const r0 = phRecord(null, by, url, 'photo');
-      lineReply(replyToken, 'รับรูปค่า pH ' + (r0.slot === 'am' ? 'รอบเช้า' : 'รอบบ่าย') + 'แล้วค่ะ 🙏 ดิฉันเทียบสีจากรูปไม่ชัด ช่วยพิมพ์ตัวเลขที่อ่านได้ด้วยนะคะ (เช่น ph 7.5)');
-      logRow(['ค่า pH', by, 'อ่านจากรูปไม่ได้', url]);
+    media = media || {};
+    const mid = (ev.message && ev.message.id) || '';
+    const hash = media.blob ? phHash(media.blob) : '';
+    const all = phAllRecs(phLoad());
+    const same = hash ? all.filter(function (r) { return r.h === hash; }).pop() : null;
+    if (same) {   // ชั้น 1: ไฟล์เดิมเป๊ะ — ไม่นับเป็นการวัด รอบนั้นยังทวงได้ตามปกติ
+      phEdit(function (d) { (d.dup = d.dup || []).push({ t: phNow().hhmm, by: by, of: same.day + ' ' + same.t }); });
+      lineReply(replyToken, 'รูปนี้เป็นรูปเดียวกับรูปค่า pH ที่ส่งเมื่อ ' + phDayTime(same) + ' เลยค่ะ 🙏 รบกวนวัดใหม่แล้วถ่ายรูปใหม่ส่งอีกครั้งนะคะ');
+      const owner = cfg('OWNER_LINE_USER_ID');
+      if (owner) linePush(owner, '🔁 รูป pH ซ้ำ (ไฟล์เดิมเป๊ะ) · ' + (by || 'ไม่ทราบชื่อ') + ' ส่งรูปของ ' + phDayTime(same) + ' มาอีกครั้ง'
+        + '\nในกลุ่มขอให้วัดใหม่แล้วค่ะ · ไม่นับเป็นการวัด\n' + (same.u || ''));
+      logRow(['ค่า pH: รูปซ้ำ', by, 'ซ้ำกับ ' + same.day + ' ' + same.t, url]);
       return true;
     }
-    const r = phRecord(ph, by, url, 'photo');
+    const extra = { h: hash, f: media.fileId || '', m: mid };
+    const prev = all.filter(function (r) { return r.f; }).slice(-2);
+    if (ph === null) {
+      const r0 = phRecord(null, by, url, 'photo', extra);
+      lineReply(replyToken, 'รับรูปค่า pH ' + (r0.slot === 'am' ? 'รอบเช้า' : 'รอบบ่าย') + 'แล้วค่ะ 🙏 ดิฉันเทียบสีจากรูปไม่ชัด ช่วยพิมพ์ตัวเลขที่อ่านได้ด้วยนะคะ (เช่น ph 7.5)');
+      logRow(['ค่า pH', by, 'อ่านจากรูปไม่ได้', url]);
+      phCheckLookalike(media.blob, prev, mid, by, url);
+      return true;
+    }
+    const r = phRecord(ph, by, url, 'photo', extra);
     lineReply(replyToken, phAckText(ph, r, 'photo'));
     phWarnOwner(ph, r, by, url, 'photo');
-    phToApp(ph, r, by, url, 'photo', ev.message && ev.message.id);
+    phToApp(ph, r, by, url, 'photo', mid);
+    phCheckLookalike(media.blob, prev, mid, by, url);   // หลังตอบรับแล้ว (AI ช้าได้ ไม่ให้ token ตอบกลับหมดอายุ)
     return true;
   } catch (e) { console.error('phOnImage: ' + e); }
   return false;
+}
+
+// ชั้น 2: AI ว่าเหมือนรูปเก่า → ติดธงในบันทึก + แจ้งคุณปาล์ม (ไม่ทักในกลุ่ม — ยังไม่แน่นอน ให้คนตัดสิน)
+function phCheckLookalike(blob, prev, mid, by, url) {
+  if (!blob || !prev || !prev.length) return;
+  const old = phSameShot(blob, prev);
+  if (!old) return;
+  phEdit(function (d) {
+    [d.am, d.pm].concat(d.ex || []).forEach(function (r) { if (r && r.m === mid) r.sus = old.day + ' ' + old.t; });
+  });
+  const owner = cfg('OWNER_LINE_USER_ID');
+  if (owner) linePush(owner, '🔁 รูป pH อาจเป็นรูปเดิม · ' + (by || 'ไม่ทราบชื่อ') + ' ส่งรูปที่ AI เทียบแล้วเหมือนถ่ายครั้งเดียวกับรูป ' + phDayTime(old)
+    + '\nในกลุ่มยังตอบรับตามปกติ (ไม่แน่นอน 100%) — คุณปาล์มดู 2 รูปแล้วตัดสินได้เลยค่ะ\nใหม่: ' + url + '\nเก่า: ' + (old.u || ''));
+  logRow(['ค่า pH: รูปคล้ายรูปเก่า', by, 'เหมือน ' + old.day + ' ' + old.t, url]);
 }
 
 // 🌆 เย็น (18–21 น. วันละครั้ง · เกาะ fireDueReminders): ขาดรอบไหน → จด · ขาด 2 วันทำงานติด → แจ้งคุณปาล์ม 1 ข้อความ
@@ -3063,7 +3142,7 @@ function phEveningCheck() {
 function phSummaryText() {
   const log = phLoad(), R = phRange();
   const wd = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
-  const cell = function (x) { return !x ? '❌' : x.ph == null ? '📷?' : phFmt(x.ph) + ((x.ph < R.min || x.ph > R.max) ? '⚠️' : '') + ' (' + x.t + ')'; };
+  const cell = function (x) { return !x ? '❌' : (x.ph == null ? '📷?' : phFmt(x.ph) + ((x.ph < R.min || x.ph > R.max) ? '⚠️' : '') + ' (' + x.t + ')') + (x.sus ? ' 🔁?' : ''); };
   const days = Object.keys(log).sort().reverse().filter(function (k) { const d = log[k]; return d.actAm || d.actPm || d.am || d.pm; }).slice(0, 10);
   if (!days.length) return '🧪 ยังไม่มีบันทึกค่า pH ฝ่ายผลิตค่ะ (เริ่มจดตั้งแต่ระบบนี้ขึ้น)';
   let ok = 0, tot = 0;
@@ -3072,11 +3151,12 @@ function phSummaryText() {
     const parts = ['เช้า ' + (d.actAm || d.am ? cell(d.am) : '–')];
     if (phPmOn(k)) parts.push('บ่าย ' + (d.actPm || d.pm ? cell(d.pm) : '–'));
     if (d.chem) parts.push('หลังเปลี่ยนสาร ' + (d.chemDone ? phFmt(d.chemPh) : '❌'));
+    if (d.dup && d.dup.length) parts.push('🔁 ส่งรูปเดิมซ้ำ ' + d.dup.length + ' ครั้ง');
     phMissed(k, d).length ? tot++ : (ok++, tot++);
     return '• ' + wd[dt.getUTCDay()] + ' ' + Number(k.slice(8)) + '/' + Number(k.slice(5, 7)) + ' · ' + parts.join(' · ');
   });
   return '🧪 ค่า pH ฝ่ายผลิต (เกณฑ์ ' + R.min + '–' + R.max + ')\n' + lines.join('\n')
-    + '\n\nครบทุกรอบ ' + ok + '/' + tot + ' วัน · ❌ = ไม่ได้ส่ง · 📷? = ส่งรูปแต่อ่านค่าไม่ได้ · – = ไม่มีคนโพสต์ช่วงนั้น (น่าจะหยุด)';
+    + '\n\nครบทุกรอบ ' + ok + '/' + tot + ' วัน · ❌ = ไม่ได้ส่ง · 📷? = ส่งรูปแต่อ่านค่าไม่ได้ · 🔁? = AI ว่ารูปเหมือนรูปเก่า · – = ไม่มีคนโพสต์ช่วงนั้น (น่าจะหยุด)';
 }
 
 // ════════════════════════════════════════════════════════════
