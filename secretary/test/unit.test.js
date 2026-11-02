@@ -475,6 +475,125 @@ t('หน้าร้าน: ส่งไม่ผ่าน (โควต้า�
   late.ctx.fireDueReminders(); assert.strictEqual(late.S.pushes.length, 0);
 });
 
+// ── 🧪 ค่า pH ฝ่ายผลิต: เลขาตอบรับ/จด/ทวงแบบ reply เท่านั้น (คุณปาล์ม 02/11) ──
+const phAi = v => body => (JSON.stringify(body).indexOf('ค่าpH') !== -1
+  ? 'เกี่ยวข้อง: ใช่\nบรรยาย: รูปชุดตรวจค่า pH\nหมวด: โรงน้ำ-ละกอน\nค่าpH: ' + v
+  : 'เกี่ยวข้อง: ใช่\nบรรยาย: รูปงาน\nหมวด: โรงน้ำ-ละกอน');
+const at = (S, iso) => { S.now = new Date(iso); };
+const phLog = S => JSON.parse(S.props.PH_LOG || '{}');
+const prodTxt = (text, uid) => { const e = ev('text', { text }, PROD_GID); if (uid) e.source.userId = uid; return e; };
+
+t('pH: ตั้มส่งรูปชุดตรวจตอนเช้า → เลขาอ่านค่าจากรูป ตอบรับในกลุ่ม (reply) + จด + ส่งแอปทีมผลิต · ไม่ push', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z') /* 08:20 */, ai: phAi('7.5') });
+  ctx.handleEvent(ev('image', {}, PROD_GID));
+  assert.strictEqual(S.replies.length, 1); assert.ok(/รับทราบ.*รอบเช้า.*7\.5.*อยู่ในเกณฑ์/.test(replyText(S)), replyText(S));
+  assert.strictEqual(S.pushes.length, 0);
+  assert.ok(S.prompts.some(p => JSON.stringify(p).indexOf('ค่าpH') !== -1), 'ขอให้ AI อ่านค่า pH');
+  const q = prodCalls(S).filter(b => b.action === 'lineQc');
+  assert.strictEqual(q.length, 1); assert.strictEqual(q[0].ph, 7.5); assert.strictEqual(q[0].slot, 'am'); assert.strictEqual(q[0].how, 'photo');
+  assert.strictEqual(phLog(S)['2026-11-03'].am.ph, 7.5);
+});
+
+t('pH: กลุ่มอื่นส่งรูป → ไม่ขอให้อ่าน pH ไม่ตอบ · PH_WATCH=off → กลุ่มผลิตก็เงียบ', () => {
+  const a = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('7.5') });
+  a.ctx.handleEvent(ev('image', {}, OTHER_GID));
+  assert.ok(!a.S.prompts.some(p => JSON.stringify(p).indexOf('ค่าpH') !== -1)); assert.strictEqual(a.S.replies.length, 0);
+  const b = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('7.5'), props: { PH_WATCH: 'off' } });
+  b.ctx.handleEvent(ev('image', {}, PROD_GID));
+  assert.strictEqual(b.S.replies.length + b.S.pushes.length, 0);
+});
+
+t('pH: นอกเกณฑ์ → บอกในกลุ่มให้วัดซ้ำ + แจ้งคุณปาล์มส่วนตัว 1 ครั้ง (รูปซ้ำรอบเดิมไม่แจ้งซ้ำ)', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('9.5') });
+  ctx.handleEvent(ev('image', {}, PROD_GID)); ctx.handleEvent(ev('image', {}, PROD_GID));
+  assert.strictEqual(S.replies.length, 2); assert.ok(/⚠️.*นอกเกณฑ์ \(6\.5–8\.5\)/.test(S.replies[0].messages[0].text));
+  const own = S.pushes.filter(p => p.to === OWNER);
+  assert.strictEqual(own.length, 1); assert.ok(/9\.5.*อ่านจากรูป/.test(own[0].messages[0].text));
+});
+
+t('pH: อ่านสีจากรูปไม่ได้ → ขอให้พิมพ์ตัวเลข · พิมพ์ "ph 7" ตามมา → ตอบรับ + จดเป็นค่าพิมพ์', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('อ่านไม่ได้') });
+  ctx.handleEvent(ev('image', {}, PROD_GID));
+  assert.ok(/เทียบสีจากรูปไม่ชัด.*พิมพ์ตัวเลข/.test(replyText(S)));
+  ctx.handleEvent(prodTxt('ph 7 ครับ'));
+  assert.ok(/รับทราบค่ะ ✅ pH รอบเช้า 7\.0 อยู่ในเกณฑ์/.test(S.replies[1].messages[0].text), replyText(S));
+  const d = phLog(S)['2026-11-03']; assert.strictEqual(d.am.ph, 7); assert.strictEqual(d.am.how, 'typed');
+  assert.strictEqual(prodCalls(S).filter(b => b.action === 'lineChat').length, 1, 'ข้อความยังส่งต่อแอปทีมผลิตตามเดิม');
+});
+
+t('pH: ตัวเลขที่ไม่ใช่ค่า pH ไม่ถูกจด', () => {
+  const { ctx } = makeEnv();
+  assert.strictEqual(ctx.phTypedValue('ค่าน้ำphเช้านี้ครับ'), null);
+  assert.strictEqual(ctx.phTypedValue('ph 7.5'), 7.5); assert.strictEqual(ctx.phTypedValue('PH7'), 7);
+  assert.strictEqual(ctx.phTypedValue('ค่า pH เช้านี้ 6.8 ครับ'), 6.8);
+  for (const x of ['วัด ph ทุก 10 นาที', 'ตรวจ ph 2 รอบ', 'ผลิต 600ml 313 โหล', 'กรด-ด่าง หยด 3 หยด / 10 ml'])
+    assert.strictEqual(ctx.phTypedValue(x), null, x);
+});
+
+t('pH: เลย 9 โมงยังไม่มีค่า + ทีมโพสต์อะไรก็ได้ → ทวงด้วยการตอบกลับ ครั้งเดียว · ก่อน 9 โมง/คุณปาล์มโพสต์/ส่งแล้ว = ไม่ทวง', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:50:00Z') /* 08:50 */ });
+  ctx.handleEvent(prodTxt('แจ้งเดินเครื่องผลิตน้ำครับ'));
+  assert.strictEqual(S.replies.length, 0, 'ก่อน 9 โมง');
+  at(S, '2026-11-03T02:30:00Z');   // 09:30
+  ctx.handleEvent(prodTxt('ทำ 250 ก่อนครับ', OWNER));
+  assert.strictEqual(S.replies.length, 0, 'คุณปาล์มโพสต์ ไม่ทวง');
+  ctx.handleEvent(prodTxt('ขวดล้มครับ'));
+  assert.strictEqual(S.replies.length, 1); assert.ok(/เช้านี้ยังไม่เห็นค่า pH/.test(replyText(S)));
+  ctx.handleEvent(prodTxt('แก้แล้วครับ'));
+  assert.strictEqual(S.replies.length, 1, 'ทวงรอบละครั้ง');
+  const c = makeEnv({ now: new Date('2026-11-03T02:10:00Z') /* 09:10 */, ai: phAi('7.5') });
+  c.ctx.handleEvent(prodTxt('ค่าน้ำphเช้านี้ครับ')); c.ctx.handleEvent(ev('image', {}, PROD_GID));
+  assert.strictEqual(c.S.replies.length, 1, 'พิมพ์คำบรรยายก่อนรูป ไม่โดนทวง'); assert.ok(/รับทราบ/.test(replyText(c.S)));
+  assert.strictEqual(S.pushes.length, 0, 'ไม่ push เข้ากลุ่ม');
+  const b = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('7.5') });
+  b.ctx.handleEvent(ev('image', {}, PROD_GID)); at(b.S, '2026-11-03T02:30:00Z'); b.ctx.handleEvent(prodTxt('ขวดล้มครับ'));
+  assert.strictEqual(b.S.replies.length, 1, 'ส่งแล้ว ไม่ทวง (มีแค่คำตอบรับรูป)');
+});
+
+t('pH: รอบบ่าย — เลย 15:00 ยังไม่มีค่า → ทวงรอบบ่าย · ก่อนวันเริ่มรอบบ่าย (PH_PM_FROM) ไม่ทวง', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('7.5') });
+  ctx.handleEvent(ev('image', {}, PROD_GID));
+  at(S, '2026-11-03T08:30:00Z');   // 15:30
+  ctx.handleEvent(prodTxt('เปลี่ยนไปผลิต 600 ครับ'));
+  assert.ok(/รอบบ่ายยังไม่เห็นค่า pH/.test(S.replies[1].messages[0].text));
+  const b = makeEnv({ now: new Date('2026-11-02T08:30:00Z') });
+  b.ctx.handleEvent(prodTxt('เปลี่ยนไปผลิต 600 ครับ'));
+  assert.strictEqual(b.S.replies.length, 0);
+});
+
+t('pH: แจ้งเติมโซดาแอช → ขอให้วัดซ้ำทันที · เกิน 1 ชม. ยังไม่ส่ง → ทวง · ส่งรูปแล้ว = นับเป็นค่าหลังเปลี่ยนสาร', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('7.5') });
+  ctx.handleEvent(ev('image', {}, PROD_GID));                       // รอบเช้า
+  at(S, '2026-11-03T03:00:00Z'); ctx.handleEvent(prodTxt('เติมโซดาแอชแล้วครับ'));
+  assert.ok(/วัด pH ซ้ำ/.test(S.replies[1].messages[0].text));
+  at(S, '2026-11-03T04:10:00Z'); ctx.handleEvent(prodTxt('เดินเครื่องปกติครับ'));
+  assert.ok(/หลังเปลี่ยนสารยังไม่เห็นค่า pH/.test(S.replies[2].messages[0].text));
+  at(S, '2026-11-03T04:20:00Z'); ctx.handleEvent(ev('image', {}, PROD_GID));
+  assert.ok(/หลังเปลี่ยนสาร 7\.5|หลังเปลี่ยนสาร ประมาณ 7\.5/.test(S.replies[3].messages[0].text), S.replies[3].messages[0].text);
+  const d = phLog(S)['2026-11-03']; assert.strictEqual(d.chemDone, true);
+});
+
+t('pH: เย็น — ขาดส่ง 2 วันทำงานติด → แจ้งคุณปาล์ม 1 ข้อความ · เรียกซ้ำไม่ส่งซ้ำ · ขาดวันเดียวไม่แจ้ง', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-04T11:30:00Z') /* 18:30 */,
+    props: { PH_LOG: JSON.stringify({ '2026-11-03': { actAm: 1, actPm: 1, am: { ph: 7, t: '08:20' } }, '2026-11-04': { actAm: 1, am: { ph: 7.5, t: '08:10' }, actPm: 1 } }) } });
+  ctx.phEveningCheck(); ctx.phEveningCheck();
+  const own = S.pushes.filter(p => p.to === OWNER);
+  assert.strictEqual(own.length, 1); assert.ok(/ขาดส่ง 2 วันทำงานติดกัน[\s\S]*4\/11 ขาดรอบบ่าย[\s\S]*3\/11 ขาดรอบบ่าย/.test(own[0].messages[0].text), own[0].messages[0].text);
+  const b = makeEnv({ now: new Date('2026-11-04T11:30:00Z'),
+    props: { PH_LOG: JSON.stringify({ '2026-11-03': { actAm: 1, am: { ph: 7, t: '08:20' } }, '2026-11-04': { actAm: 1, actPm: 1 } }) } });
+  b.ctx.phEveningCheck();
+  assert.strictEqual(b.S.pushes.length, 0, 'เมื่อวานครบ');
+});
+
+t('pH: คุณปาล์มพิมพ์ "สรุป pH" ในแชทส่วนตัว → ตารางย้อนหลัง (ไม่ผ่านสมอง)', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-04T05:00:00Z'),
+    props: { PH_LOG: JSON.stringify({ '2026-11-03': { actAm: 1, actPm: 1, am: { ph: 7, t: '08:20' } }, '2026-11-04': { actAm: 1, am: { ph: 9, t: '08:10' } } }) } });
+  ctx.handleEvent(dm(OWNER, 'สรุป pH'));
+  const r = replyText(S);
+  assert.ok(/ค่า pH ฝ่ายผลิต/.test(r) && /อ 3\/11 · เช้า 7\.0 \(08:20\) · บ่าย ❌/.test(r) && /9\.0⚠️/.test(r), r);
+  assert.strictEqual(S.anthropic, 0);
+});
+
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');
 
 // 🛠️ นักพัฒนา — ไฟล์แยก แต่รันในคำสั่งเดียวกัน (CI + ก่อน deploy เรียกแค่ unit.test.js)
