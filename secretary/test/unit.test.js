@@ -550,7 +550,7 @@ t('pH: เลย 9 โมงยังไม่มีค่า + ทีมโพ�
   assert.strictEqual(b.S.replies.length, 1, 'ส่งแล้ว ไม่ทวง (มีแค่คำตอบรับรูป)');
 });
 
-t('pH: รอบบ่าย — เลย 15:00 ยังไม่มีค่า → ทวงรอบบ่าย · ก่อนวันเริ่มรอบบ่าย (PH_PM_FROM) ไม่ทวง', () => {
+t('pH: รอบบ่าย — เลย 15:00 ยังไม่มีค่า → ทวงรอบบ่าย · ก่อนวันเริ่ม (PH_FROM 3/11) ไม่ทวงทั้งเช้าและบ่าย', () => {
   const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('7.5') });
   ctx.handleEvent(ev('image', {}, PROD_GID));
   at(S, '2026-11-03T08:30:00Z');   // 15:30
@@ -559,6 +559,10 @@ t('pH: รอบบ่าย — เลย 15:00 ยังไม่มีค่�
   const b = makeEnv({ now: new Date('2026-11-02T08:30:00Z') });
   b.ctx.handleEvent(prodTxt('เปลี่ยนไปผลิต 600 ครับ'));
   assert.strictEqual(b.S.replies.length, 0);
+  const c = makeEnv({ now: new Date('2026-11-02T04:55:00Z') /* 11:55 วันที่ระบบขึ้น */ });
+  c.ctx.handleEvent(prodTxt('ขวดล้มครับ'));
+  assert.strictEqual(c.S.replies.length, 0, 'วันที่ขึ้นระบบ (เช้าส่งไปแล้วก่อนระบบขึ้น) ไม่ทวง');
+  assert.deepStrictEqual(Array.from(c.ctx.phMissed('2026-11-02', { actAm: 1 })), [], 'ไม่นับขาดวันก่อน PH_FROM');
 });
 
 t('pH: แจ้งเติมโซดาแอช → ขอให้วัดซ้ำทันที · เกิน 1 ชม. ยังไม่ส่ง → ทวง · ส่งรูปแล้ว = นับเป็นค่าหลังเปลี่ยนสาร', () => {

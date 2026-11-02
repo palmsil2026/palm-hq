@@ -2858,7 +2858,7 @@ function productionAppPing() {
 //   วันละ 2 รอบ (เช้า/บ่าย) + วัดซ้ำทุกครั้งที่เปลี่ยน/เติมสารปรับ pH ("วันนึงฉันอยากให้เค้าตรวจ pH 2 ครั้ง … หรือมากกว่า ถ้าเปลี่ยนสาร")
 //   ⚠️ ตอบกลับ (reply) เท่านั้น — ไม่ push เข้ากลุ่ม (นับโควต้าตามจำนวนคนในกลุ่ม) · ทวงแนบไปกับข้อความที่ทีมโพสต์เอง
 //   แจ้งคุณปาล์มเฉพาะมีปัญหา: ค่านอกเกณฑ์ · ขาดส่ง 2 วันทำงานติด · ที่เหลือพิมพ์ "สรุป pH" ดูเอง
-//   ตั้งค่าได้ (Script Properties): PH_MIN/PH_MAX (6.5/8.5) · PH_AM_BY (09:00) · PH_PM_BY (15:00) · PH_PM_FROM (เริ่มรอบบ่าย)
+//   ตั้งค่าได้ (Script Properties): PH_MIN/PH_MAX (6.5/8.5) · PH_AM_BY (09:00) · PH_PM_BY (15:00) · PH_FROM (เริ่มทวง 3/11) · PH_PM_FROM (เริ่มรอบบ่าย)
 //   · PH_CHEM_WAIT_MIN (60) · PH_WATCH=off ปิดทั้งหมด
 // ════════════════════════════════════════════════════════════
 const PH_CHEM_RE = /(เปลี่ยน|เติม|ใส่|ผสม|เพิ่ม|ลด)\s*\S{0,12}?(สาร|เคมี|โซดา|ด่าง|กรด|ปูน)|ปรับ\s*(ค่า)?\s*p\s*h/i;
@@ -2871,7 +2871,9 @@ function phNow() {
   return { ms: d.getTime(), day: Utilities.formatDate(d, 'GMT+7', 'yyyy-MM-dd'), hhmm: Utilities.formatDate(d, 'GMT+7', 'HH:mm'),
            min: Number(Utilities.formatDate(d, 'GMT+7', 'H')) * 60 + Number(Utilities.formatDate(d, 'GMT+7', 'mm')) };
 }
-function phPmOn(day) { return day >= String(cfg('PH_PM_FROM') || '2026-11-03'); }
+// ทวง/นับขาด เริ่มวันที่ PH_FROM (ค่าตั้งต้น 3/11 — วันที่ระบบขึ้นยังไม่รู้ว่าเช้านั้นส่งแล้ว) · รอบบ่ายเริ่ม PH_PM_FROM (ไม่ตั้ง = PH_FROM)
+function phFrom() { return String(cfg('PH_FROM') || '2026-11-03'); }
+function phPmOn(day) { return day >= String(cfg('PH_PM_FROM') || phFrom()); }
 // บันทึกรายวันใน Script Property PH_LOG (เก็บ 21 วัน): { วัน: { am, pm, ex:[], chem, chemDone, actAm, actPm, nag:{}, miss, warned } }
 function phLoad() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('PH_LOG') || '{}'); } catch (e) { return {}; } }
 function phStore(log) {
@@ -2954,6 +2956,7 @@ function phToApp(ph, r, by, url, how, msgId) {
 
 // ทวงแบบไม่กินโควต้า: แนบไปกับข้อความที่ทีมโพสต์เอง (reply) · รอบละครั้ง · ช่วงเวลาที่ควรมีค่าแล้ว
 function phNagText(d, n) {
+  if (n.day < phFrom()) return null;
   const wait = (Number(cfg('PH_CHEM_WAIT_MIN')) || 60) * 60000;
   if (d.chem && !d.chemDone && n.ms - d.chem >= wait && !(d.nag || {}).chem) return { k: 'chem', t: 'หลังเปลี่ยนสารยังไม่เห็นค่า pH ซ้ำนะคะ 🙏 ช่วยวัดแล้วส่งรูปในกลุ่มด้วยค่ะ' };
   if (n.min >= phHm(cfg('PH_AM_BY'), '09:00') && n.min < 12 * 60 && !d.am && !(d.nag || {}).am)
@@ -3030,7 +3033,7 @@ function phOnImage(ev, chatId, senderId, ph, url) {
 // 🌆 เย็น (18–21 น. วันละครั้ง · เกาะ fireDueReminders): ขาดรอบไหน → จด · ขาด 2 วันทำงานติด → แจ้งคุณปาล์ม 1 ข้อความ
 function phMissed(day, d) {
   const out = [];
-  if (!d) return out;
+  if (!d || day < phFrom()) return out;
   if (d.actAm && !d.am) out.push('เช้า');
   if (phPmOn(day) && d.actPm && !d.pm) out.push('บ่าย');
   if (d.chem && !d.chemDone) out.push('หลังเปลี่ยนสาร');
