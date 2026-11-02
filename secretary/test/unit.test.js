@@ -690,6 +690,75 @@ t('pH ค่ำ: ใช้รอบผลิตในแอปตัดสิน
   assert.ok(/พฤ 5\/11 · ไม่มีรอบผลิตในแอป/.test(replyText(b.S)) && /อ 3\/11 · เช้า ❌ · บ่าย ❌/.test(replyText(b.S)), replyText(b.S));
 });
 
+// ── 📘 ตอบวิธีใช้แอปเซลส์จากคู่มือจริง (คุณปาล์ม 19/10 · 03/11) ──
+const helpAi = (kind, text) => body => {
+  const sys = JSON.stringify(body.system || '');
+  if (sys.indexOf('คู่มือแอปเซลส์') === -1) return 'SKIP';
+  return kind + (text ? '\n' + text : '');
+};
+const isHelpCall = p => JSON.stringify(p.system || '').indexOf('คู่มือแอปเซลส์ v40.43') !== -1;
+
+t('แอปเซลส์: พนักงานทักส่วนตัวถามวิธีใช้ → ตอบจากคู่มือฉบับที่รันจริง (ตัดคอมเมนต์หัวไฟล์) · ไม่ผ่านสมองหลัก', () => {
+  const ans = 'ลงออเดอร์แบบนี้ค่ะ\n1. กด ลงออเดอร์ → เลือกร้าน';
+  const { ctx, S } = makeEnv({ ai: helpAi('ANSWER', ans) });
+  ctx.handleEvent(dm('Ustaff1', 'ลงออเดอร์ยังไงครับ งงมาก'));
+  assert.strictEqual(replyText(S), ans);
+  assert.strictEqual(S.anthropic, 1); assert.ok(isHelpCall(S.prompts[0]));
+  const sys = JSON.stringify(S.prompts[0].system);
+  assert.ok(sys.indexOf('ห้ามมีข้อมูลลับ') === -1, 'ตัดคอมเมนต์หัวไฟล์'); assert.ok(sys.indexOf('ไม่เกิน 5 บรรทัด') !== -1);
+  ctx.handleEvent(dm('Ustaff1', 'แล้วกดส่งแล้วตรงไหนครับ'));
+  assert.strictEqual(S.helpFetches, 1, 'แคชคู่มือ ไม่ดึงซ้ำทุกคำถาม');
+});
+
+t('แอปเซลส์: ในกลุ่มเซลส์ไม่ได้เรียกเลขา แต่ถามเรื่องแอป → ตอบ · คุยงานทั่วไป/ถามเงิน ไม่เรียก AI ไม่ตอบ', () => {
+  const { ctx, S } = makeEnv({ ai: helpAi('ANSWER', 'ทำแบบนี้ค่ะ\n1. กด ✅ ส่งแล้ว') });
+  ctx.handleEvent(ev('text', { text: 'กดส่งแล้วไม่ได้ ทำไงครับ' }, OTHER_GID));
+  assert.strictEqual(S.replies.length, 1); assert.ok(/ส่งแล้ว/.test(replyText(S)));
+  for (const x of ['บิลนี้โอนยังครับ?', 'พรุ่งนี้ไปสายแม่เมาะนะ', 'ร้านป้าแดงเอา 600 สองแพ็ค']) ctx.handleEvent(ev('text', { text: x }, OTHER_GID));
+  assert.strictEqual(S.replies.length, 1); assert.strictEqual(S.anthropic, 1, 'กรองคำก่อนเรียก AI');
+});
+
+t('แอปเซลส์: AI ว่าไม่ใช่คำถามวิธีใช้ (SKIP) → ในกลุ่มเงียบ', () => {
+  const { ctx, S } = makeEnv({ ai: helpAi('SKIP') });
+  ctx.handleEvent(ev('text', { text: 'แอปวันนี้เร็วดีนะ ไม่ค้างเลย?' }, OTHER_GID));
+  assert.strictEqual(S.replies.length, 0);
+});
+
+t('แอปเซลส์: คู่มือไม่มีคำตอบ → แชทส่วนตัวบอกให้ถามตามหัวข้อส่งต่อ · ในกลุ่มเงียบ · จดไว้ให้เติมคู่มือ', () => {
+  const { ctx, S } = makeEnv({ ai: helpAi('NOTDOC', 'เรื่องนี้ดิฉันยังไม่มีข้อมูลค่ะ ถามหัวหน้าสายนะคะ') });
+  ctx.handleEvent(dm('Ustaff1', 'แอปพิมพ์ใบเสนอราคาได้ไหมครับ'));
+  assert.ok(/ถามหัวหน้าสาย/.test(replyText(S)));
+  ctx.handleEvent(ev('text', { text: 'แอปพิมพ์ใบเสนอราคาได้ไหมครับ' }, OTHER_GID));
+  assert.strictEqual(S.replies.length, 1, 'ในกลุ่มไม่ตอบว่าไม่รู้');
+  assert.strictEqual(S.logs.filter(l => l[0] === 'คำถามแอป(คู่มือยังไม่มี)').length, 2);
+});
+
+t('แอปเซลส์: เปิดคู่มือไม่ได้ → แชทส่วนตัวบอกให้ถามหัวหน้าสาย · ในกลุ่มเงียบ · ไม่เรียก AI', () => {
+  const { ctx, S } = makeEnv({ helpFail: true, ai: helpAi('ANSWER', 'x') });
+  ctx.handleEvent(dm('Ustaff1', 'ลงออเดอร์ยังไงครับ'));
+  assert.ok(/เปิดคู่มือแอปเซลส์ไม่ได้/.test(replyText(S)));
+  ctx.handleEvent(ev('text', { text: 'ลงออเดอร์ยังไงครับ' }, OTHER_GID));
+  assert.strictEqual(S.replies.length, 1); assert.strictEqual(S.anthropic, 0);
+});
+
+t('แอปเซลส์: กลุ่มฝ่ายผลิต/กลุ่มบิล/คุณปาล์ม ไม่เข้าทางนี้ · เกินโควต้า AI ต่อ 6 ชม. = หยุดเรียก', () => {
+  const { ctx, S } = makeEnv({ ai: helpAi('ANSWER', 'ตอบค่ะ') });
+  ctx.handleEvent(ev('text', { text: 'แอปกดไม่ได้ ทำไงครับ' }, PROD_GID));
+  ctx.handleEvent(dm(OWNER, 'แอปเซลส์ปุ่มส่งแล้วกดไม่ได้ ทำไง'));
+  assert.ok(!S.prompts.some(isHelpCall));
+  const b = makeEnv({ ai: helpAi('ANSWER', 'ตอบค่ะ'), props: { APP_HELP_MAX: '1' } });
+  b.ctx.handleEvent(ev('text', { text: 'ลงออเดอร์ยังไงครับ' }, OTHER_GID)); b.ctx.handleEvent(ev('text', { text: 'ออกบิลตรงไหนครับ' }, OTHER_GID));
+  assert.strictEqual(b.S.replies.length, 1);
+});
+
+t('แอปเซลส์: แท็กคุณปาล์มถามวิธีใช้ → ตัวคัดเรื่อง (นักพัฒนา) ได้คู่มือฉบับจริงไปด้วย', () => {
+  const { ctx, S } = makeEnv({ ai: () => 'HOWTO\nกด ลงออเดอร์ ค่ะ' });
+  ctx.issueRead = () => ({ data: [[]], col: {}, nc: 0 }); ctx.issueFindOpen = () => -1;
+  ctx.handleAppIssueMention(ev('text', { text: '@Palm ลงออเดอร์ยังไงครับ' }, OTHER_GID), OTHER_GID, 'Umom', '@Palm ลงออเดอร์ยังไงครับ', 'rt1');
+  assert.ok(S.prompts.some(p => JSON.stringify(p).indexOf('คู่มือแอปเซลส์ v40.43') !== -1));
+  assert.ok(/ลงออเดอร์/.test(replyText(S)));
+});
+
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');
 
 // 🛠️ นักพัฒนา — ไฟล์แยก แต่รันในคำสั่งเดียวกัน (CI + ก่อน deploy เรียกแค่ unit.test.js)

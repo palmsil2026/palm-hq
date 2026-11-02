@@ -62,6 +62,11 @@ function makeEnv(opts) {
       if (url.indexOf('AKfycbyz9gSSkms44VWcnD3wtZx9C33aG1r5LAjxVPMjD_EcqzwzxU2UBtVVd15qfO_idObE') !== -1) {   // แอปทีมผลิต
         if (opts.prodThrow) throw new Error('timeout');
         return resp(200, (opts.prodResp || (() => ({ success: true, saved: false, why: 'ไม่เกี่ยว' })))(rec.body)); }
+      if (url.indexOf('AKfycbyBavCTREr') !== -1) {   // แอปเซลส์ (คู่มือ getHelpDoc)
+        S.helpFetches = (S.helpFetches || 0) + 1;
+        if (opts.helpFail) return resp(500, 'err');
+        return resp(200, { ok: true, data: { success: true, app: 'sales', version: 'v40.43',
+          text: '<!--\n  ห้ามมีข้อมูลลับ\n-->\n# 📘 คู่มือแอปเซลส์ละกอน — v40.43\n## 🛒 ลงออเดอร์\n1. กด **ลงออเดอร์** → เลือกร้าน\n## 📞 ส่งต่อ\n- เรื่องอื่น ถามหัวหน้าสาย' } }); }
       if (url === FIN_URL) { if (opts.financeThrow) throw new Error('timeout'); return resp(200, S.financeResp(rec.body)); }
       if (url.indexOf('anthropic.com') !== -1) { S.anthropic++; S.prompts.push(rec.body);
         return resp(200, { content: [{ type: 'text', text: (opts.ai || (() => 'SKIP'))(rec.body) }], usage: { input_tokens: 1, output_tokens: 1 } }); }
