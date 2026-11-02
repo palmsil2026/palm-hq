@@ -811,6 +811,13 @@ function handleEvent(ev) {
   // 📚 แฟ้มกลุ่ม / แฟ้มคน / จุดต่อระบบ / สั่งเรียนรู้แชท — คุณปาล์มคนเดียว และเฉพาะแชทส่วนตัว (ห้ามโผล่ในกลุ่ม)
   if (owner && !inGroup && handleKnowledgeCommand(text, replyToken)) { logRow(['แฟ้มความรู้', senderId, text, '']); return; }
 
+  // 🧪 "สรุป pH" — ค่า pH ฝ่ายผลิตย้อนหลัง (คุณปาล์ม · แชทส่วนตัว)
+  if (owner && !inGroup && /^(เลขา\s*)?(สรุป|ดู|เช็ค|เช็ก|ขอ)\s*(ค่า\s*)?(p\s*h|พีเอช)/i.test(text)) {
+    const out = phSummaryText();
+    lineReply(replyToken, out); memAppend(chatId, text, out); logRow(['สรุป pH', senderId, text, '']);
+    return;
+  }
+
   // ดูรายชื่อกลุ่มที่เลขาอยู่/รู้จัก (เฉพาะเจ้าของ)
   if (owner && /(รายชื่อกลุ่ม|กลุ่มไหนบ้าง|อยู่กลุ่มไหนบ้าง|รู้จักกลุ่มไหน)/i.test(text)) {
     lineReply(replyToken, groupsListText());
@@ -842,6 +849,7 @@ function handleEvent(ev) {
   // ยกเว้น (ก) เลขาเพิ่งถามคำถามคนนี้ค้างไว้ = ข้อความนี้คือคำตอบ
   //        (ข) เลขาเพิ่งประกาศ/ถูกกด Reply = อาจเป็นคำถามต่อจากประกาศ → อ่านบริบทแล้วตัดสินใจเอง
   if (inGroup && !isAddressedToSecretary(ev, text) && !isAwaitingReply(chatId, senderId)) {
+    if (phOnText(ev, chatId, senderId, text, replyToken)) return;   // 🧪 กลุ่มฝ่ายผลิต: พิมพ์ค่า pH / แจ้งเปลี่ยนสาร / ทวงค่า pH
     handleAnnouncementFollowUp(ev, chatId, senderId, text, replyToken);
     return;
   }
@@ -1296,6 +1304,8 @@ function fireDueReminders() {
     const h2 = Number(Utilities.formatDate(new Date(), 'GMT+7', 'H'));
     if (h2 >= 8 && h2 < 12) shopAlertsDaily();
   } catch (e) { console.error('shopAlertsDaily: ' + e); }
+  // 🧪 ค่า pH ฝ่ายผลิต: เย็นนี้ขาดรอบไหน · ขาด 2 วันทำงานติด → แจ้งคุณปาล์ม (18–21 น. วันละครั้ง)
+  try { phEveningCheck(); } catch (e) { console.error('phEveningCheck: ' + e); }
   // ⛔ ลบ trigger ที่เลิกใช้ซึ่งติดตั้งอยู่จริง (ครั้งเดียว — ไม่ต้องรอใครกดรัน setupTriggers)
   try {
     const P = PropertiesService.getScriptProperties();
@@ -1866,7 +1876,7 @@ function mediaContext(chatId, senderId) {
 // ให้ AI ดูรูป + บริบทข้อความรอบตัว แล้วตัดสินว่า "เกี่ยวกับงานควรเก็บไหม" + บรรยายสั้นๆ ในทีเดียว
 // บริบทสำคัญกว่าหน้าตารูป เช่นรูปอาหารจานเดียวกัน ถ้าคนพิมพ์ว่า "เมนูใหม่คาเฟ่ ลองดู" = เกี่ยวข้อง
 // แต่ถ้าไม่พิมพ์อะไรเลย/คุยเล่น = ไม่เกี่ยวข้อง
-function analyzeImage(blob, context) {
+function analyzeImage(blob, context, withPh) {
   try {
     const apiKey = cfg('ANTHROPIC_API_KEY');
     if (!apiKey) return { relevant: true, desc: '' }; // วิเคราะห์ไม่ได้ → เก็บไว้ก่อนดีกว่าเสียของสำคัญไป
@@ -1885,10 +1895,13 @@ function analyzeImage(blob, context) {
               + 'เอกสารเงินทุกชนิด (สลิปโอน ใบเสร็จ บิล ค่าน้ำมัน เลขไมล์) = เกี่ยวข้องเสมอ แม้โอนเข้าบัญชีชื่อบุคคลในครอบครัวเจ้าของ · ห้ามตัดสินว่าสลิปปลอม (ไม่ใช่หน้าที่ของคุณ)\n'
               + 'อย่ายึดหัวข้อเก่าในบริบท — รูปใหม่อาจเป็นคนละเรื่องกับที่คุยค้างอยู่\n\n'
               + (context ? ('บริบทตอนที่ส่งรูปมา:\n' + context + '\n\n') : '(คนส่งไม่ได้พิมพ์ข้อความอะไรมาพร้อมรูป)\n\n')
-              + 'ตอบตามรูปแบบนี้เป๊ะๆ 3 บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
+              + 'ตอบตามรูปแบบนี้เป๊ะๆ ' + (withPh ? 4 : 3) + ' บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
               + 'เกี่ยวข้อง: ใช่ หรือ ไม่\n'
               + 'บรรยาย: (1-2 ประโยคภาษาไทย บอกว่าในรูปมีอะไรและคนส่งน่าจะส่งมาทำไม ถ้ามีตัวเลข/ยอด/ราคา/ชื่อสำคัญ ให้ระบุครบ)\n'
-              + 'หมวด: (ถ้าเกี่ยวข้อง เลือกอันเดียวจาก: โรงน้ำ-ละกอน | โรงน้ำ-เพียวซ่า | โรงน้ำ-อื่นๆ | คาเฟ่-OldDays | การเงิน-เอกสาร | การตลาด-งานดีไซน์ | อื่นๆ)\n\n'
+              + 'หมวด: (ถ้าเกี่ยวข้อง เลือกอันเดียวจาก: โรงน้ำ-ละกอน | โรงน้ำ-เพียวซ่า | โรงน้ำ-อื่นๆ | คาเฟ่-OldDays | การเงิน-เอกสาร | การตลาด-งานดีไซน์ | อื่นๆ)\n'
+              + (withPh ? 'ค่าpH: (ถ้าเป็นรูปชุดตรวจค่า pH/กรด-ด่างของน้ำ ให้เทียบสีน้ำในหลอดกับแผ่นสีอ้างอิงแล้วตอบเป็นตัวเลขทศนิยม 1 ตำแหน่ง เช่น 7.5 · '
+                         + 'เป็นรูปตรวจ pH แต่เทียบสีไม่ได้จริงๆ ตอบ อ่านไม่ได้ · ไม่ใช่รูปตรวจ pH ตอบ -)\n' : '')
+              + '\n'
               + 'ให้น้ำหนัก "บริบทข้อความ" มากกว่าหน้าตาของรูป — รูปแบบเดียวกันอาจเกี่ยวหรือไม่เกี่ยวก็ได้ ขึ้นกับว่าคนส่งพูดว่าอะไร\n'
               + 'ตอบ "ใช่" เมื่อ: คนส่งพูดถึงงาน/สั่งงาน/ขอให้ดู-ตรวจ-ทำอะไรต่อกับรูปนี้ เป็นคำตอบของคำถามที่ค้างอยู่ '
               + 'หรือเนื้อรูปเป็นเรื่องธุรกิจชัดเจน (ใบเสร็จ บิล สลิปโอนเงิน สินค้า-วัตถุดิบ เมนู ราคา สต๊อก เอกสาร สกรีนช็อตแชท/ระบบ ตัวอย่างงาน)\n'
@@ -1904,7 +1917,15 @@ function analyzeImage(blob, context) {
     const relevant = /เกี่ยวข้อง\s*:\s*ใช่/i.test(t);
     const m = t.match(/บรรยาย\s*:\s*([^\n]*)/i);
     const mcat = t.match(/หมวด\s*:\s*([^\n]+)/i);
-    return { relevant: relevant, desc: (m ? m[1].trim() : t), cat: (mcat ? mcat[1].trim() : '') };
+    // ค่าpH: ตัวเลข = อ่านได้ · "อ่านไม่ได้" = null (รูปตรวจ pH แต่สีไม่ชัด) · "-"/ไม่มีบรรทัด = undefined (ไม่ใช่รูปตรวจ pH)
+    const mph = withPh ? t.match(/ค่า\s*pH\s*:\s*([^\n]*)/i) : null;
+    let ph;
+    if (mph) {
+      const num = mph[1].match(/(\d{1,2}(?:\.\d)?)/);
+      if (num && Number(num[1]) >= 2 && Number(num[1]) <= 12) ph = Number(num[1]);
+      else if (/อ่านไม่ได้/.test(mph[1])) ph = null;
+    }
+    return { relevant: relevant, desc: (m ? m[1].trim() : t), cat: (mcat ? mcat[1].trim() : ''), ph: ph };
   } catch (err) { console.error('analyzeImage: ' + err); return { relevant: true, desc: '' }; } // วิเคราะห์พลาด → เก็บไว้ก่อนกันเสียของ
 }
 
@@ -1926,13 +1947,16 @@ function handleMediaMessage(ev) {
 
     // 📷 รูปภาพ: ให้ AI ดูก่อนว่าเกี่ยวกับงานไหม ไม่เกี่ยว (เช่นรูปอาหาร/เซลฟี่คุยเล่น) → ปล่อยผ่าน ไม่เซฟกันเปลืองที่
     // 📄 ไฟล์อื่น (เอกสาร/สเปรดชีตฯลฯ): ถือว่าตั้งใจส่งมาทำงานอยู่แล้ว → เก็บเลยไม่ต้องวิเคราะห์
-    let relevant = true, desc = '', libCat = '';
+    let relevant = true, desc = '', libCat = '', ph;
+    const prodGroup = inGroup && chatId === productionGroupId();   // 🧪 กลุ่มฝ่ายผลิต: อ่านค่า pH จากรูปด้วยในคราวเดียว
     if (ev.message.type === 'image') {
-      const a = analyzeImage(blob, mediaContext(chatId, senderId));
+      const a = analyzeImage(blob, mediaContext(chatId, senderId), prodGroup && phOn());
       relevant = a.relevant;
       desc = a.desc;
       libCat = a.cat || '';
+      ph = a.ph;
     }
+    if (ph !== undefined) relevant = true;   // รูปตรวจ pH เก็บเสมอ (เป็นหลักฐานการตรวจน้ำ)
     if (openIssue) relevant = true;   // รูปหน้าจอที่ส่งตามเคสนักพัฒนา เก็บเสมอ
     if (!relevant) {
       if (!inGroup) {
@@ -1942,6 +1966,7 @@ function handleMediaMessage(ev) {
       }
       // ในกลุ่ม: เงียบไว้ ไม่รบกวนวงคุยด้วยรูปที่ไม่เกี่ยวงาน
       logRow(['รับรูป(ไม่เกี่ยว-ไม่เซฟ)', senderId, desc, '']);
+      if (prodGroup) phOnImage(ev, chatId, senderId, undefined, '');   // นับเป็นการโพสต์ของทีม (ทวงค่า pH ได้)
       return;
     }
 
@@ -1956,10 +1981,11 @@ function handleMediaMessage(ev) {
 
     if (inGroup) {
       // ในกลุ่ม: เก็บเงียบๆ ลงล็อกแชทกลุ่ม (พร้อมคำบรรยายภาพ) ไม่เด้งตอบรบกวนวงคุย
-      logGroupChat(chatId, ev, '[ส่งรูป/ไฟล์] ' + (desc || base) + ' ' + url);
+      logGroupChat(chatId, ev, '[ส่งรูป/ไฟล์] ' + (desc || base) + (typeof ph === 'number' ? ' (ค่า pH ที่อ่านได้ ~' + ph + ')' : '') + ' ' + url);
       attachMediaToLatestTask(senderId, url);
       if (openIssue) issueAttachMedia(chatId, senderId, url);
       logRow(['รับไฟล์(กลุ่ม)', senderId, base, (desc ? desc + ' ' : '') + url]);
+      if (prodGroup) phOnImage(ev, chatId, senderId, ph, url);
       return;
     }
 
@@ -2356,7 +2382,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-01a';
+const CODE_VERSION = '2026-11-02a';
 
 function healthCheck() {
   const L = [];
@@ -2418,6 +2444,10 @@ function healthCheck() {
     pp.ok ? ok('เชื่อมแอปทีมผลิตได้ ✓') : bad('เชื่อมแอปทีมผลิตไม่ได้ ✗ (' + pp.why + ')', 'แจ้งแชท origin-hq ให้เช็คแอปทีมผลิต');
     productionGroupId() ? ok('รู้จักกลุ่มทีมผลิตแล้ว (ส่งต่อข้อความจอดเครื่องได้)')
                         : warn('ยังไม่รู้จักกลุ่มทีมผลิต', 'เชิญดิฉันเข้ากลุ่มทีมผลิต · ถ้าชื่อกลุ่มไม่มีคำ "ทีมผลิต"/"ฝ่ายผลิต" ให้ตั้ง GROUP_PRODUCTION_ID');
+    if (productionGroupId() && phOn()) {
+      const n = phNow(), d = phLoad()[n.day] || {};
+      ok('เฝ้าค่า pH ฝ่ายผลิต: วันนี้ เช้า ' + (d.am ? '✓' : '–') + (phPmOn(n.day) ? ' · บ่าย ' + (d.pm ? '✓' : '–') : '') + ' (พิมพ์ "สรุป pH" ดูย้อนหลัง)');
+    }
   }
 
   // 4.55 🧾 แอปบัญชี (กลุ่มบิลค่าใช้จ่าย → รายจ่าย · เตือนบิล · ถามบิล)
@@ -2819,6 +2849,234 @@ function productionAppPing() {
     const r = JSON.parse(res.getContentText() || '{}');
     return { ok: !!r.success, why: r.error || r.message || ('HTTP ' + res.getResponseCode()) };
   } catch (e) { return { ok: false, why: String(e) }; }
+}
+
+// ════════════════════════════════════════════════════════════
+//  🧪 ค่า pH ฝ่ายผลิต — เลขาเป็น "หัวหน้าเงียบ" ช่วยตั้มคุมงานตรวจน้ำ (คุณปาล์ม 02/11 อนุมัติ)
+//   ข้อมูลจริง 7/10–2/11: ส่ง pH แค่ 10/17 วันที่เดินเครื่อง · ส่งเป็นรูป ไม่เคยพิมพ์ตัวเลข · ไม่มีใครตอบรับเลย 0/10
+//   · ฟอร์ม QC ในแอปใช้ครั้งเดียว (29/8) → ไม่บังคับเปิดแอป (PALM-WAY ข้อ 13) ส่งรูปในไลน์เหมือนเดิม เลขาอ่านค่า+จดให้
+//   วันละ 2 รอบ (เช้า/บ่าย) + วัดซ้ำทุกครั้งที่เปลี่ยน/เติมสารปรับ pH ("วันนึงฉันอยากให้เค้าตรวจ pH 2 ครั้ง … หรือมากกว่า ถ้าเปลี่ยนสาร")
+//   ⚠️ ตอบกลับ (reply) เท่านั้น — ไม่ push เข้ากลุ่ม (นับโควต้าตามจำนวนคนในกลุ่ม) · ทวงแนบไปกับข้อความที่ทีมโพสต์เอง
+//   แจ้งคุณปาล์มเฉพาะมีปัญหา: ค่านอกเกณฑ์ · ขาดส่ง 2 วันทำงานติด · ที่เหลือพิมพ์ "สรุป pH" ดูเอง
+//   ตั้งค่าได้ (Script Properties): PH_MIN/PH_MAX (6.5/8.5) · PH_AM_BY (09:00) · PH_PM_BY (15:00) · PH_FROM (เริ่มทวง 3/11) · PH_PM_FROM (เริ่มรอบบ่าย)
+//   · PH_CHEM_WAIT_MIN (60) · PH_WATCH=off ปิดทั้งหมด
+// ════════════════════════════════════════════════════════════
+const PH_CHEM_RE = /(เปลี่ยน|เติม|ใส่|ผสม|เพิ่ม|ลด)\s*\S{0,12}?(สาร|เคมี|โซดา|ด่าง|กรด|ปูน)|ปรับ\s*(ค่า)?\s*p\s*h/i;
+
+function phOn() { return String(cfg('PH_WATCH') || '').toLowerCase() !== 'off'; }
+function phRange() { return { min: Number(cfg('PH_MIN')) || 6.5, max: Number(cfg('PH_MAX')) || 8.5 }; }
+function phHm(s, def) { const m = String(s || def).match(/(\d{1,2})[:.](\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : 0; }
+function phNow() {
+  const d = new Date();
+  return { ms: d.getTime(), day: Utilities.formatDate(d, 'GMT+7', 'yyyy-MM-dd'), hhmm: Utilities.formatDate(d, 'GMT+7', 'HH:mm'),
+           min: Number(Utilities.formatDate(d, 'GMT+7', 'H')) * 60 + Number(Utilities.formatDate(d, 'GMT+7', 'mm')) };
+}
+// ทวง/นับขาด เริ่มวันที่ PH_FROM (ค่าตั้งต้น 3/11 — วันที่ระบบขึ้นยังไม่รู้ว่าเช้านั้นส่งแล้ว) · รอบบ่ายเริ่ม PH_PM_FROM (ไม่ตั้ง = PH_FROM)
+function phFrom() { return String(cfg('PH_FROM') || '2026-11-03'); }
+function phPmOn(day) { return day >= String(cfg('PH_PM_FROM') || phFrom()); }
+// บันทึกรายวันใน Script Property PH_LOG (เก็บ 21 วัน): { วัน: { am, pm, ex:[], chem, chemDone, actAm, actPm, nag:{}, miss, warned } }
+function phLoad() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('PH_LOG') || '{}'); } catch (e) { return {}; } }
+function phStore(log) {
+  const keep = Object.keys(log).sort().slice(-21), out = {};
+  keep.forEach(function (k) { out[k] = log[k]; });
+  PropertiesService.getScriptProperties().setProperty('PH_LOG', JSON.stringify(out));
+}
+// แก้บันทึกแบบกันชน (webhook หลายตัวเข้าพร้อมกัน) — fn(วันนี้, ทั้งก้อน) คืนค่าอะไรก็ส่งกลับไป
+function phEdit(fn) {
+  const lock = LockService.getScriptLock();
+  const got = lock.tryLock(5000);
+  try {
+    const log = phLoad(), n = phNow();
+    const d = log[n.day] = log[n.day] || {};
+    const r = fn(d, log, n);
+    phStore(log);
+    return r;
+  } finally { if (got) lock.releaseLock(); }
+}
+function phFmt(x) { return (Math.round(Number(x) * 10) / 10).toFixed(1); }
+
+// ตัวเลข pH ที่พิมพ์มา ("ph 7.5" "ค่า pH 7" "พีเอช 6.8") — ต้องมีคำ ph กำกับ กันตัวเลขยอดผลิตหลุดมา
+function phTypedValue(text) {
+  const t = String(text || '');
+  if (!/p\s*h|พีเอช|กรด.?ด่าง/i.test(t)) return null;
+  const m = t.replace(/\d+(\.\d+)?\s*(ml|มล|ซีซี|cc|โหล|ขวด|หยด|ใบ|นาที|ชม|ชั่วโมง|โมง|รอบ|ครั้ง|วัน|คน|บาท|กก|กิโล|ลิตร)/ig, ' ')
+               .replace(/\d{1,2}[:.]\d{2}\s*(น\.|น |นาฬิกา)/g, ' ').match(/(\d{1,2}(?:\.\d{1,2})?)/);
+  if (!m) return null;
+  const v = Number(m[1]);
+  return (v >= 4 && v <= 10) ? v : null;   // pH น้ำจริงอยู่แถวนี้ — ตัวเลขนอกช่วง = น่าจะไม่ใช่ค่า pH
+}
+
+// บันทึกค่า 1 ครั้ง → คืนข้อความตอบรับ (อยู่ในเกณฑ์/นอกเกณฑ์) · slot: am | pm (+ นับเป็นวัดซ้ำหลังเปลี่ยนสารถ้ามีค้าง)
+function phRecord(ph, by, url, how) {
+  const R = phRange();
+  return phEdit(function (d, log, n) {
+    const slot = n.min < 12 * 60 ? 'am' : 'pm';
+    const rec = { ph: ph, t: n.hhmm, by: by || '', u: url || '', how: how };
+    const afterChem = !!(d.chem && !d.chemDone && n.ms > d.chem);
+    if (!d[slot] || d[slot].ph == null) d[slot] = rec; else (d.ex = d.ex || []).push(rec);
+    if (afterChem && ph != null) { d.chemDone = true; d.chemPh = ph; }
+    const bad = ph != null && (ph < R.min || ph > R.max);
+    const warnFirst = bad && !(d.warned || {})[slot + how];
+    if (bad) { d.warned = d.warned || {}; d.warned[slot + how] = 1; }
+    return { slot: slot, afterChem: afterChem && ph != null, bad: bad, warnFirst: warnFirst, R: R, day: n.day, t: n.hhmm };
+  });
+}
+
+function phAckText(ph, r, how) {
+  const round = r.afterChem ? 'หลังเปลี่ยนสาร' : (r.slot === 'am' ? 'รอบเช้า' : 'รอบบ่าย');
+  const read = how === 'photo' ? 'ประมาณ ' + phFmt(ph) + ' (อ่านจากรูป)' : phFmt(ph);
+  if (!r.bad) return 'รับทราบค่ะ ✅ pH ' + round + ' ' + read + ' อยู่ในเกณฑ์ค่ะ';
+  return '⚠️ pH ' + round + ' ' + read + ' นอกเกณฑ์ (' + r.R.min + '–' + r.R.max + ') ค่ะ\n'
+    + 'ช่วยวัดซ้ำอีกครั้ง' + (how === 'photo' ? ' แล้วพิมพ์ตัวเลขที่เทียบสีได้ด้วยนะคะ (เช่น ph 7.5)' : 'นะคะ')
+    + '\nถ้ายังนอกเกณฑ์ ให้เช็คระบบกรอง/สารปรับ pH ก่อนเดินเครื่องต่อค่ะ';
+}
+
+// ค่านอกเกณฑ์ → แจ้งคุณปาล์มส่วนตัว (ครั้งแรกของรอบนั้น ต่อวิธีอ่าน · 1 ข้อความ)
+function phWarnOwner(ph, r, by, url, how) {
+  if (!r.warnFirst) return;
+  const owner = cfg('OWNER_LINE_USER_ID'); if (!owner) return;
+  linePush(owner, '⚠️ pH ฝ่ายผลิต ' + (r.afterChem ? 'หลังเปลี่ยนสาร' : r.slot === 'am' ? 'รอบเช้า' : 'รอบบ่าย') + ' ' + r.t + ' น. = '
+    + phFmt(ph) + (how === 'photo' ? ' (เลขาอ่านจากรูป อาจคลาดได้)' : ' (พิมพ์มาเอง)')
+    + ' · เกณฑ์ ' + r.R.min + '–' + r.R.max + (by ? ' · ' + by : '') + (url ? '\n' + url : '')
+    + '\nในกลุ่มขอให้วัดซ้ำแล้วค่ะ');
+}
+
+// ส่งเข้าแอปทีมผลิต (ตาราง QCChecks) — ต้องมี action lineQc ฝั่ง origin-hq (ใบสั่งงาน 02/11) · ยังไม่มี = จด log เฉย ๆ
+function phToApp(ph, r, by, url, how, msgId) {
+  try {
+    const res = UrlFetchApp.fetch(cfg('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ token: productionChatToken(), action: 'lineQc', ph: ph, slot: r.afterChem ? 'chem' : r.slot,
+                                how: how, sender: by, image: url || '', messageId: msgId || '', at: Date.now() })
+    });
+    let j = {}; try { j = JSON.parse(res.getContentText() || '{}'); } catch (e) {}
+    logRow(['ค่า pH', by, phFmt(ph) + ' ' + (r.afterChem ? 'หลังเปลี่ยนสาร' : r.slot) + ' ' + how, j.success ? 'ลงแอปแล้ว ✓' : 'ยังไม่ลงแอป: ' + (j.error || res.getResponseCode())]);
+  } catch (e) { console.error('phToApp: ' + e); }
+}
+
+// ทวงแบบไม่กินโควต้า: แนบไปกับข้อความที่ทีมโพสต์เอง (reply) · รอบละครั้ง · ช่วงเวลาที่ควรมีค่าแล้ว
+function phNagText(d, n) {
+  if (n.day < phFrom()) return null;
+  const wait = (Number(cfg('PH_CHEM_WAIT_MIN')) || 60) * 60000;
+  if (d.chem && !d.chemDone && n.ms - d.chem >= wait && !(d.nag || {}).chem) return { k: 'chem', t: 'หลังเปลี่ยนสารยังไม่เห็นค่า pH ซ้ำนะคะ 🙏 ช่วยวัดแล้วส่งรูปในกลุ่มด้วยค่ะ' };
+  if (n.min >= phHm(cfg('PH_AM_BY'), '09:00') && n.min < 12 * 60 && !d.am && !(d.nag || {}).am)
+    return { k: 'am', t: 'เช้านี้ยังไม่เห็นค่า pH เลยนะคะ 🙏 วัดแล้วส่งรูปในกลุ่มได้เลยค่ะ' };
+  if (phPmOn(n.day) && n.min >= phHm(cfg('PH_PM_BY'), '15:00') && n.min < 18 * 60 && !d.pm && !(d.nag || {}).pm)
+    return { k: 'pm', t: 'รอบบ่ายยังไม่เห็นค่า pH นะคะ 🙏 วัดแล้วส่งรูปในกลุ่มได้เลยค่ะ' };
+  return null;
+}
+// ทีมโพสต์อะไรก็ได้ (ไม่ใช่คุณปาล์ม) → จดว่าช่วงนี้ทำงาน · nag=true คืนข้อความทวงถ้าถึงเวลา (จดว่าทวงแล้วในตัว)
+function phTouch(nag) {
+  return phEdit(function (d, log, n) {
+    if (n.min >= 6 * 60 && n.min < 12 * 60) d.actAm = 1;
+    if (n.min >= 12 * 60 && n.min < 18 * 60) d.actPm = 1;
+    const g = nag ? phNagText(d, n) : null;
+    if (g) { d.nag = d.nag || {}; d.nag[g.k] = 1; }
+    return g ? g.t : '';
+  });
+}
+
+// 💬 ข้อความตัวหนังสือในกลุ่มฝ่ายผลิต (ที่เลขาไม่ได้ถูกเรียก) — พิมพ์ค่า pH / แจ้งเปลี่ยนสาร / ทวง · คืน true = ใช้ replyToken แล้ว
+function phOnText(ev, chatId, senderId, text, replyToken) {
+  try {
+    if (!phOn() || !chatId || chatId !== productionGroupId() || isOwner(senderId)) return false;
+    const by = groupMemberName(chatId, senderId);
+    const v = phTypedValue(text);
+    if (v != null) {
+      phTouch(false);
+      const r = phRecord(v, by, '', 'typed');
+      lineReply(replyToken, phAckText(v, r, 'typed'));
+      phWarnOwner(v, r, by, '', 'typed');
+      phToApp(v, r, by, '', 'typed', ev.message && ev.message.id);
+      return true;
+    }
+    if (PH_CHEM_RE.test(String(text || ''))) {
+      phTouch(false);
+      phEdit(function (d, log, n) { d.chem = n.ms; d.chemDone = false; if (d.nag) delete d.nag.chem; d.chemNote = String(text).slice(0, 120); });
+      lineReply(replyToken, 'รับทราบค่ะ 🙏 เปลี่ยน/เติมสารแล้ว รอให้น้ำผสมกันสักพัก แล้วช่วยวัด pH ซ้ำส่งรูปในกลุ่มด้วยนะคะ');
+      logRow(['ค่า pH: เปลี่ยนสาร', senderId, text, '']);
+      return true;
+    }
+    // พิมพ์ถึง pH แต่ไม่มีตัวเลข ("ค่าน้ำphเช้านี้ครับ") = คำบรรยายรูปที่ส่งตามมา/มาก่อน → ไม่ทวง
+    const nag = phTouch(!/p\s*h|พีเอช/i.test(String(text || '')));
+    if (nag) { lineReply(replyToken, nag); logRow(['ทวงค่า pH', senderId, text, nag]); return true; }
+  } catch (e) { console.error('phOnText: ' + e); }
+  return false;
+}
+
+// 📷 รูปในกลุ่มฝ่ายผลิต — ph = ตัวเลขที่ AI อ่านจากรูป · null = รูปตรวจ pH แต่อ่านไม่ได้ · undefined = ไม่ใช่รูปตรวจ pH
+function phOnImage(ev, chatId, senderId, ph, url) {
+  try {
+    if (!phOn() || !chatId || chatId !== productionGroupId() || isOwner(senderId)) return false;
+    const replyToken = ev.replyToken, by = groupMemberName(chatId, senderId);
+    if (ph === undefined) {   // รูปเรื่องอื่น → นับเป็นการโพสต์ของทีม (ทวงได้)
+      const nag = phTouch(true);
+      if (nag) { lineReply(replyToken, nag); logRow(['ทวงค่า pH', senderId, '[รูป]', nag]); return true; }
+      return false;
+    }
+    phTouch(false);
+    if (ph === null) {
+      const r0 = phRecord(null, by, url, 'photo');
+      lineReply(replyToken, 'รับรูปค่า pH ' + (r0.slot === 'am' ? 'รอบเช้า' : 'รอบบ่าย') + 'แล้วค่ะ 🙏 ดิฉันเทียบสีจากรูปไม่ชัด ช่วยพิมพ์ตัวเลขที่อ่านได้ด้วยนะคะ (เช่น ph 7.5)');
+      logRow(['ค่า pH', by, 'อ่านจากรูปไม่ได้', url]);
+      return true;
+    }
+    const r = phRecord(ph, by, url, 'photo');
+    lineReply(replyToken, phAckText(ph, r, 'photo'));
+    phWarnOwner(ph, r, by, url, 'photo');
+    phToApp(ph, r, by, url, 'photo', ev.message && ev.message.id);
+    return true;
+  } catch (e) { console.error('phOnImage: ' + e); }
+  return false;
+}
+
+// 🌆 เย็น (18–21 น. วันละครั้ง · เกาะ fireDueReminders): ขาดรอบไหน → จด · ขาด 2 วันทำงานติด → แจ้งคุณปาล์ม 1 ข้อความ
+function phMissed(day, d) {
+  const out = [];
+  if (!d || day < phFrom()) return out;
+  if (d.actAm && !d.am) out.push('เช้า');
+  if (phPmOn(day) && d.actPm && !d.pm) out.push('บ่าย');
+  if (d.chem && !d.chemDone) out.push('หลังเปลี่ยนสาร');
+  return out;
+}
+function phEveningCheck() {
+  if (!phOn() || !productionGroupId()) return;
+  const n = phNow();
+  if (n.min < 18 * 60 || n.min >= 21 * 60) return;
+  const log = phLoad(), d = log[n.day];
+  if (!d || d.closed) return;
+  const miss = phMissed(n.day, d);
+  const prevDay = Object.keys(log).filter(function (k) { return k < n.day && (log[k].actAm || log[k].actPm); }).sort().pop();
+  const prevMiss = prevDay ? (log[prevDay].miss || phMissed(prevDay, log[prevDay])) : [];
+  if (miss.length && prevMiss.length && !log[prevDay].alerted) {
+    const owner = cfg('OWNER_LINE_USER_ID');
+    const dd = function (k) { return Number(k.slice(8)) + '/' + Number(k.slice(5, 7)); };
+    const sent = owner ? linePushExact(owner, '📋 ค่า pH ฝ่ายผลิต: ขาดส่ง 2 วันทำงานติดกันค่ะ\n• ' + dd(n.day) + ' ขาดรอบ' + miss.join(', ')
+      + '\n• ' + dd(prevDay) + ' ขาดรอบ' + prevMiss.join(', ') + '\n(พิมพ์ "สรุป pH" ดูย้อนหลังได้ค่ะ)') : { ok: true };
+    if (!sent.ok) return;   // ส่งไม่ผ่าน (เช่นโควต้าไลน์หมด) → ลองใหม่รอบหน้า
+    phEdit(function (dd2) { dd2.alerted = 1; });
+  }
+  phEdit(function (dd2) { dd2.miss = miss; dd2.closed = 1; });
+}
+
+// 📋 "สรุป pH" (คุณปาล์ม · แชทส่วนตัว) — ย้อนหลัง 10 วันทำงาน
+function phSummaryText() {
+  const log = phLoad(), R = phRange();
+  const wd = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+  const cell = function (x) { return !x ? '❌' : x.ph == null ? '📷?' : phFmt(x.ph) + ((x.ph < R.min || x.ph > R.max) ? '⚠️' : '') + ' (' + x.t + ')'; };
+  const days = Object.keys(log).sort().reverse().filter(function (k) { const d = log[k]; return d.actAm || d.actPm || d.am || d.pm; }).slice(0, 10);
+  if (!days.length) return '🧪 ยังไม่มีบันทึกค่า pH ฝ่ายผลิตค่ะ (เริ่มจดตั้งแต่ระบบนี้ขึ้น)';
+  let ok = 0, tot = 0;
+  const lines = days.map(function (k) {
+    const d = log[k], dt = new Date(k + 'T12:00:00+07:00');
+    const parts = ['เช้า ' + (d.actAm || d.am ? cell(d.am) : '–')];
+    if (phPmOn(k)) parts.push('บ่าย ' + (d.actPm || d.pm ? cell(d.pm) : '–'));
+    if (d.chem) parts.push('หลังเปลี่ยนสาร ' + (d.chemDone ? phFmt(d.chemPh) : '❌'));
+    phMissed(k, d).length ? tot++ : (ok++, tot++);
+    return '• ' + wd[dt.getUTCDay()] + ' ' + Number(k.slice(8)) + '/' + Number(k.slice(5, 7)) + ' · ' + parts.join(' · ');
+  });
+  return '🧪 ค่า pH ฝ่ายผลิต (เกณฑ์ ' + R.min + '–' + R.max + ')\n' + lines.join('\n')
+    + '\n\nครบทุกรอบ ' + ok + '/' + tot + ' วัน · ❌ = ไม่ได้ส่ง · 📷? = ส่งรูปแต่อ่านค่าไม่ได้ · – = ไม่มีคนโพสต์ช่วงนั้น (น่าจะหยุด)';
 }
 
 // ════════════════════════════════════════════════════════════
