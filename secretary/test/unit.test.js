@@ -598,6 +598,45 @@ t('pH: คุณปาล์มพิมพ์ "สรุป pH" ในแชท
   assert.strictEqual(S.anthropic, 0);
 });
 
+t('pH รูปซ้ำ ชั้น 1: ส่งไฟล์รูปเดิมเป๊ะ → บอกในกลุ่มให้วัดใหม่ ไม่นับเป็นการวัด + แจ้งคุณปาล์ม · รอบนั้นยังทวงได้', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('7.5') });
+  S.imgBytes = () => [9, 9, 9];
+  ctx.handleEvent(ev('image', {}, PROD_GID));                      // 3/11 08:20 ของจริง
+  at(S, '2026-11-04T01:10:00Z'); ctx.handleEvent(ev('image', {}, PROD_GID));   // 4/11 ส่งรูปเดิมมาอีก
+  assert.ok(/รูปเดียวกับรูปค่า pH ที่ส่งเมื่อ 3\/11 08:20 น\..*วัดใหม่/.test(S.replies[1].messages[0].text), S.replies[1].messages[0].text);
+  const own = S.pushes.filter(p => p.to === OWNER);
+  assert.strictEqual(own.length, 1); assert.ok(/🔁 รูป pH ซ้ำ \(ไฟล์เดิมเป๊ะ\)/.test(own[0].messages[0].text));
+  const d = phLog(S)['2026-11-04']; assert.ok(!d.am, 'ไม่นับเป็นการวัด'); assert.strictEqual(d.dup.length, 1);
+  assert.strictEqual(prodCalls(S).filter(b => b.action === 'lineQc').length, 1, 'ไม่ส่งรูปซ้ำเข้าแอป');
+  at(S, '2026-11-04T02:30:00Z'); ctx.handleEvent(prodTxt('เดินเครื่องครับ'));
+  assert.ok(/เช้านี้ยังไม่เห็นค่า pH/.test(S.replies[2].messages[0].text), 'รอบนั้นยังทวงได้');
+  at(S, '2026-11-04T03:00:00Z'); ctx.handleEvent(dm(OWNER, 'สรุป pH'));
+  assert.ok(/🔁 ส่งรูปเดิมซ้ำ 1 ครั้ง/.test(replyText(S)));
+});
+
+t('pH รูปซ้ำ ชั้น 2: AI ว่าเหมือนรูปเก่า (แคป/ครอป) → ในกลุ่มตอบรับปกติ (ไม่กล่าวหา) · ติดธง + แจ้งคุณปาล์มพร้อมลิงก์ 2 รูป', () => {
+  const ai = body => (JSON.stringify(body).indexOf('ภาพถ่ายใบเดียวกัน') !== -1 ? 'ซ้ำ: 2' : phAi('7.5')(body));
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai });
+  ctx.handleEvent(ev('image', {}, PROD_GID));
+  assert.strictEqual(S.anthropic, 1, 'รูปแรก ไม่มีรูปเก่าให้เทียบ');
+  at(S, '2026-11-03T08:10:00Z'); ctx.handleEvent(ev('image', {}, PROD_GID));
+  assert.ok(/รับทราบค่ะ ✅ pH รอบบ่าย/.test(S.replies[1].messages[0].text), 'ในกลุ่มตอบรับตามปกติ');
+  const cmp = S.prompts.filter(p => JSON.stringify(p).indexOf('ภาพถ่ายใบเดียวกัน') !== -1);
+  assert.strictEqual(cmp.length, 1); assert.strictEqual(cmp[0].messages[0].content.filter(c => c.type === 'image').length, 2);
+  const own = S.pushes.filter(p => p.to === OWNER);
+  assert.strictEqual(own.length, 1); assert.ok(/อาจเป็นรูปเดิม[\s\S]*3\/11 08:20 น\.[\s\S]*ใหม่: https[\s\S]*เก่า: https/.test(own[0].messages[0].text), own[0].messages[0].text);
+  assert.strictEqual(phLog(S)['2026-11-03'].pm.sus, '2026-11-03 08:20');
+  at(S, '2026-11-03T09:00:00Z'); ctx.handleEvent(dm(OWNER, 'สรุป pH'));
+  assert.ok(/บ่าย 7\.5 \(15:10\) 🔁\?/.test(replyText(S)), replyText(S));
+});
+
+t('pH รูปซ้ำ: AI ตอบว่าไม่ซ้ำ → ไม่แจ้งใคร', () => {
+  const ai = body => (JSON.stringify(body).indexOf('ภาพถ่ายใบเดียวกัน') !== -1 ? 'ซ้ำ: ไม่' : phAi('7.5')(body));
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai });
+  ctx.handleEvent(ev('image', {}, PROD_GID)); at(S, '2026-11-03T08:10:00Z'); ctx.handleEvent(ev('image', {}, PROD_GID));
+  assert.strictEqual(S.pushes.length, 0); assert.ok(!phLog(S)['2026-11-03'].pm.sus);
+});
+
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');
 
 // 🛠️ นักพัฒนา — ไฟล์แยก แต่รันในคำสั่งเดียวกัน (CI + ก่อน deploy เรียกแค่ unit.test.js)

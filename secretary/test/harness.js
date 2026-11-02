@@ -35,18 +35,23 @@ function makeEnv(opts) {
     Utilities: {
       formatDate: (d, tz, f) => fmt(d, tz, f),
       computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', k).update(v).digest()).map(b => (b > 127 ? b - 256 : b)),
-      base64Encode: b => Buffer.from(b).toString('base64'), sleep: () => {}
+      base64Encode: b => Buffer.from(b).toString('base64'), sleep: () => {},
+      DigestAlgorithm: { MD5: 'MD5' },
+      computeDigest: (alg, bytes) => Array.from(crypto.createHash('md5').update(Buffer.from(bytes.map(b => b & 255))).digest()).map(b => (b > 127 ? b - 256 : b))
     },
     DriveApp: {
       Access: { ANYONE_WITH_LINK: 'A' }, Permission: { VIEW: 'V' },
       getFoldersByName: name => { const it = [mkFolder(name)]; return { hasNext: () => it.length > 0, next: () => it.shift() }; },
-      createFolder: name => mkFolder(name), getFolderById: id => mkFolder(id)
+      createFolder: name => mkFolder(name), getFolderById: id => mkFolder(id),
+      getFileById: id => { const f = S.files.find(x => x.id === id); if (!f) throw new Error('no file'); return { getBlob: () => f.blob }; }
     },
     UrlFetchApp: { fetch: (url, o) => {
       o = o || {}; const rec = { url, o, body: o.payload ? JSON.parse(o.payload) : null }; S.fetches.push(rec);
       if (url.indexOf('api-data.line.me') !== -1) {
         if (opts.downloadFail) return resp(500, '');
-        const blob = { _name: '', getContentType: () => 'image/jpeg', setName(n) { this._name = n; return this; }, getBytes: () => [1, 2] };
+        const mid = url.split('/message/')[1].split('/')[0];   // ไบต์รูปต่างกันตามข้อความ · S.imgBytes(mid) จำลองรูปเดิมเป๊ะ
+        const bytes = S.imgBytes ? S.imgBytes(mid) : Array.from(Buffer.from(mid));
+        const blob = { _name: '', getContentType: () => 'image/jpeg', setName(n) { this._name = n; return this; }, getBytes: () => bytes };
         return resp(200, '', blob);
       }
       if (url.indexOf('/member/') !== -1) return resp(200, { displayName: 'แม่' });
@@ -70,7 +75,7 @@ function makeEnv(opts) {
   function mkFolder(name) {
     return { name, getFoldersByName: n => { const it = [mkFolder(n)]; return { hasNext: () => true, next: () => it.shift() }; },
              createFolder: n => mkFolder(n),
-             createFile: blob => { const f = { id: 'F' + (S.files.length + 1), folder: name, name: blob._name, shared: false,
+             createFile: blob => { const f = { id: 'F' + (S.files.length + 1), folder: name, name: blob._name, shared: false, blob,
                  getId() { return this.id; }, getUrl() { return 'https://drive.google.com/file/d/' + this.id + '/view'; },
                  setSharing() { this.shared = true; } }; S.files.push(f); return f; } };
   }
