@@ -1304,7 +1304,7 @@ function fireDueReminders() {
     const h2 = Number(Utilities.formatDate(new Date(), 'GMT+7', 'H'));
     if (h2 >= 8 && h2 < 12) shopAlertsDaily();
   } catch (e) { console.error('shopAlertsDaily: ' + e); }
-  // 🧪 ค่า pH ฝ่ายผลิต: เย็นนี้ขาดรอบไหน · ขาด 2 วันทำงานติด → แจ้งคุณปาล์ม (18–21 น. วันละครั้ง)
+  // 🧪 ค่า pH ฝ่ายผลิต: วันนี้ขาดรอบไหน · ขาด 2 วันทำงานติด → แจ้งคุณปาล์ม (20–23 น. วันละครั้ง)
   try { phEveningCheck(); } catch (e) { console.error('phEveningCheck: ' + e); }
   // ⛔ ลบ trigger ที่เลิกใช้ซึ่งติดตั้งอยู่จริง (ครั้งเดียว — ไม่ต้องรอใครกดรัน setupTriggers)
   try {
@@ -2382,7 +2382,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-02c';
+const CODE_VERSION = '2026-11-02d';
 
 function healthCheck() {
   const L = [];
@@ -2955,14 +2955,50 @@ function phToApp(ph, r, by, url, how, msgId) {
 }
 
 // ทวงแบบไม่กินโควต้า: แนบไปกับข้อความที่ทีมโพสต์เอง (reply) · รอบละครั้ง · ช่วงเวลาที่ควรมีค่าแล้ว
+// 🏖️ วันไม่ผลิตน้ำ ไม่ต้องวัด (คุณปาล์ม 02/11: "ถ้าวันไหนเค้าหยุดผลิต หรือหยุดกะผลิตน้ำ ก็ไม่ต้องวัด … บางทีเค้าก็มีเวียนไปช่วยโรงขวดบ้าง หรือสลับวันหยุดบ้าง")
+//   รู้ได้ 2 ทาง: ① คนในกลุ่มบอก ("พรุ่งนี้มาช่วยงานสกรีน" "วันนี้ไม่ผลิต" "เปลี่ยนวันหยุดเป็นพรุ่งนี้") → ไม่ทวง ไม่นับขาด
+//   ② ยอดผลิตในแอป (ProductionRuns — ทีมลงทุกวันที่ผลิตจริง) → ตอนนับขาดตอนค่ำ: วันไม่มีรอบผลิต = ไม่นับ · มีรอบผลิตแต่ไม่มี pH = ขาด
+const PH_OFF_RE = /ไม่(ได้)?\s*(ผลิต|เดินเครื่อง|ทำน้ำ|เปิดเครื่อง)|หยุด\s*(ผลิต(น้ำ)?\s*)?(ทั้งวัน|วันนี้|พรุ่งนี้)|(วันนี้|พรุ่งนี้)\s*หยุด|วันหยุด|หยุดงาน|หยุดกะ|(ไป|มา)ช่วย\S{0,8}(โรงขวด|สกรีน|เป่า)|ช่วยงาน\s*(สกรีน|โรงขวด|เป่า)|ช่วยโรงขวด|สลับ(วัน)?หยุด|เปลี่ยนวันหยุด/;
+function phOffParse(text, n) {
+  const t = String(text || '');
+  if (!PH_OFF_RE.test(t) || /เนื่องจาก|กำลังแก้|ซ่อม|แจ้งจอด|ยังไม่/.test(t)) return null;   // แจ้งจอดเครื่องชั่วคราว / "ยังไม่ผลิต" ≠ วันหยุด
+  const tmr = /พรุ่งนี้/.test(t);
+  return { day: tmr ? Utilities.formatDate(new Date(n.ms + 864e5), 'GMT+7', 'yyyy-MM-dd') : n.day, tmr: tmr,
+           slot: /บ่าย/.test(t) ? 'pm' : (/เช้า|ครึ่งวัน/.test(t) ? 'am' : 'all') };
+}
+function phMarkOff(o) {
+  const log = phLoad(), d = log[o.day] = log[o.day] || {};
+  d.off = d.off || {};
+  if (o.slot !== 'pm') d.off.am = 1;
+  if (o.slot !== 'am') d.off.pm = 1;
+  phStore(log);
+}
+// วันที่มีรอบผลิตในแอปทีมผลิต { 'yyyy-MM-dd': 1 } · อ่านไม่ได้ = null (ใช้ "มีคนโพสต์ไหม" แทน)
+function phMadeDays() {
+  try {
+    const v = plantVals('ProductionRuns'); if (!v || !v.length) return null;
+    const head = v[0].map(function (h) { return String(h).trim(); }), i = head.indexOf('วันที่'), st = head.indexOf('สถานะ');
+    if (i < 0) return null;
+    const set = {};
+    v.slice(1).forEach(function (r) {
+      if (st >= 0 && /ยกเลิก/.test(String(r[st]))) return;
+      const x = r[i];
+      const k = (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}/.test(x)) ? x.slice(0, 10) : execDateKey(x);
+      if (k) set[k] = 1;
+    });
+    return set;
+  } catch (e) { console.error('phMadeDays: ' + e); return null; }
+}
+
 function phNagText(d, n) {
   if (n.day < phFrom()) return null;
+  const off = d.off || {};
   const wait = (Number(cfg('PH_CHEM_WAIT_MIN')) || 60) * 60000;
   if (d.chem && !d.chemDone && n.ms - d.chem >= wait && !(d.nag || {}).chem) return { k: 'chem', t: 'หลังเปลี่ยนสารยังไม่เห็นค่า pH ซ้ำนะคะ 🙏 ช่วยวัดแล้วส่งรูปในกลุ่มด้วยค่ะ' };
-  if (n.min >= phHm(cfg('PH_AM_BY'), '09:00') && n.min < 12 * 60 && !d.am && !(d.nag || {}).am)
-    return { k: 'am', t: 'เช้านี้ยังไม่เห็นค่า pH เลยนะคะ 🙏 วัดแล้วส่งรูปในกลุ่มได้เลยค่ะ' };
-  if (phPmOn(n.day) && n.min >= phHm(cfg('PH_PM_BY'), '15:00') && n.min < 18 * 60 && !d.pm && !(d.nag || {}).pm)
-    return { k: 'pm', t: 'รอบบ่ายยังไม่เห็นค่า pH นะคะ 🙏 วัดแล้วส่งรูปในกลุ่มได้เลยค่ะ' };
+  if (n.min >= phHm(cfg('PH_AM_BY'), '09:00') && n.min < 12 * 60 && !d.am && !off.am && !(d.nag || {}).am)
+    return { k: 'am', t: 'เช้านี้ยังไม่เห็นค่า pH เลยนะคะ 🙏 วัดแล้วส่งรูปในกลุ่มได้เลยค่ะ\n(ถ้าวันนี้ไม่ได้ผลิตน้ำ พิมพ์ว่า "วันนี้ไม่ผลิต" ได้เลยค่ะ)' };
+  if (phPmOn(n.day) && n.min >= phHm(cfg('PH_PM_BY'), '15:00') && n.min < 18 * 60 && !d.pm && !off.pm && !(d.nag || {}).pm)
+    return { k: 'pm', t: 'รอบบ่ายยังไม่เห็นค่า pH นะคะ 🙏 วัดแล้วส่งรูปในกลุ่มได้เลยค่ะ\n(ถ้าบ่ายนี้ไม่ได้ผลิตน้ำ พิมพ์ว่า "บ่ายนี้ไม่ผลิต" ได้เลยค่ะ)' };
   return null;
 }
 // ทีมโพสต์อะไรก็ได้ (ไม่ใช่คุณปาล์ม) → จดว่าช่วงนี้ทำงาน · nag=true คืนข้อความทวงถ้าถึงเวลา (จดว่าทวงแล้วในตัว)
@@ -2979,7 +3015,16 @@ function phTouch(nag) {
 // 💬 ข้อความตัวหนังสือในกลุ่มฝ่ายผลิต (ที่เลขาไม่ได้ถูกเรียก) — พิมพ์ค่า pH / แจ้งเปลี่ยนสาร / ทวง · คืน true = ใช้ replyToken แล้ว
 function phOnText(ev, chatId, senderId, text, replyToken) {
   try {
-    if (!phOn() || !chatId || chatId !== productionGroupId() || isOwner(senderId)) return false;
+    if (!phOn() || !chatId || chatId !== productionGroupId()) return false;
+    const off = phOffParse(text, phNow());
+    if (isOwner(senderId)) { if (off) phMarkOff(off); return false; }   // คุณปาล์มบอกเองว่าหยุด → จดเงียบ ๆ
+    if (off) {
+      phMarkOff(off); phTouch(false);
+      const when = (off.tmr ? 'พรุ่งนี้' : 'วันนี้') + (off.slot === 'am' ? 'ช่วงเช้า' : off.slot === 'pm' ? 'ช่วงบ่าย' : '');
+      lineReply(replyToken, 'รับทราบค่ะ 🙏 ' + when + 'ไม่ได้ผลิตน้ำ ไม่ต้องวัด pH นะคะ');
+      logRow(['ค่า pH: วันไม่ผลิต', senderId, text, off.day + ' ' + off.slot]);
+      return true;
+    }
     const by = groupMemberName(chatId, senderId);
     const v = phTypedValue(text);
     if (v != null) {
@@ -3109,25 +3154,35 @@ function phCheckLookalike(blob, prev, mid, by, url) {
   logRow(['ค่า pH: รูปคล้ายรูปเก่า', by, 'เหมือน ' + old.day + ' ' + old.t, url]);
 }
 
-// 🌆 เย็น (18–21 น. วันละครั้ง · เกาะ fireDueReminders): ขาดรอบไหน → จด · ขาด 2 วันทำงานติด → แจ้งคุณปาล์ม 1 ข้อความ
-function phMissed(day, d) {
+// 🌆 ค่ำ (20–23 น. วันละครั้ง · เกาะ fireDueReminders): ขาดรอบไหน → จด · ขาด 2 วันทำงานติด → แจ้งคุณปาล์ม 1 ข้อความ
+// made: true = มีรอบผลิตในแอป (ต้องวัดทั้งวัน) · false = ไม่ได้ผลิต (ไม่นับ) · null = ไม่รู้ (ดูจากมีคนโพสต์ช่วงนั้นไหม)
+function phMissed(day, d, made) {
   const out = [];
-  if (!d || day < phFrom()) return out;
-  if (d.actAm && !d.am) out.push('เช้า');
-  if (phPmOn(day) && d.actPm && !d.pm) out.push('บ่าย');
+  d = d || {};
+  if (day < phFrom() || made === false) return out;
+  const off = d.off || {};
+  const need = function (act) { return made === true || !!act; };
+  if (!off.am && need(d.actAm) && !d.am) out.push('เช้า');
+  if (phPmOn(day) && !off.pm && need(d.actPm) && !d.pm) out.push('บ่าย');
   if (d.chem && !d.chemDone) out.push('หลังเปลี่ยนสาร');
   return out;
 }
+//   (20–23 น. — รอให้ทีมลงยอดผลิตในแอปก่อน · วันที่ไม่มีรอบผลิต/แจ้งว่าหยุด ไม่นับ และไม่ตัดความ "ติดกัน")
 function phEveningCheck() {
   if (!phOn() || !productionGroupId()) return;
   const n = phNow();
-  if (n.min < 18 * 60 || n.min >= 21 * 60) return;
-  const log = phLoad(), d = log[n.day];
-  if (!d || d.closed) return;
-  const miss = phMissed(n.day, d);
-  const prevDay = Object.keys(log).filter(function (k) { return k < n.day && (log[k].actAm || log[k].actPm); }).sort().pop();
-  const prevMiss = prevDay ? (log[prevDay].miss || phMissed(prevDay, log[prevDay])) : [];
-  if (miss.length && prevMiss.length && !log[prevDay].alerted) {
+  if (n.min < 20 * 60 || n.min >= 23 * 60) return;
+  const log = phLoad(), d = log[n.day] || {};
+  if (d.closed) return;
+  const made = phMadeDays();
+  const madeOn = function (k) { return made ? !!made[k] : null; };
+  const miss = phMissed(n.day, d, madeOn(n.day));
+  const worked = function (k) { const x = log[k] || {}; return made ? !!made[k] : !!(x.actAm || x.actPm); };
+  const prevDay = Object.keys(log).concat(made ? Object.keys(made) : [])
+    .filter(function (k) { return k < n.day && k >= phFrom() && worked(k); }).sort().pop();
+  const pd = prevDay ? (log[prevDay] || {}) : {};
+  const prevMiss = prevDay ? (pd.miss || phMissed(prevDay, pd, madeOn(prevDay))) : [];
+  if (miss.length && prevMiss.length && !pd.alerted) {
     const owner = cfg('OWNER_LINE_USER_ID');
     const dd = function (k) { return Number(k.slice(8)) + '/' + Number(k.slice(5, 7)); };
     const sent = owner ? linePushExact(owner, '📋 ค่า pH ฝ่ายผลิต: ขาดส่ง 2 วันทำงานติดกันค่ะ\n• ' + dd(n.day) + ' ขาดรอบ' + miss.join(', ')
@@ -3135,28 +3190,38 @@ function phEveningCheck() {
     if (!sent.ok) return;   // ส่งไม่ผ่าน (เช่นโควต้าไลน์หมด) → ลองใหม่รอบหน้า
     phEdit(function (dd2) { dd2.alerted = 1; });
   }
-  phEdit(function (dd2) { dd2.miss = miss; dd2.closed = 1; });
+  phEdit(function (dd2) { dd2.miss = miss; dd2.closed = 1; dd2.made = madeOn(n.day); });
 }
 
 // 📋 "สรุป pH" (คุณปาล์ม · แชทส่วนตัว) — ย้อนหลัง 10 วันทำงาน
 function phSummaryText() {
-  const log = phLoad(), R = phRange();
+  const log = phLoad(), R = phRange(), made = phMadeDays(), today = phNow().day;
   const wd = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
   const cell = function (x) { return !x ? '❌' : (x.ph == null ? '📷?' : phFmt(x.ph) + ((x.ph < R.min || x.ph > R.max) ? '⚠️' : '') + ' (' + x.t + ')') + (x.sus ? ' 🔁?' : ''); };
-  const days = Object.keys(log).sort().reverse().filter(function (k) { const d = log[k]; return d.actAm || d.actPm || d.am || d.pm; }).slice(0, 10);
+  const keys = {};
+  Object.keys(log).forEach(function (k) { keys[k] = 1; });
+  if (made) Object.keys(made).forEach(function (k) { if (k >= phFrom() && k <= today) keys[k] = 1; });
+  const days = Object.keys(keys).sort().reverse().filter(function (k) {
+    const d = log[k] || {}; return d.actAm || d.actPm || d.am || d.pm || d.off || (made && made[k]);
+  }).slice(0, 10);
   if (!days.length) return '🧪 ยังไม่มีบันทึกค่า pH ฝ่ายผลิตค่ะ (เริ่มจดตั้งแต่ระบบนี้ขึ้น)';
   let ok = 0, tot = 0;
   const lines = days.map(function (k) {
-    const d = log[k], dt = new Date(k + 'T12:00:00+07:00');
-    const parts = ['เช้า ' + (d.actAm || d.am ? cell(d.am) : '–')];
-    if (phPmOn(k)) parts.push('บ่าย ' + (d.actPm || d.pm ? cell(d.pm) : '–'));
+    const d = log[k] || {}, off = d.off || {}, mk = made ? !!made[k] : null, dt = new Date(k + 'T12:00:00+07:00');
+    const head = '• ' + wd[dt.getUTCDay()] + ' ' + Number(k.slice(8)) + '/' + Number(k.slice(5, 7)) + ' · ';
+    if (!d.am && !d.pm && (mk === false || (off.am && off.pm && mk !== true)))
+      return head + (off.am || off.pm ? '🏖️ แจ้งว่าไม่ผลิตน้ำ' : 'ไม่มีรอบผลิตในแอป (ไม่ต้องวัด)');
+    const parts = ['เช้า ' + (off.am ? '🏖️' : (d.actAm || d.am || mk) ? cell(d.am) : '–')];
+    if (phPmOn(k)) parts.push('บ่าย ' + (off.pm ? '🏖️' : (d.actPm || d.pm || mk) ? cell(d.pm) : '–'));
     if (d.chem) parts.push('หลังเปลี่ยนสาร ' + (d.chemDone ? phFmt(d.chemPh) : '❌'));
     if (d.dup && d.dup.length) parts.push('🔁 ส่งรูปเดิมซ้ำ ' + d.dup.length + ' ครั้ง');
-    phMissed(k, d).length ? tot++ : (ok++, tot++);
-    return '• ' + wd[dt.getUTCDay()] + ' ' + Number(k.slice(8)) + '/' + Number(k.slice(5, 7)) + ' · ' + parts.join(' · ');
+    if (k === today && !d.closed) parts.push('(วันนี้ยังไม่จบ)');
+    else if (k >= phFrom()) phMissed(k, d, mk).length ? tot++ : (ok++, tot++);
+    return head + parts.join(' · ');
   });
   return '🧪 ค่า pH ฝ่ายผลิต (เกณฑ์ ' + R.min + '–' + R.max + ')\n' + lines.join('\n')
-    + '\n\nครบทุกรอบ ' + ok + '/' + tot + ' วัน · ❌ = ไม่ได้ส่ง · 📷? = ส่งรูปแต่อ่านค่าไม่ได้ · 🔁? = AI ว่ารูปเหมือนรูปเก่า · – = ไม่มีคนโพสต์ช่วงนั้น (น่าจะหยุด)';
+    + '\n\nวันผลิตที่ส่งครบทุกรอบ ' + ok + '/' + tot + ' วัน · ❌ = ไม่ได้ส่ง · 📷? = ส่งรูปแต่อ่านค่าไม่ได้ · 🔁? = AI ว่ารูปเหมือนรูปเก่า'
+    + ' · 🏖️ = แจ้งว่าไม่ผลิต · – = ไม่มีคนโพสต์ช่วงนั้น' + (made ? '' : '\n(ตอนนี้อ่านรอบผลิตจากแอปไม่ได้ — นับจากการโพสต์ในกลุ่มแทน)');
 }
 
 // ════════════════════════════════════════════════════════════
