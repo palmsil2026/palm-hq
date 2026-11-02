@@ -577,13 +577,13 @@ t('pH: แจ้งเติมโซดาแอช → ขอให้วั�
   const d = phLog(S)['2026-11-03']; assert.strictEqual(d.chemDone, true);
 });
 
-t('pH: เย็น — ขาดส่ง 2 วันทำงานติด → แจ้งคุณปาล์ม 1 ข้อความ · เรียกซ้ำไม่ส่งซ้ำ · ขาดวันเดียวไม่แจ้ง', () => {
-  const { ctx, S } = makeEnv({ now: new Date('2026-11-04T11:30:00Z') /* 18:30 */,
+t('pH: ค่ำ — ขาดส่ง 2 วันทำงานติด → แจ้งคุณปาล์ม 1 ข้อความ · เรียกซ้ำไม่ส่งซ้ำ · ขาดวันเดียวไม่แจ้ง', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-04T13:30:00Z') /* 20:30 */,
     props: { PH_LOG: JSON.stringify({ '2026-11-03': { actAm: 1, actPm: 1, am: { ph: 7, t: '08:20' } }, '2026-11-04': { actAm: 1, am: { ph: 7.5, t: '08:10' }, actPm: 1 } }) } });
   ctx.phEveningCheck(); ctx.phEveningCheck();
   const own = S.pushes.filter(p => p.to === OWNER);
   assert.strictEqual(own.length, 1); assert.ok(/ขาดส่ง 2 วันทำงานติดกัน[\s\S]*4\/11 ขาดรอบบ่าย[\s\S]*3\/11 ขาดรอบบ่าย/.test(own[0].messages[0].text), own[0].messages[0].text);
-  const b = makeEnv({ now: new Date('2026-11-04T11:30:00Z'),
+  const b = makeEnv({ now: new Date('2026-11-04T13:30:00Z'),
     props: { PH_LOG: JSON.stringify({ '2026-11-03': { actAm: 1, am: { ph: 7, t: '08:20' } }, '2026-11-04': { actAm: 1, actPm: 1 } }) } });
   b.ctx.phEveningCheck();
   assert.strictEqual(b.S.pushes.length, 0, 'เมื่อวานครบ');
@@ -635,6 +635,59 @@ t('pH รูปซ้ำ: AI ตอบว่าไม่ซ้ำ → ไม่�
   const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai });
   ctx.handleEvent(ev('image', {}, PROD_GID)); at(S, '2026-11-03T08:10:00Z'); ctx.handleEvent(ev('image', {}, PROD_GID));
   assert.strictEqual(S.pushes.length, 0); assert.ok(!phLog(S)['2026-11-03'].pm.sus);
+});
+
+// ── 🏖️ วันไม่ผลิตน้ำ ไม่ต้องวัด (คุณปาล์ม 02/11: เวียนไปช่วยโรงขวด / สลับวันหยุด) ──
+t('pH วันไม่ผลิต: พี่ดาวบอก "พรุ่งนี้มาช่วยงานสกรีน" → รับทราบ · พรุ่งนี้ทีมโพสต์ก็ไม่ทวง', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T10:00:00Z') /* 17:00 */ });
+  ctx.handleEvent(prodTxt('พรุ่งนี้แผนกโรงน้ำมาช่วยงานสกรีนอีก1วัน'));
+  assert.ok(/รับทราบค่ะ 🙏 พรุ่งนี้ไม่ได้ผลิตน้ำ ไม่ต้องวัด pH/.test(replyText(S)), replyText(S));
+  assert.deepStrictEqual(phLog(S)['2026-11-04'].off, { am: 1, pm: 1 });
+  at(S, '2026-11-04T02:30:00Z'); ctx.handleEvent(prodTxt('กำลังสกรีนขวดครับ'));
+  at(S, '2026-11-04T08:30:00Z'); ctx.handleEvent(prodTxt('สกรีนเสร็จแล้วครับ'));
+  assert.strictEqual(S.replies.length, 1, 'ไม่ทวงทั้งเช้าและบ่าย');
+});
+
+t('pH วันไม่ผลิต: ตอบคำทวงว่า "วันนี้ไม่ผลิตครับ" → หยุดทวงทั้งวัน · คำทวงบอกวิธีตอบไว้ · คุณปาล์มบอกเอง = จดเงียบ', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T02:30:00Z') /* 09:30 */ });
+  ctx.handleEvent(prodTxt('ไปช่วยโรงขวดก่อนนะ'));   // "ไปช่วย…โรงขวด"
+  assert.ok(/ไม่ต้องวัด pH/.test(replyText(S)), 'จับคำว่าไปช่วยโรงขวด');
+  const b = makeEnv({ now: new Date('2026-11-03T02:30:00Z') });
+  b.ctx.handleEvent(prodTxt('ขวดล้มครับ'));
+  assert.ok(/วันนี้ไม่ผลิต/.test(b.S.replies[0].messages[0].text), 'คำทวงบอกวิธีตอบ');
+  b.ctx.handleEvent(prodTxt('วันนี้ไม่ผลิตครับ'));
+  assert.ok(/รับทราบค่ะ 🙏 วันนี้ไม่ได้ผลิตน้ำ/.test(b.S.replies[1].messages[0].text));
+  at(b.S, '2026-11-03T08:30:00Z'); b.ctx.handleEvent(prodTxt('เลิกงานครับ'));
+  assert.strictEqual(b.S.replies.length, 2, 'บ่ายไม่ทวงต่อ');
+  const c = makeEnv({ now: new Date('2026-11-03T01:00:00Z') });
+  c.ctx.handleEvent(prodTxt('วันนี้หยุดผลิตน้ำทั้งวันนะ', OWNER));
+  assert.strictEqual(c.S.replies.length, 0, 'คุณปาล์มพิมพ์เอง ไม่ตอบ'); assert.ok(phLog(c.S)['2026-11-03'].off.am);
+});
+
+t('pH วันไม่ผลิต: แจ้งจอดเครื่องชั่วคราว / "ยังไม่ผลิต" / มาช่วยแพ็คน้ำ ไม่ใช่วันหยุด', () => {
+  const { ctx } = makeEnv({ now: new Date('2026-11-03T02:30:00Z') });
+  const n = ctx.phNow();
+  for (const x of ['ขออนุญาตแจ้งหยุดการผลิตน้ำครับ เนื่องจากขวดล้ม', 'ยังไม่ผลิตครับ รอขวด', 'มาช่วยแพ็คน้ำครับ', 'หยุดเครื่องแป๊บครับ'])
+    assert.strictEqual(ctx.phOffParse(x, n), null, x);
+  assert.strictEqual(ctx.phOffParse('บ่ายนี้ไม่ผลิตครับ', n).slot, 'pm');
+  assert.strictEqual(ctx.phOffParse('เปลี่ยนวันหยุดเป็นพรุ่งนี้ วันอาทิตย์มาทำงานปกติ', n).day, '2026-11-04');
+});
+
+t('pH ค่ำ: ใช้รอบผลิตในแอปตัดสิน — วันมีรอบผลิตแต่ไม่มี pH เลย = ขาด · วันไม่มีรอบผลิต = ไม่นับ และไม่ตัดความติดกัน', () => {
+  // 3/11 ผลิตแต่ไม่มีใครส่ง pH (ไม่มีโพสต์ในกลุ่มเลย) · 4/11 ไม่ผลิต · 5/11 ผลิต ส่งแค่เช้า
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-05T13:30:00Z'),
+    props: { PH_LOG: JSON.stringify({ '2026-11-05': { actAm: 1, am: { ph: 7.5, t: '08:10' } } }) } });
+  ctx.phMadeDays = () => ({ '2026-11-03': 1, '2026-11-05': 1 });
+  ctx.phEveningCheck();
+  const own = S.pushes.filter(p => p.to === OWNER);
+  assert.strictEqual(own.length, 1); assert.ok(/5\/11 ขาดรอบบ่าย[\s\S]*3\/11 ขาดรอบเช้า, บ่าย/.test(own[0].messages[0].text), own[0].messages[0].text);
+  const b = makeEnv({ now: new Date('2026-11-05T13:30:00Z'),
+    props: { PH_LOG: JSON.stringify({ '2026-11-05': { actAm: 1, actPm: 1 } }) } });
+  b.ctx.phMadeDays = () => ({ '2026-11-03': 1 });   // 5/11 ไม่มีรอบผลิต (ไปช่วยโรงขวดทั้งวัน แต่มีคนโพสต์)
+  b.ctx.phEveningCheck();
+  assert.strictEqual(b.S.pushes.length, 0); assert.strictEqual(phLog(b.S)['2026-11-05'].made, false);
+  b.ctx.handleEvent(dm(OWNER, 'สรุป pH'));
+  assert.ok(/พฤ 5\/11 · ไม่มีรอบผลิตในแอป/.test(replyText(b.S)) && /อ 3\/11 · เช้า ❌ · บ่าย ❌/.test(replyText(b.S)), replyText(b.S));
 });
 
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');
