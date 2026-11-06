@@ -314,7 +314,7 @@ function doGet(e) {
   // 🧪 ลองรุ่นเล็กอ่านรูปกับรูปจริงในคลัง (n รูป · apply=1 ผ่านเกณฑ์แล้วเปิดใช้) — LEARN_KEY เท่านั้น
   if (p.action === 'imgTrial') {
     if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
-    return jsonOut(imageModelTrial(Math.min(30, Number(p.n) || 20), String(p.apply || '') === '1'));
+    return jsonOut(imageModelTrial(Math.min(30, Number(p.n) || 20), String(p.apply || '') === '1', String(p.cat || '')));
   }
   // 🛠️ นักพัฒนา (Routine) ดึงเคสปัญหาแอปที่คนแท็กคุณปาล์มแจ้งไว้ — LEARN_KEY เท่านั้น
   if (p.action === 'issueFeed') {
@@ -1960,9 +1960,10 @@ function analyzeImage(blob, context, withPh, forceModel) {
 }
 
 // 🧪 ลองรุ่นเล็กกับรูปจริงในคลัง (แท็บ Library) ก่อนเปิดใช้ — เทียบกับคำตัดสิน/คำบรรยายเดิมของ MODEL
-//   เกณฑ์ (ใบสั่งงาน 06/11): "เกี่ยวข้อง" ตรง ≥ 90% และยอดเงินในรูปเอกสารเงินอ่านตรงทุกใบ → ผ่าน · apply=1 + ผ่าน = ตั้ง IMAGE_MODEL เป็นรุ่นเล็ก
+//   เกณฑ์ (ใบสั่งงาน 06/11): "เกี่ยวข้อง" ตรง ≥ 90% · ยอดเงินในสลิปอ่านตรงทุกใบ · ยอดเงินเอกสารอื่น ตรง ≥ 80% → ผ่าน · apply=1 + ผ่าน = ตั้ง IMAGE_MODEL เป็นรุ่นเล็ก
+//   ยอดเงิน = ตัวเลขที่ตามด้วย "บาท" หรือหลัง ฿/ยอด ในคำบรรยายเดิม (รอบแรก 07/11 นับ "23.590 ลิตร" เป็นเงิน = ตรวจผิด) · cat = เลือกเฉพาะหมวด
 //   ข้อจำกัด: คลังมีแต่รูปที่เคยตัดสินว่า "เกี่ยวข้อง" (รูปไม่เกี่ยวไม่ถูกเก็บ) และลองโดยไม่มีบริบทแชท = เข้มกว่าของจริง
-function imageModelTrial(n, apply) {
+function imageModelTrial(n, apply, onlyCat) {
   const s = libSheet();
   if (!s || s.getLastRow() < 2) return { ok: false, error: 'ไม่มีคลังรูป' };
   const last = s.getLastRow(), take = Math.min(400, last - 1);
@@ -1970,33 +1971,40 @@ function imageModelTrial(n, apply) {
   const byCat = {};
   rows.forEach(function (r) {
     const id = (String(r[4]).match(/\/d\/([\w-]{20,})/) || [])[1];
-    if (!id || String(r[6]) !== 'ไลน์') return;
+    if (!id || String(r[6]) !== 'ไลน์' || (onlyCat && String(r[1]) !== onlyCat)) return;
     (byCat[String(r[1])] = byCat[String(r[1])] || []).push({ id: id, cat: String(r[1]), desc: String(r[3]) });
   });
   const cats = Object.keys(byCat), pick = [];
   for (let k = 0; pick.length < n && cats.some(function (c) { return byCat[c].length > k; }); k++)
     cats.forEach(function (c) { if (pick.length < n && byCat[c][k]) pick.push(byCat[c][k]); });   // ผสมหมวด
-  const norm = function (x) { return String(x).replace(/,/g, '').replace(/\.00$/, ''); };
+  const norm = function (x) { const v = String(x).replace(/,/g, ''); return v.indexOf('.') < 0 ? v : v.replace(/0+$/, '').replace(/\.$/, ''); };
+  const moneyOf = function (txt) {
+    const m = String(txt).match(/(\d[\d,]*(?:\.\d+)?)\s*บาท|฿\s*(\d[\d,]*(?:\.\d+)?)|ยอด(?:สุทธิ|รวม|โอน)?\s*(\d[\d,]*(?:\.\d+)?)/);
+    return m ? (m[1] || m[2] || m[3]) : '';
+  };
   const items = pick.map(function (o) {
     let blob;
     try { blob = DriveApp.getFileById(o.id).getBlob(); } catch (e) { return { cat: o.cat, error: 'เปิดไฟล์ไม่ได้' }; }
     const a = analyzeImage(blob, '', false, IMAGE_MODEL_SMALL);
-    const money = o.cat === 'การเงิน-เอกสาร' ? (o.desc.match(/\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\d+\.\d{2}/) || [])[0] : '';
+    const money = moneyOf(o.desc);
     const got = (String(a.desc).match(/\d[\d,]*(?:\.\d+)?/g) || []).map(norm);
-    return { cat: o.cat, relevant: a.relevant, amount: money || '', amountOk: money ? got.indexOf(norm(money)) !== -1 : null,
+    return { cat: o.cat, slip: /สลิป/.test(o.desc), relevant: a.relevant, amount: money || '', amountOk: money ? got.indexOf(norm(money)) !== -1 : null,
              old: o.desc.slice(0, 140), now: String(a.desc).slice(0, 140) };
   });
   const done = items.filter(function (x) { return !x.error; });
   const rel = done.filter(function (x) { return x.relevant; }).length;
   const amt = done.filter(function (x) { return x.amountOk !== null; });
   const amtOk = amt.filter(function (x) { return x.amountOk; }).length;
-  const pass = done.length >= Math.min(n, 10) && rel >= Math.ceil(done.length * 0.9) && amtOk === amt.length;
+  const slips = amt.filter(function (x) { return x.slip; }), slipOk = slips.filter(function (x) { return x.amountOk; }).length;
+  const pass = done.length >= Math.min(n, 10) && rel >= Math.ceil(done.length * 0.9) && slipOk === slips.length
+            && amtOk >= Math.ceil(amt.length * 0.8);
   let applied = false;
   if (pass && apply) { PropertiesService.getScriptProperties().setProperty('IMAGE_MODEL', IMAGE_MODEL_SMALL); applied = true; }
-  logRow(['ลองรุ่นอ่านรูป', 'ระบบ', IMAGE_MODEL_SMALL + ' · เกี่ยวข้องตรง ' + rel + '/' + done.length + ' · ยอดเงินตรง ' + amtOk + '/' + amt.length,
+  logRow(['ลองรุ่นอ่านรูป', 'ระบบ', IMAGE_MODEL_SMALL + (onlyCat ? ' [' + onlyCat + ']' : '') + ' · เกี่ยวข้องตรง ' + rel + '/' + done.length
+          + ' · ยอดเงินตรง ' + amtOk + '/' + amt.length + ' (สลิป ' + slipOk + '/' + slips.length + ')',
           (pass ? 'ผ่าน' : 'ไม่ผ่าน') + (applied ? ' · เปิดใช้แล้ว' : '')]);
   return { ok: true, version: CODE_VERSION, model: IMAGE_MODEL_SMALL, n: done.length, relevantMatch: rel,
-           amountChecked: amt.length, amountOk: amtOk, pass: pass, applied: applied, items: items };
+           amountChecked: amt.length, amountOk: amtOk, slipChecked: slips.length, slipOk: slipOk, pass: pass, applied: applied, items: items };
 }
 
 function handleMediaMessage(ev) {
@@ -2578,7 +2586,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-07a';
+const CODE_VERSION = '2026-11-07b';
 
 function healthCheck() {
   const L = [];
