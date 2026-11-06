@@ -802,6 +802,26 @@ t('ค่าสมอง: คิดราคาตามรุ่นที่ต
   assert.ok(Math.abs(ctx.aiUsageDay('2026-10-19').byTag['อ่านรูป'].thb - 4.6 * ctx.usdThb()) < 1e-6);
 });
 
+t('ลองรุ่นเล็ก: ตัวเลขที่ไม่ใช่เงิน (ลิตร) ไม่นับเป็นยอด · 1,000.00 = 1000 · cat เลือกหมวด · สลิปอ่านยอดผิด = ไม่ผ่าน', () => {
+  const lib = [
+    [new Date(), 'การเงิน-เอกสาร', 'บิลน้ำมัน', 'ใบเสร็จน้ำมันดีเซล 23.590 ลิตร รวม 1,000.00 บาท', 'https://drive.google.com/file/d/AAAAAAAAAAAAAAAAAAAAAA1/view', 'แม่', 'ไลน์'],
+    [new Date(), 'การเงิน-เอกสาร', 'สลิป', 'สลิปโอนเงินสำเร็จ 660.00 บาท', 'https://drive.google.com/file/d/AAAAAAAAAAAAAAAAAAAAAA2/view', 'แม่', 'ไลน์'],
+    [new Date(), 'โรงน้ำ-ละกอน', 'สต๊อก', 'กองน้ำละกอน', 'https://drive.google.com/file/d/AAAAAAAAAAAAAAAAAAAAAA3/view', 'แม่', 'ไลน์']];
+  const sheet = { getLastRow: () => lib.length + 1, getRange: (r, c, nr) => ({ getValues: () => lib.slice(r - 2, r - 2 + nr) }) };
+  const run = desc => {
+    const { ctx, S } = makeEnv({ ai: () => 'เกี่ยวข้อง: ใช่\nบรรยาย: ' + desc + '\nหมวด: การเงิน-เอกสาร' });
+    ctx.libSheet = () => sheet;
+    ctx.DriveApp.getFileById = () => ({ getBlob: () => ({ getBytes: () => [1], getContentType: () => 'image/jpeg' }) });
+    return ctx.imageModelTrial(2, false, 'การเงิน-เอกสาร');
+  };
+  const good = run('ใบเสร็จดีเซล 23.590 ลิตร 1000 บาท และสลิป 660 บาท');
+  assert.strictEqual(good.n, 2, 'เลือกเฉพาะหมวดเอกสารเงิน'); assert.strictEqual(good.amountChecked, 2);
+  assert.deepStrictEqual(Array.from(good.items.map(x => x.amount)).sort(), ['1,000.00', '660.00']);
+  assert.strictEqual(good.amountOk, 2); assert.strictEqual(good.slipChecked, 1); assert.strictEqual(good.pass, true);
+  const bad = run('ใบเสร็จดีเซล 1,000.00 บาท สลิป 600 บาท');
+  assert.strictEqual(bad.slipOk, 0); assert.strictEqual(bad.pass, false);
+});
+
 t('ลองรุ่นเล็ก (imgTrial): ต้องมีรหัส · ผสมหมวด · ผ่านเกณฑ์ + apply → ตั้ง IMAGE_MODEL · ยอดเงินอ่านผิด = ไม่ผ่าน ไม่เปิด', () => {
   const lib = [];
   for (let i = 0; i < 12; i++) lib.push([new Date(), 'การเงิน-เอกสาร', 'สลิป', 'สลิปโอน ยอด 1,' + (100 + i) + '.00 บาท', 'https://drive.google.com/file/d/FILEID' + String(i).padStart(20, '0') + '/view', 'แม่', 'ไลน์']);
