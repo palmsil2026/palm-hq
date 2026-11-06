@@ -31,7 +31,7 @@ function makeEnv(opts) {
     console: { error: () => {}, log: () => {} }, Logger: { log: () => {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = v; } }) },
     CacheService: { getScriptCache: () => ({ get: k => (k in S.cache ? S.cache[k] : null), put: (k, v) => { S.cache[k] = v; }, remove: k => { delete S.cache[k]; } }) },
-    LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
+    LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }), getUserLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
     Utilities: {
       formatDate: (d, tz, f) => fmt(d, tz, f),
       computeHmacSha256Signature: (v, k) => Array.from(crypto.createHmac('sha256', k).update(v).digest()).map(b => (b > 127 ? b - 256 : b)),
