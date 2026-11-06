@@ -759,6 +759,73 @@ t('แอปเซลส์: แท็กคุณปาล์มถามวิ
   assert.ok(/ลงออเดอร์/.test(replyText(S)));
 });
 
+// ── 💸 คัดรูปด้วยรุ่นเล็ก (ใบสั่งงาน origin-hq 06/11 ลดค่าอ่านรูป) ──
+const imgCalls = S => S.prompts.filter(p => JSON.stringify(p.messages || []).indexOf('"type":"image"') !== -1);
+const imgAi = (small, big) => body => (body.model === 'claude-haiku-5-5' ? small : big);
+
+t('อ่านรูป: ยังไม่ตั้ง IMAGE_MODEL → ใช้รุ่นหลักเหมือนเดิม (ไม่มี effort) · ตั้งเป็นรุ่นเล็ก → Haiku + effort low', () => {
+  const a = makeEnv({ ai: () => 'เกี่ยวข้อง: ใช่\nบรรยาย: สลิปโอน 1,350.00 บาท\nหมวด: การเงิน-เอกสาร' });
+  a.ctx.handleEvent(ev('image', {}, OTHER_GID));
+  const c1 = imgCalls(a.S); assert.strictEqual(c1.length, 1); assert.strictEqual(c1[0].model, 'claude-sonnet-5-5'); assert.ok(!c1[0].output_config);
+  const b = makeEnv({ props: { IMAGE_MODEL: 'claude-haiku-5-5' }, ai: () => 'เกี่ยวข้อง: ใช่\nบรรยาย: สลิปโอน\nหมวด: การเงิน-เอกสาร' });
+  b.ctx.handleEvent(ev('image', {}, OTHER_GID));
+  const c2 = imgCalls(b.S); assert.strictEqual(c2.length, 1); assert.strictEqual(c2[0].model, 'claude-haiku-5-5');
+  assert.deepStrictEqual(c2[0].output_config, { effort: 'low' });
+  assert.strictEqual(b.S.files.length, 1, 'เก็บรูปตามปกติ');
+});
+
+t('อ่านรูป: รูปตรวจ pH ในกลุ่มฝ่ายผลิตใช้รุ่นหลักเสมอ แม้ตั้งรุ่นเล็ก', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), props: { IMAGE_MODEL: 'claude-haiku-5-5' },
+    ai: () => 'เกี่ยวข้อง: ใช่\nบรรยาย: ชุดตรวจ pH\nหมวด: โรงน้ำ-ละกอน\nค่าpH: 7.5' });
+  ctx.handleEvent(ev('image', {}, PROD_GID));
+  const c = imgCalls(S).filter(p => JSON.stringify(p).indexOf('ค่าpH') !== -1);
+  assert.strictEqual(c.length, 1); assert.strictEqual(c[0].model, 'claude-sonnet-5-5'); assert.ok(!c[0].output_config);
+});
+
+t('อ่านรูป: รุ่นเล็กตอบไม่ตามรูปแบบ/ปฏิเสธ → ให้รุ่นหลักอ่านซ้ำ ไม่ทิ้งรูป', () => {
+  const { ctx, S } = makeEnv({ props: { IMAGE_MODEL: 'claude-haiku-5-5' },
+    ai: imgAi('', 'เกี่ยวข้อง: ใช่\nบรรยาย: บิลขายละกอน 2,450.00 บาท\nหมวด: การเงิน-เอกสาร') });
+  ctx.handleEvent(ev('image', {}, OTHER_GID));
+  assert.deepStrictEqual(imgCalls(S).map(p => p.model), ['claude-haiku-5-5', 'claude-sonnet-5-5']);
+  assert.strictEqual(S.files.length, 1); assert.ok(S.groupChat.some(g => /2,450\.00/.test(g[1])));
+});
+
+t('ค่าสมอง: คิดราคาตามรุ่นที่ตอบจริง (Haiku ถูกกว่า ~20 เท่า) · ก้อนเดิมก่อนเปลี่ยนยังคิดราคา Sonnet', () => {
+  const { ctx, S } = makeEnv();
+  const day = 'AIU_2026-10-19';
+  S.props[day] = JSON.stringify({ 'อ่านรูป': { n: 1, in: 1e6, cw: 0, cr: 0, out: 0 } });   // ก่อนอัปเดต = $2
+  ctx.AI_TAG = 'อ่านรูป';
+  ctx.trackUsage({ model: 'claude-haiku-5-5', usage: { input_tokens: 1e6, output_tokens: 1e6 } });   // $0.10 + $0.50
+  ctx.trackUsage({ model: 'claude-sonnet-5-5', usage: { input_tokens: 1e6, output_tokens: 0 } });    // $2
+  const t1 = JSON.parse(S.props[day])['อ่านรูป'];
+  assert.strictEqual(t1.n, 3); assert.ok(Math.abs(t1.usd - 4.6) < 1e-9, String(t1.usd));
+  assert.ok(Math.abs(ctx.aiUsageDay('2026-10-19').byTag['อ่านรูป'].thb - 4.6 * ctx.usdThb()) < 1e-6);
+});
+
+t('ลองรุ่นเล็ก (imgTrial): ต้องมีรหัส · ผสมหมวด · ผ่านเกณฑ์ + apply → ตั้ง IMAGE_MODEL · ยอดเงินอ่านผิด = ไม่ผ่าน ไม่เปิด', () => {
+  const lib = [];
+  for (let i = 0; i < 12; i++) lib.push([new Date(), 'การเงิน-เอกสาร', 'สลิป', 'สลิปโอน ยอด 1,' + (100 + i) + '.00 บาท', 'https://drive.google.com/file/d/FILEID' + String(i).padStart(20, '0') + '/view', 'แม่', 'ไลน์']);
+  for (let i = 0; i < 12; i++) lib.push([new Date(), 'โรงน้ำ-ละกอน', 'สต๊อก', 'กองน้ำละกอน', 'https://drive.google.com/file/d/STOCKID' + String(i).padStart(20, '0') + '/view', 'แม่', 'ไลน์']);
+  const sheet = { getLastRow: () => lib.length + 1, getRange: (r, c, nr) => ({ getValues: () => lib.slice(r - 2, r - 2 + nr) }) };
+  const run = (aiFn, apply) => {
+    const { ctx, S } = makeEnv({ ai: aiFn, props: { LEARN_KEY: 'Lk1' } });
+    ctx.libSheet = () => sheet; ctx.learnKeyOk = k => k === 'Lk1';
+    ctx.DriveApp.getFileById = id => ({ getBlob: () => ({ getBytes: () => [1, 2, 3], getContentType: () => 'image/jpeg', _id: id }) });
+    return { ctx, S, out: ctx.imageModelTrial(20, apply) };
+  };
+  const amounts = lib.map(r => (r[3].match(/[\d,]+\.\d{2}/) || [''])[0]).filter(Boolean);
+  // ทุกรูป "เกี่ยวข้อง" แต่คำบรรยายไม่มียอดเงิน → ไม่ผ่าน
+  const good = run(() => 'เกี่ยวข้อง: ใช่\nบรรยาย: สลิปโอนเงิน\nหมวด: การเงิน-เอกสาร', true);
+  assert.strictEqual(good.out.n, 20); assert.ok(good.out.items.some(x => x.cat === 'โรงน้ำ-ละกอน') && good.out.items.some(x => x.cat === 'การเงิน-เอกสาร'), 'ผสมหมวด');
+  assert.ok(good.S.prompts.every(p => p.model === 'claude-haiku-5-5'));
+  assert.strictEqual(good.out.pass, false, 'บรรยายไม่มียอดเงิน = ไม่ผ่าน'); assert.ok(!good.S.props.IMAGE_MODEL);
+  // คำบรรยายมียอดของทุกรูปในคลัง (ตัวที่ตรงกับรูปนั้นอยู่ในนั้นแน่) → ผ่าน + เปิดใช้
+  const ok = run(() => 'เกี่ยวข้อง: ใช่\nบรรยาย: สลิป ' + amounts.join(' ') + '\nหมวด: การเงิน-เอกสาร', true);
+  assert.strictEqual(ok.out.pass, true); assert.strictEqual(ok.out.applied, true); assert.strictEqual(ok.S.props.IMAGE_MODEL, 'claude-haiku-5-5');
+  const res = ok.ctx.doGet({ parameter: { action: 'imgTrial', key: 'ผิด' } });
+  assert.ok(/unauthorized/.test(res.t));
+});
+
 console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');
 
 // 🛠️ นักพัฒนา — ไฟล์แยก แต่รันในคำสั่งเดียวกัน (CI + ก่อน deploy เรียกแค่ unit.test.js)

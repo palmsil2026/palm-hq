@@ -311,6 +311,11 @@ function doGet(e) {
     if (String(p.mode || '') === 'people') return jsonOut(learnFeedPeople());
     return jsonOut(learnFeed(String(p.force || '') === '1'));
   }
+  // 🧪 ลองรุ่นเล็กอ่านรูปกับรูปจริงในคลัง (n รูป · apply=1 ผ่านเกณฑ์แล้วเปิดใช้) — LEARN_KEY เท่านั้น
+  if (p.action === 'imgTrial') {
+    if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
+    return jsonOut(imageModelTrial(Math.min(30, Number(p.n) || 20), String(p.apply || '') === '1'));
+  }
   // 🛠️ นักพัฒนา (Routine) ดึงเคสปัญหาแอปที่คนแท็กคุณปาล์มแจ้งไว้ — LEARN_KEY เท่านั้น
   if (p.action === 'issueFeed') {
     if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
@@ -1886,20 +1891,19 @@ function mediaContext(chatId, senderId) {
 // ให้ AI ดูรูป + บริบทข้อความรอบตัว แล้วตัดสินว่า "เกี่ยวกับงานควรเก็บไหม" + บรรยายสั้นๆ ในทีเดียว
 // บริบทสำคัญกว่าหน้าตารูป เช่นรูปอาหารจานเดียวกัน ถ้าคนพิมพ์ว่า "เมนูใหม่คาเฟ่ ลองดู" = เกี่ยวข้อง
 // แต่ถ้าไม่พิมพ์อะไรเลย/คุยเล่น = ไม่เกี่ยวข้อง
-function analyzeImage(blob, context, withPh) {
+// 💸 คัดรูปด้วยรุ่นเล็ก (ใบสั่งงาน origin-hq 06/11 "ลดค่าอ่านรูป": อ่านรูป = 85% ของค่าสมองเลขา ~0.38 บาท/รูป)
+//   รุ่นที่ใช้ = Script Property IMAGE_MODEL (ไม่ตั้ง = MODEL ตามเดิม) · ตั้งเป็น claude-haiku-5-5 ผ่าน imageModelTrial เมื่อลองรูปจริงผ่านเกณฑ์
+//   ย้อนกลับ = ลบ/แก้ IMAGE_MODEL · รูปตรวจ pH (withPh) ใช้ MODEL เสมอ (ค่าลงตารางตรวจน้ำ ไม่เสี่ยงอ่านสีผิด)
+const IMAGE_MODEL_SMALL = 'claude-haiku-5-5';
+function imageModel(withPh) { return withPh ? MODEL : (cfg('IMAGE_MODEL') || MODEL); }
+
+function analyzeImage(blob, context, withPh, forceModel) {
   try {
     const apiKey = cfg('ANTHROPIC_API_KEY');
     if (!apiKey) return { relevant: true, desc: '' }; // วิเคราะห์ไม่ได้ → เก็บไว้ก่อนดีกว่าเสียของสำคัญไป
     const bytes = blob.getBytes();
     if (bytes.length > 3500000) return { relevant: true, desc: '(รูปใหญ่เกินอ่าน)' };
-    const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
-      method: 'post', contentType: 'application/json',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      payload: JSON.stringify({
-        model: MODEL, max_tokens: 2048,   // เผื่อโควตาให้โหมดคิดก่อนตอบ ไม่งั้นคิดจนหมดโควตาแล้วไม่เหลือคำตอบ
-        messages: [{ role: 'user', content: [
-          { type: 'image', source: { type: 'base64', media_type: blob.getContentType(), data: Utilities.base64Encode(bytes) } },
-          { type: 'text', text: 'คุณเป็นเลขาของธุรกิจโรงน้ำดื่ม "ละกอน" และร้านคาเฟ่ '
+    const prompt = 'คุณเป็นเลขาของธุรกิจโรงน้ำดื่ม "ละกอน" และร้านคาเฟ่ '
               + 'มีคนส่งรูปนี้เข้ามาในแชท ช่วยตัดสินว่าควรเก็บรูปนี้ไว้ใช้ทำงานต่อไหม\n\n'
               + 'กิจการของเราเอง (ไม่ใช่คู่แข่ง/ธุรกิจอื่น): บจก.ออริจิ้น แล็บส์ (โรงน้ำ ละกอน/เพียวซ่า/งาน OEM) · โรงขวด P&K · ร้านกาแฟ Old Days · บจก.รุจิพล ซัพพลาย\n'
               + 'เอกสารเงินทุกชนิด (สลิปโอน ใบเสร็จ บิล ค่าน้ำมัน เลขไมล์) = เกี่ยวข้องเสมอ แม้โอนเข้าบัญชีชื่อบุคคลในครอบครัวเจ้าของ · ห้ามตัดสินว่าสลิปปลอม (ไม่ใช่หน้าที่ของคุณ)\n'
@@ -1915,15 +1919,31 @@ function analyzeImage(blob, context, withPh) {
               + 'ให้น้ำหนัก "บริบทข้อความ" มากกว่าหน้าตาของรูป — รูปแบบเดียวกันอาจเกี่ยวหรือไม่เกี่ยวก็ได้ ขึ้นกับว่าคนส่งพูดว่าอะไร\n'
               + 'ตอบ "ใช่" เมื่อ: คนส่งพูดถึงงาน/สั่งงาน/ขอให้ดู-ตรวจ-ทำอะไรต่อกับรูปนี้ เป็นคำตอบของคำถามที่ค้างอยู่ '
               + 'หรือเนื้อรูปเป็นเรื่องธุรกิจชัดเจน (ใบเสร็จ บิล สลิปโอนเงิน สินค้า-วัตถุดิบ เมนู ราคา สต๊อก เอกสาร สกรีนช็อตแชท/ระบบ ตัวอย่างงาน)\n'
-              + 'ตอบ "ไม่" เมื่อ: ส่งมาคุยเล่นเฉยๆ ไม่มีบริบทงาน (รูปอาหารที่กิน เซลฟี่ วิว มีม การ์ตูน) และไม่มีใครขออะไรกับรูปนั้น' }
+              + 'ตอบ "ไม่" เมื่อ: ส่งมาคุยเล่นเฉยๆ ไม่มีบริบทงาน (รูปอาหารที่กิน เซลฟี่ วิว มีม การ์ตูน) และไม่มีใครขออะไรกับรูปนั้น';
+    const ask = function (model, tag) {
+      const body = {
+        model: model, max_tokens: 2048,   // เผื่อโควตาให้โหมดคิดก่อนตอบ ไม่งั้นคิดจนหมดโควตาแล้วไม่เหลือคำตอบ
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: blob.getContentType(), data: Utilities.base64Encode(bytes) } },
+          { type: 'text', text: prompt }
         ] }]
-      }),
-      muteHttpExceptions: true
-    });
-    const d = JSON.parse(res.getContentText());
-    AI_TAG = 'อ่านรูป';
-    const t = claudeText(d).trim();
-    AI_TAG = '';
+      };
+      if (model !== MODEL) body.output_config = { effort: 'low' };   // รุ่นเล็ก: คัดรูปไม่ต้องคิดลึก
+      const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+        method: 'post', contentType: 'application/json',
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        payload: JSON.stringify(body), muteHttpExceptions: true
+      });
+      const d = JSON.parse(res.getContentText());
+      AI_TAG = tag;
+      const out = String(claudeText(d) || '').trim();
+      AI_TAG = '';
+      return out;
+    };
+    const model = forceModel || imageModel(withPh);
+    let t = ask(model, forceModel ? 'ลองรุ่นอ่านรูป' : (withPh ? 'อ่านรูป pH' : 'อ่านรูป'));
+    // รุ่นเล็กปฏิเสธ/ไม่ตอบตามรูปแบบ (ไม่มีบรรทัด "เกี่ยวข้อง:") → ให้ MODEL อ่านซ้ำ ไม่ทิ้งรูปเพราะรุ่นเล็กตอบไม่ได้
+    if (!/เกี่ยวข้อง\s*:/.test(t) && model !== MODEL && !forceModel) t = ask(MODEL, 'อ่านรูป(สำรอง)');
     const relevant = /เกี่ยวข้อง\s*:\s*ใช่/i.test(t);
     const m = t.match(/บรรยาย\s*:\s*([^\n]*)/i);
     const mcat = t.match(/หมวด\s*:\s*([^\n]+)/i);
@@ -1936,7 +1956,47 @@ function analyzeImage(blob, context, withPh) {
       else if (/อ่านไม่ได้/.test(mph[1])) ph = null;
     }
     return { relevant: relevant, desc: (m ? m[1].trim() : t), cat: (mcat ? mcat[1].trim() : ''), ph: ph };
-  } catch (err) { console.error('analyzeImage: ' + err); return { relevant: true, desc: '' }; } // วิเคราะห์พลาด → เก็บไว้ก่อนกันเสียของ
+  } catch (err) { AI_TAG = ''; console.error('analyzeImage: ' + err); return { relevant: true, desc: '' }; } // วิเคราะห์พลาด → เก็บไว้ก่อนกันเสียของ
+}
+
+// 🧪 ลองรุ่นเล็กกับรูปจริงในคลัง (แท็บ Library) ก่อนเปิดใช้ — เทียบกับคำตัดสิน/คำบรรยายเดิมของ MODEL
+//   เกณฑ์ (ใบสั่งงาน 06/11): "เกี่ยวข้อง" ตรง ≥ 90% และยอดเงินในรูปเอกสารเงินอ่านตรงทุกใบ → ผ่าน · apply=1 + ผ่าน = ตั้ง IMAGE_MODEL เป็นรุ่นเล็ก
+//   ข้อจำกัด: คลังมีแต่รูปที่เคยตัดสินว่า "เกี่ยวข้อง" (รูปไม่เกี่ยวไม่ถูกเก็บ) และลองโดยไม่มีบริบทแชท = เข้มกว่าของจริง
+function imageModelTrial(n, apply) {
+  const s = libSheet();
+  if (!s || s.getLastRow() < 2) return { ok: false, error: 'ไม่มีคลังรูป' };
+  const last = s.getLastRow(), take = Math.min(400, last - 1);
+  const rows = s.getRange(last - take + 1, 1, take, 7).getValues().reverse();
+  const byCat = {};
+  rows.forEach(function (r) {
+    const id = (String(r[4]).match(/\/d\/([\w-]{20,})/) || [])[1];
+    if (!id || String(r[6]) !== 'ไลน์') return;
+    (byCat[String(r[1])] = byCat[String(r[1])] || []).push({ id: id, cat: String(r[1]), desc: String(r[3]) });
+  });
+  const cats = Object.keys(byCat), pick = [];
+  for (let k = 0; pick.length < n && cats.some(function (c) { return byCat[c].length > k; }); k++)
+    cats.forEach(function (c) { if (pick.length < n && byCat[c][k]) pick.push(byCat[c][k]); });   // ผสมหมวด
+  const norm = function (x) { return String(x).replace(/,/g, '').replace(/\.00$/, ''); };
+  const items = pick.map(function (o) {
+    let blob;
+    try { blob = DriveApp.getFileById(o.id).getBlob(); } catch (e) { return { cat: o.cat, error: 'เปิดไฟล์ไม่ได้' }; }
+    const a = analyzeImage(blob, '', false, IMAGE_MODEL_SMALL);
+    const money = o.cat === 'การเงิน-เอกสาร' ? (o.desc.match(/\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\d+\.\d{2}/) || [])[0] : '';
+    const got = (String(a.desc).match(/\d[\d,]*(?:\.\d+)?/g) || []).map(norm);
+    return { cat: o.cat, relevant: a.relevant, amount: money || '', amountOk: money ? got.indexOf(norm(money)) !== -1 : null,
+             old: o.desc.slice(0, 140), now: String(a.desc).slice(0, 140) };
+  });
+  const done = items.filter(function (x) { return !x.error; });
+  const rel = done.filter(function (x) { return x.relevant; }).length;
+  const amt = done.filter(function (x) { return x.amountOk !== null; });
+  const amtOk = amt.filter(function (x) { return x.amountOk; }).length;
+  const pass = done.length >= Math.min(n, 10) && rel >= Math.ceil(done.length * 0.9) && amtOk === amt.length;
+  let applied = false;
+  if (pass && apply) { PropertiesService.getScriptProperties().setProperty('IMAGE_MODEL', IMAGE_MODEL_SMALL); applied = true; }
+  logRow(['ลองรุ่นอ่านรูป', 'ระบบ', IMAGE_MODEL_SMALL + ' · เกี่ยวข้องตรง ' + rel + '/' + done.length + ' · ยอดเงินตรง ' + amtOk + '/' + amt.length,
+          (pass ? 'ผ่าน' : 'ไม่ผ่าน') + (applied ? ' · เปิดใช้แล้ว' : '')]);
+  return { ok: true, version: CODE_VERSION, model: IMAGE_MODEL_SMALL, n: done.length, relevantMatch: rel,
+           amountChecked: amt.length, amountOk: amtOk, pass: pass, applied: applied, items: items };
 }
 
 function handleMediaMessage(ev) {
@@ -2518,7 +2578,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-03a';
+const CODE_VERSION = '2026-11-07a';
 
 function healthCheck() {
   const L = [];
@@ -2584,6 +2644,8 @@ function healthCheck() {
       const n = phNow(), d = phLoad()[n.day] || {};
       ok('เฝ้าค่า pH ฝ่ายผลิต: วันนี้ เช้า ' + (d.am ? '✓' : '–') + (phPmOn(n.day) ? ' · บ่าย ' + (d.pm ? '✓' : '–') : '') + ' (พิมพ์ "สรุป pH" ดูย้อนหลัง)');
     }
+    // 💸 รุ่นที่ใช้คัดรูป (ตั้ง IMAGE_MODEL / ลองด้วย imgTrial)
+    ok('คัดรูปด้วย ' + imageModel(false) + (imageModel(false) === MODEL ? ' (รุ่นหลัก)' : ' (รุ่นเล็ก · รูป pH ยังใช้รุ่นหลัก)'));
     // 📘 คู่มือแอปเซลส์ (ไว้ตอบพนักงานที่งงวิธีใช้แอป)
     try {
       const hd = salesHelpDoc();
@@ -7754,9 +7816,20 @@ function learnMorningText() {
 //   อัตราแลกเปลี่ยน: Script Property USD_THB (ไม่ตั้ง = 35)
 // ════════════════════════════════════════════════════════════
 var AI_TAG = '';   // งานที่กำลังเรียกสมอง (ว่าง = แชท) — ตั้งก่อนเรียก แล้วคืนค่าว่างหลังเสร็จ
-const AI_PRICE = { in: 2, cw: 2.5, cr: 0.2, out: 10 };
+const AI_PRICE = { in: 2, cw: 2.5, cr: 0.2, out: 10 };   // Sonnet 5.5 (ต่อล้าน token USD)
+// ราคาตามรุ่นที่ตอบจริง (data.model) — คิดเป็นเงินตอนจดเลย (ก้อนเดียวกันอาจมีหลายรุ่น เช่น อ่านรูปรุ่นเล็ก+สำรอง)
+const AI_PRICES = { 'claude-haiku-5-5': { in: 0.10, cw: 0.125, cr: 0.01, out: 0.50 }, 'claude-sonnet-5-5': AI_PRICE };
+function aiPriceOf(model) {
+  const m = String(model || '');
+  for (const k in AI_PRICES) if (m.indexOf(k) === 0) return AI_PRICES[k];
+  return AI_PRICE;
+}
 
-function aiCostUsd(u) { return (u.in * AI_PRICE.in + u.cw * AI_PRICE.cw + u.cr * AI_PRICE.cr + u.out * AI_PRICE.out) / 1e6; }
+function aiCostUsd(u, price) {
+  if (!price && typeof u.usd === 'number') return u.usd;   // จดเป็นเงินตามรุ่นไว้แล้ว
+  const P = price || AI_PRICE;
+  return (u.in * P.in + u.cw * P.cw + u.cr * P.cr + u.out * P.out) / 1e6;
+}
 function usdThb() { return Number(cfg('USD_THB')) || 35; }
 
 function trackUsage(data) {
@@ -7770,8 +7843,10 @@ function trackUsage(data) {
       let day = {}; try { day = JSON.parse(P.getProperty(key) || '{}'); } catch (e) {}
       const tag = AI_TAG || 'แชท';
       const t = day[tag] = day[tag] || { n: 0, in: 0, cw: 0, cr: 0, out: 0 };
-      t.n++; t.in += u.input_tokens || 0; t.cw += u.cache_creation_input_tokens || 0;
-      t.cr += u.cache_read_input_tokens || 0; t.out += u.output_tokens || 0;
+      if (typeof t.usd !== 'number') t.usd = aiCostUsd(t, AI_PRICE);   // ก้อนเก่าก่อนคิดตามรุ่น = ราคา Sonnet
+      const one = { in: u.input_tokens || 0, cw: u.cache_creation_input_tokens || 0, cr: u.cache_read_input_tokens || 0, out: u.output_tokens || 0 };
+      t.n++; t.in += one.in; t.cw += one.cw; t.cr += one.cr; t.out += one.out;
+      t.usd += aiCostUsd(one, aiPriceOf(data.model));
       P.setProperty(key, JSON.stringify(day));
     } finally { if (got) lock.releaseLock(); }
   } catch (e) { console.error('trackUsage: ' + e); }
