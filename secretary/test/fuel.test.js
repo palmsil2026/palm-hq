@@ -131,6 +131,18 @@ t('⛽ ย้อนหลัง: อ่านคำบรรยายใน Grou
   const r2 = ctx.fuelBackfill('2026-10-08', true);
   assert.strictEqual(r2.acts.error, 1); assert.strictEqual(r2.warns.length, 1); assert.ok(/8\/10 09:00 คนขับ ก บิล 1000 บาท: ⚠️ ไม่รู้ว่าคันไหน/.test(r2.warns[0]), r2.warns[0]);
   assert.ok(/^8\/10 09:03 เลขไมล์ 6535: HTTP 500/.test(r2.errors[0]), r2.errors[0]);
+  // ส่งทีละช่วง: งบเวลาหมด → next/done · start=next ส่งต่อจากชุดเดิมใน cache · สรุปสะสมข้ามช่วง
+  const S0 = S.fleet.length, prompts0 = S.prompts.length;
+  const realNow = S.now.getTime(); let calls = 0;
+  S.fleetResp = () => { calls++; S.now = new Date(realNow + calls * 300000); return { success: true, act: 'new', veh: '06' }; };
+  const c1 = ctx.fuelBackfill('2026-10-08', true, 0);
+  assert.deepStrictEqual([c1.next, c1.total, c1.done], [1, 2, false], 'เกินงบเวลาหลังรายการแรก');
+  S.now = new Date(realNow);
+  const c2 = ctx.fuelBackfill('2026-10-08', true, c1.next);
+  assert.deepStrictEqual([c2.next, c2.done, c2.acts.new, c2.inBaht], [2, true, 2, 1000], 'ต่อจากเดิม + สรุปสะสม');
+  assert.strictEqual(S.fleet.length - S0, 2); assert.strictEqual(S.prompts.length - prompts0, 1, 'ช่วงต่อไม่อ่านคำบรรยายใหม่');
+  delete S.cache['fuelbf_2026-10-08'];
+  assert.ok(/หมดอายุ/.test(ctx.fuelBackfill('2026-10-08', true, 1).error));
   const res = ctx.doGet({ parameter: { action: 'fuelBackfill', key: 'ผิด' } });
   assert.ok(/unauthorized/.test(res.t));
 });

@@ -316,7 +316,7 @@ function doGet(e) {
   // ⛽ บิลน้ำมันย้อนหลังจาก GroupChat กลุ่มสายรถ — ไม่ใส่ send=1 = ลองนับอย่างเดียว · LEARN_KEY เท่านั้น
   if (p.action === 'fuelBackfill') {
     if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
-    return jsonOut(fuelBackfill(String(p.from || ''), String(p.send || '') === '1'));
+    return jsonOut(fuelBackfill(String(p.from || ''), String(p.send || '') === '1', Number(p.start) || 0));
   }
   if (p.action === 'imgTrial') {
     if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
@@ -2617,7 +2617,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-10b';
+const CODE_VERSION = '2026-11-10c';
 
 function healthCheck() {
   const L = [];
@@ -4107,10 +4107,11 @@ function fuelReadDescs(descs) {
     return descs.map(function (_, i) { return fuelNorm(arr[i]); });
   } catch (e) { AI_TAG = ''; console.error('fuelReadDescs: ' + e); return descs.map(function () { return null; }); }
 }
-function fuelBackfill(fromDay, send) {
-  const gid = vanGroupId();
-  if (!gid) return { ok: false, error: 'ยังไม่รู้จักกลุ่มสายรถ' };
-  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(fromDay || '')) ? String(fromDay) : '2026-10-08';
+// ส่งทีละช่วง (รอบละ ≤ FUEL_BF_BUDGET_MS — GAS ตัดที่ 6 นาที · 10/11 รอบเดียว 65 รายการหมดเวลากลางทาง)
+//   start=0 = อ่านคำบรรยายใหม่ (เก็บรายการไว้ใน cache 6 ชม. ให้ทุกช่วงใช้ชุดเดียวกัน) + เริ่มสรุปใหม่ · ตอบ next/done → เรียกต่อด้วย start=next
+//   ส่งซ้ำได้: แอปรถจำคำตอบตาม messageId 6 ชม. + กันเลขที่บิลซ้ำ
+const FUEL_BF_BUDGET_MS = 240000;
+function fuelBackfillItems(gid, from) {
   const rows = fuelHistoryRows(gid, new Date(from + 'T00:00:00+07:00').getTime());
   const items = [];
   for (let i = 0; i < rows.length; i += 15) {
@@ -4124,21 +4125,43 @@ function fuelBackfill(fromDay, send) {
       items.push(p);
     });
   }
-  const sum = { ok: true, from: from, rows: rows.length, receipts: 0, odos: 0, baht: 0, send: !!send, acts: {}, errors: [], warns: [], inBaht: 0, inLiters: 0 };
+  return { rows: rows.length, items: items };
+}
+function fuelBackfill(fromDay, send, startAt) {
+  const t0 = Date.now();
+  const gid = vanGroupId();
+  if (!gid) return { ok: false, error: 'ยังไม่รู้จักกลุ่มสายรถ' };
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(fromDay || '')) ? String(fromDay) : '2026-10-08';
+  const start = Math.max(0, Number(startAt) || 0);
+  const cache = CacheService.getScriptCache(), ck = 'fuelbf_' + from, P = PropertiesService.getScriptProperties();
+  let got = null;
+  if (start > 0) { try { got = JSON.parse(cache.get(ck) || 'null'); } catch (e) {} }
+  if (!got) {
+    if (start > 0) return { ok: false, error: 'รายการชุดเดิมหมดอายุ (เกิน 6 ชม.) — เริ่มใหม่ start=0' };
+    got = fuelBackfillItems(gid, from);
+    try { cache.put(ck, JSON.stringify(got), 21600); } catch (e) {}
+  }
+  const items = got.items;
+  let sum = { ok: true, from: from, rows: got.rows, receipts: 0, odos: 0, baht: 0, send: !!send, acts: {}, errors: [], warns: [], inBaht: 0, inLiters: 0 };
   items.forEach(function (p) { if (p.kind === 'odo') sum.odos++; else { sum.receipts++; sum.baht += p.receipt.baht; } });
   sum.baht = Math.round(sum.baht);
   if (!send) { sum.sample = items.slice(0, 5).map(function (p) { return Utilities.formatDate(new Date(p.at), 'GMT+7', 'd/M HH:mm') + ' ' + p.sender + ' ' + fuelWhat(p); }); return sum; }
-  items.forEach(function (p) {
-    const r = fuelPost(p);
+  if (start > 0) { try { const old = JSON.parse(P.getProperty('FUEL_BF_SUM') || 'null'); if (old && old.from === from) sum = old; } catch (e) {} }
+  let i = start;
+  for (; i < items.length; i++) {
+    if (i > start && Date.now() - t0 > FUEL_BF_BUDGET_MS) break;
+    const p = items[i], r = fuelPost(p);
     const k = r && r.success ? String(r.act || 'ok') : 'error';
     sum.acts[k] = (sum.acts[k] || 0) + 1;
     const when = Utilities.formatDate(new Date(p.at), 'GMT+7', 'd/M HH:mm');
     if (!(r && r.success)) sum.errors.push(when + ' ' + fuelWhat(p) + ': ' + String((r && r.error) || 'ไม่ทราบ').slice(0, 60));
     else if (/⚠️|💵/.test(String(r.note || ''))) sum.warns.push(when + ' ' + p.sender + ' ' + fuelWhat(p) + (r.veh ? ' (' + r.veh + ')' : '') + ': ' + String(r.note).slice(0, 120));
     if (r && r.success && p.kind === 'receipt' && (r.act === 'new' || r.act === 'merged')) { sum.inBaht += p.receipt.baht; sum.inLiters += p.receipt.liters || 0; }
-  });
+  }
   sum.inBaht = Math.round(sum.inBaht); sum.inLiters = Math.round(sum.inLiters * 10) / 10;
-  logRow(['⛽ บิลน้ำมันย้อนหลัง', 'ระบบ', 'ตั้งแต่ ' + from + ' · บิล ' + sum.receipts + ' · เลขไมล์ ' + sum.odos, JSON.stringify(sum.acts)]);
+  sum.next = i; sum.total = items.length; sum.done = i >= items.length;
+  try { P.setProperty('FUEL_BF_SUM', JSON.stringify(sum)); } catch (e) {}
+  if (sum.done) logRow(['⛽ บิลน้ำมันย้อนหลัง', 'ระบบ', 'ตั้งแต่ ' + from + ' · บิล ' + sum.receipts + ' · เลขไมล์ ' + sum.odos, JSON.stringify(sum.acts) + ' · เข้าแอป ' + sum.inBaht + ' บาท']);
   return sum;
 }
 
