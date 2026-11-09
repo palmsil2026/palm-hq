@@ -19,6 +19,7 @@
 // ===== ตั้งค่ารุ่น AI =====
 // "claude-haiku-4-5" = ถูก+เร็ว | "claude-sonnet-5-5" = ฉลาดกว่า ราคาเท่า Sonnet 5 (ใช้อยู่ — ต้องตีความคำสั่งกำกวม/ตัดสินใจถามหรือลุยเลย)
 const MODEL = 'claude-sonnet-5-5';
+const BRAIN_EFFORT = 'medium';   // ระดับการคิดของสมองหลัก (askClaude) — low|medium|high
 
 // ===== ดึงค่าลับจาก Script Properties =====
 const _CFG_MEM_ = {};   // อ่าน Script Properties ครั้งเดียวต่อคำขอ (เดิมถูกเรียก ~40 ครั้งต่อการโหลดห้องผู้บริหาร)
@@ -46,6 +47,10 @@ const SYSTEM_PROMPT = [
   'เมื่อถูกถามเรื่องพวกนี้ ให้ปฏิเสธอย่างสุภาพและมั่นใจ (สั้นๆ) แล้วบอกว่าจะส่งเรื่องให้คุณปาล์มโดยตรง',
   '',
   'ห้ามกุข้อมูลระบบ: สถานะระบบ ยอดขาย บิล/รายจ่าย รายชื่อกลุ่ม คิวงาน — ตัวเลข/สถานะจริงมาจากคำสั่งของระบบเท่านั้น',
+  'ห้ามบอกว่า "ลงแล้ว/บันทึกแล้ว/แก้แล้ว/ส่งให้ทีมแล้ว" ถ้าในคำตอบนี้ไม่มีบล็อกหรือคำสั่งที่ทำสิ่งนั้นจริง (คุณปาล์ม: "แก้แล้ว" แต่ของจริงเหมือนเดิม = ยังไม่แก้):',
+  '- รูปบิล/สลิป/รายจ่ายที่ส่งมาทางแชทส่วนตัว ดิฉันบันทึกเข้าแอปบัญชีเองไม่ได้ — บอกผู้ส่งตรง ๆ ให้ส่งในกลุ่มไลน์บิลค่าใช้จ่าย (แอปบัญชีอ่านและลงให้เอง) · สรุปยอดจากรูปให้ได้ แต่ต้องบอกว่าเป็น "ยอดที่ดิฉันรวมจากที่ส่งมา ยังไม่ได้ลงระบบ"',
+  '- ADDNOTE = จดโน้ตพ่วงใบงานเดิมเท่านั้น ไม่ใช่การลงบัญชี/ไม่ใช่การทำงานนั้นให้เสร็จ · สถานะจริงของใบงานระบบจะต่อท้ายให้เอง',
+  '- คำถามที่ถามค้างไว้แล้วยังไม่ได้คำตอบ ทวนได้อีกครั้งเดียว แล้วหยุดถาม (จดไว้ว่ายังไม่ทราบ) · ตอบพนักงานไม่เกิน 6 บรรทัด ไม่ต้องไล่รายการเดิมซ้ำทุกครั้ง บอกเฉพาะที่เปลี่ยน',
   'อ่านเจตนา ไม่ใช่ดูคำตายตัว (คุณปาล์ม: "ต้องอ่านบริบทได้ ไม่ใช่ดูคำตายตัว"): ถ้าเข้าใจว่าผู้ใช้อยากได้สิ่งที่มีคำสั่งรองรับ',
   '→ เรียกคำสั่งนั้นเองด้วยบล็อก RUN (ดูหัวข้อ "⚙️ คำสั่งระบบ" ด้านล่าง) ห้ามตอบว่าไม่มีข้อมูล/ทำไม่ได้ และห้ามบอกให้ผู้ใช้ไปพิมพ์คำสั่งใหม่',
   '',
@@ -183,7 +188,12 @@ const SYSTEM_PROMPT = [
   '- salesby {"range":"today|yesterday|week|month|prevmonth","by":"seller|customer|product|line|day"} = ยอดโรงน้ำ "แยกราย" จากระบบขายจริง',
   '    (เช่น "ยอดเซลส์รายคน" "ใครขายได้เยอะสุด" "ลูกค้าเจ้าไหนซื้อเยอะ" "สินค้าตัวไหนขายดี" "เดือนนี้รายวัน") — คุณปาล์ม แชทส่วนตัวเท่านั้น',
   '    ถ้าคุณปาล์มติว่าตอบไม่ตรง (เช่น "อ่านดีๆ ผมขออะไร") ให้ย้อนดูคำถามก่อนหน้าในบทสนทนา แล้วเรียกคำสั่งที่ตรงกับที่เขาขอจริง',
+  '- orders {"range":"today|yesterday|tomorrow|week|month|prevmonth|all","date":"order|delivery","customer":"…","seller":"…","deliverer":"…","line":"OEM","status":"undelivered|delivered"} = ค้นออเดอร์โรงน้ำแบบเจาะจง (ใส่เฉพาะตัวกรองที่ใช้ · ช่วงวันอื่นใช้ "from"/"to" เป็น YYYY-MM-DD)',
+  '    ใช้เมื่อถามถึงร้าน/คนส่ง/สถานะเจาะจง เช่น "ร้านปัญญาวันนี้กี่แพ็ค" → {"range":"today","customer":"ปัญญา"} · "วันนี้คุณลือต้องไปส่งอะไรบ้าง" → {"range":"today","date":"delivery","deliverer":"ลือ"}',
+  '    · "เดือนตุลามีออเดอร์ OEM ของทิพยาไหม" → {"from":"2026-10-01","to":"2026-10-31","customer":"ทิพยา","line":"OEM"} · "ใบไหนยังไม่ส่ง" → {"range":"week","status":"undelivered"} — คุณปาล์ม แชทส่วนตัวเท่านั้น',
+  '    (salesby = ตารางยอดรวมแยกราย · orders = รายใบของร้าน/คนที่ถามถึง — ถามเจาะจงร้านเดียว/คนเดียว อย่าตอบด้วยตารางทั้งวัน)',
   '- bill {"q":"คำถามเรื่องบิลเต็มประโยค"} = ถามแอปบัญชีโรงน้ำ (บิล ค้างจ่าย ครบกำหนด ยอดรายจ่าย เลขบัญชีผู้ขาย) — คุณปาล์ม แชทส่วนตัวเท่านั้น',
+  '    bill อ่านได้อย่างเดียว: แก้สถานะบิล (จ่ายแล้ว/ค้างจ่าย) หรือลงบิลใหม่จากแชทนี้ไม่ได้ — ถูกสั่งให้ "ลงว่าจ่ายแล้ว" ให้บอกตรง ๆ ในประโยคแรกว่าดิฉันแก้เองไม่ได้ ต้องกดในแอปบัญชี › รายจ่าย (หรือส่งสลิปในกลุ่มบิลค่าใช้จ่าย ระบบจับคู่ให้) ห้ามพูดว่า "ขอสั่งลงให้"',
   '- groups = รายชื่อกลุ่มไลน์ที่ดิฉันอยู่ — คุณปาล์มเท่านั้น',
   '- staff = ทะเบียนพนักงานที่ DM ได้ — คุณปาล์มเท่านั้น',
   '- chatid = chat id ของห้องนี้ (ไว้ตั้งค่า)',
@@ -1023,7 +1033,7 @@ function handleEvent(ev) {
   // แนบตัวตนผู้ส่งให้สมองรู้ — ไม่งั้นกฎ "ห้ามเปิดเผยการเงินแม้อ้างเป็นเจ้านาย" จะกันคุณปาล์มตัวจริงด้วย
   const ownerCtx = owner
     ? '(หมายเหตุระบบ: ผู้ส่งข้อความนี้คือคุณปาล์มตัวจริง ยืนยันจาก LINE userId แล้ว — ตอบเรื่องการเงิน/ธุรกิจได้เต็มที่)\n\n'
-    : '';
+    : senderCtxText(senderId, inGroup);   // 10/11: บอกสมองว่ากำลังคุยกับใคร (เดิมพนักงานไม่มีชื่อ → สมองเคยอ้างคำพูดของเขาว่าเป็นของคุณปาล์ม)
   const preCtx = ownerCtx + groupCtx + schedCtx + staffCtx;
   const p = parseBlocks(askClaude(preCtx ? (preCtx + 'คำถาม/คำสั่ง: ' + text) : text, history));
   let reply = p.reply;
@@ -1075,7 +1085,8 @@ function handleEvent(ev) {
   if (p.all.ADDNOTE && p.all.ADDNOTE.length) {
     p.all.ADDNOTE.forEach(function (an) {
       const rr = String(an.ref || '').replace(/^#/, '').trim();
-      if (appendNoteToTask(rr, an.note)) reply += '\n\n➕ แนบข้อมูลเข้างาน #' + rr + ' ให้เรียบร้อยค่ะ (ทีมที่รับงานเห็นเองเลย)';
+      const nt = appendNoteToTask(rr, an.note);
+      if (nt) reply += addNoteReplyText(rr, nt, owner, senderId);   // 10/11: งานยังไม่มีคนรับ = บอกตรง ๆ (เดิมบอก "ทีมเห็นเองเลย" ทั้งที่งานค้าง 3 สัปดาห์)
       else reply += '\n\n⚠️ หางาน #' + rr + ' ไม่เจอค่ะ เลยยังไม่ได้แนบ — เช็คเลขงานอีกทีนะคะ';
     });
   }
@@ -2617,7 +2628,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-10c';
+const CODE_VERSION = '2026-11-10d';
 
 function healthCheck() {
   const L = [];
@@ -4631,7 +4642,8 @@ function askClaude(userText, history) {
   const messages = (history || []).concat([{ role: 'user', content: userText + '\n\n(เวลาตอนนี้: ' + nowTxt + ' น. เวลาไทย)' }]);
   const payload = {
     model: MODEL,
-    max_tokens: 4096,   // เผื่อโควตาให้โหมดคิดก่อนตอบด้วย ไม่งั้นคำตอบยาว ๆ จะถูกตัดกลางคัน
+    max_tokens: 8192,   // 10/11: โหมดคิดนับรวมในโควตานี้ (รุ่นนี้คิดเองเสมอ) — 4096 เสี่ยงโดนตัดกลางคำตอบ/ได้คำตอบว่าง = "ระบบขัดข้อง"
+    output_config: { effort: BRAIN_EFFORT },   // 10/11: ไม่ระบุ = คิดลึกสุด (ช้า + แพง + กินโควตาคำตอบ) · งานแชทเลขาใช้ระดับกลางพอ
     system: [{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }],
     messages: messages
   };
@@ -4649,6 +4661,7 @@ function askClaude(userText, history) {
 
   try {
     const data = JSON.parse(res.getContentText());
+    if (data && data.stop_reason === 'refusal') return 'ขออภัยค่ะ เรื่องนี้ดิฉันตอบให้ไม่ได้ รบกวนถามคุณปาล์มโดยตรงนะคะ 🙏';
     const text = claudeText(data);
     if (text) return text;
     console.error('Claude response: ' + res.getContentText());
@@ -4778,6 +4791,8 @@ const SEC_COMMANDS = {
   salesby: { owner: true, privateOnly: true, run: function (a) {
     return plantSalesBreakdownText(String(a.range || 'today'), String(a.by || 'seller')) || '💧 ยังดึงยอดจากระบบขายโรงน้ำไม่ได้ค่ะ';
   } },
+  // 10/11 ค้นออเดอร์โรงน้ำแบบเจาะจง (ร้าน / คนขาย / คนส่ง / ยังไม่ส่ง / OEM / ช่วงวัน) — เคสจริง 7/11 "ออร์เดอร์ปัญญาที่คุณลือจะต้องไปส่งมีเท่าไหร่" ได้ตารางยอดทั้งวัน
+  orders: { owner: true, privateOnly: true, run: function (a) { return plantOrdersText(a) || '💧 ยังดึงออเดอร์จากระบบขายโรงน้ำไม่ได้ค่ะ'; } },
   bill:   { owner: true, privateOnly: true, run: function (a, c) { return answerBillQuestion(String(a.q || c.text || '')); } },
   groups: { owner: true, run: function () { return groupsListText(); } },
   staff:  { owner: true, run: function () { return staffListText(); } },
@@ -5367,6 +5382,7 @@ function plantFeed(monthPrefix) {
     const sRecv = plantColIdx('Orders_Sales', /ยอดรับ|รับชำระ|รับแล้ว|ชำระแล้ว/);
     const sDby = plantColIdx('Orders_Sales', /^ผู้ส่ง$/);
     const sDby2 = plantColIdx('Orders_Sales', /^ส่งโดย$/);
+    const sDd = plantColIdx('Orders_Sales', /^วันส่ง$/);   // 10/11 วันนัดส่ง (คำสั่ง orders กรอง "ต้องส่งวันนี้")
     const sBk = plantColIdx('Orders_Sales', /อ้างอิงใบจอง|booking/i);
     const sMk = plantColIdx('Orders_Sales', /โปรเจกต์การตลาด|marketing/i);
     plantRows('Orders_Sales', 4000).forEach(function (r) {
@@ -5380,6 +5396,7 @@ function plantFeed(monthPrefix) {
                        seller: String(r[4] || ''), st: String(r[14] || ''), pay: String(r[13] || ''), ptype: String(r[13] || ''),
                        dst: sDst >= 0 ? String(r[sDst] || '') : '',
                        dby: String((sDby >= 0 && r[sDby]) || (sDby2 >= 0 && r[sDby2]) || '').trim(),
+                       dd: sDd >= 0 ? (execDateKey(r[sDd]) || '') : '',
                        bk: sBk >= 0 ? String(r[sBk] || '').trim() : '',
                        mk: sMk >= 0 ? String(r[sMk] || '').trim() : '',
                        colRecv: sRecv >= 0 ? execNum(r[sRecv]) : null,
@@ -5390,6 +5407,7 @@ function plantFeed(monthPrefix) {
     const oDst = plantColIdx('Orders_OEM', /สถานะส่ง/);
     const oRecv = plantColIdx('Orders_OEM', /ยอดรับ|รับชำระ|รับแล้ว|ชำระแล้ว/);
     const oDby = plantColIdx('Orders_OEM', /^ผู้ส่ง$/);
+    const oDd = plantColIdx('Orders_OEM', /^กำหนดส่ง$|^วันส่ง$/);
     const oBk = plantColIdx('Orders_OEM', /อ้างอิงใบจอง|booking/i);
     const oMk = plantColIdx('Orders_OEM', /โปรเจกต์การตลาด|marketing/i);
     plantRows('Orders_OEM', 2000).forEach(function (r) {
@@ -5401,6 +5419,7 @@ function plantFeed(monthPrefix) {
                        seller: String(r[4] || ''), st: String(r[15] || ''), pay: String(r[13] || ''), ptype: String(r[13] || ''),
                        dst: oDst >= 0 ? String(r[oDst] || '') : '',
                        dby: String((oDby >= 0 && r[oDby]) || '').trim(),
+                       dd: oDd >= 0 ? (execDateKey(r[oDd]) || '') : '',
                        bk: oBk >= 0 ? String(r[oBk] || '').trim() : '',
                        mk: oMk >= 0 ? String(r[oMk] || '').trim() : '',
                        colRecv: oRecv >= 0 ? execNum(r[oRecv]) : null,
@@ -5792,6 +5811,100 @@ function shopAlertsDaily() {
 // 📊 ยอดขายโรงน้ำแยกราย เซลส์/ลูกค้า/สินค้า/สาย/วัน (คุณปาล์ม 19/10: "ขอยอดขายของเซลล์รายคน" ได้ยอดรวมกลับไป 2 รอบ)
 //   range: today | yesterday | week (7 วันล่าสุด) | month (เดือนนี้) | prevmonth · by: seller | customer | product | line | day
 //   อ่านจาก plantFeed ตัวเดียวกับสรุปยอด (ชื่อเซลส์รวมตัวสะกดแล้ว · ตัดโปรเจกต์การตลาด) · หน้าร้านแยกบรรทัด ไม่บวกซ้ำ
+// ════════════════════════════════════════════════════════════
+//  🔎 ค้นออเดอร์โรงน้ำแบบเจาะจง (คำสั่ง orders · คุณปาล์ม แชทส่วนตัว) — 10/11
+//   a: range today|yesterday|tomorrow|week|month|prevmonth|all หรือ from/to (YYYY-MM-DD) · date = order (วันที่ลง · ค่าเริ่ม) | delivery (วันนัดส่ง)
+//      customer / seller / deliverer = บางส่วนของชื่อ · line = OEM|ละกอน|… · status = undelivered|delivered
+//   ผล: บรรทัดแรก = จำนวนใบ + แพ็ครวม (ตอบคำถาม "กี่แพ็ค/มีไหม" ได้ทันที) แล้วตามด้วยรายใบ ใหม่ → เก่า ไม่เกิน 20 ใบ
+// ════════════════════════════════════════════════════════════
+function plantOrdersText(a) {
+  try {
+    a = a || {};
+    const feed = plantFeed('');
+    if (!feed || !feed.sales.length) return '';
+    const D = function (ms) { return Utilities.formatDate(new Date(ms), 'GMT+7', 'yyyy-MM-dd'); };
+    const today = D(Date.now()), okD = function (v) { v = String(v || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ''; };
+    const range = String(a.range || '').toLowerCase();
+    let from = '', to = '', label = 'ทุกช่วง';
+    if (okD(a.from) || okD(a.to)) { from = okD(a.from) || okD(a.to); to = okD(a.to) || from; label = from === to ? from : from + ' ถึง ' + to; }
+    else if (range === 'yesterday') { from = to = D(Date.now() - 864e5); label = 'เมื่อวาน'; }
+    else if (range === 'tomorrow') { from = to = D(Date.now() + 864e5); label = 'พรุ่งนี้'; }
+    else if (range === 'week') { from = D(Date.now() - 6 * 864e5); to = today; label = '7 วันล่าสุด'; }
+    else if (range === 'month') { from = today.slice(0, 8) + '01'; to = today; label = 'เดือนนี้'; }
+    else if (range === 'prevmonth') {
+      const d = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1);
+      const mk = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+      from = mk + '-01'; to = mk + '-31'; label = 'เดือนก่อน';
+    } else if (range !== 'all') { from = to = today; label = 'วันนี้'; }
+    const byDeliv = String(a.date || '') === 'delivery';
+    const nz = function (v) { return String(v || '').toLowerCase().replace(/\s+/g, ''); };
+    const fc = nz(a.customer), fs = nz(a.seller), fd = nz(a.deliverer), fl = nz(a.line), fst = String(a.status || '');
+    const done = function (s) { return /ส่งแล้ว|เก็บเงินแล้ว/.test(String(s.dst || '') + ' ' + String(s.st || '')); };
+    const g = {}, order = [];
+    feed.sales.forEach(function (s) {
+      const dk = byDeliv ? (s.dd || '') : s.date;
+      if (from && (!dk || dk < from || dk > to)) return;
+      if (fc && nz(s.cust).indexOf(fc) === -1) return;
+      if (fs && nz(s.seller).indexOf(fs) === -1) return;
+      if (fd && nz(s.dby).indexOf(fd) === -1) return;
+      if (fl && nz(s.line).indexOf(fl) === -1 && nz(s.prod).indexOf(fl) === -1) return;
+      if (fst === 'undelivered' && done(s)) return;
+      if (fst === 'delivered' && !done(s)) return;
+      const k = s.oid || (s.date + '|' + s.cust);
+      if (!g[k]) { g[k] = { date: s.date, dd: s.dd || '', cust: s.cust || '(ไม่ระบุลูกค้า)', seller: s.seller || '', dby: s.dby || '', done: done(s), qty: 0, amt: 0, items: [] }; order.push(k); }
+      g[k].qty += s.qty; g[k].amt += s.amount; g[k].items.push(String(s.prod || s.pid || '').replace(/^ละกอน\s+/, '') + ' × ' + s.qty);
+    });
+    const fm = function (x) { return Number(x || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }); };
+    const dm = function (k) { return k ? Number(k.slice(8)) + '/' + Number(k.slice(5, 7)) : ''; };
+    const flt = [a.customer ? 'ร้าน "' + a.customer + '"' : '', a.seller ? 'เซลส์ ' + a.seller : '', a.deliverer ? 'คนส่ง ' + a.deliverer : '', a.line ? String(a.line) : '',
+                 fst === 'undelivered' ? 'ยังไม่ส่ง' : fst === 'delivered' ? 'ส่งแล้ว' : ''].filter(String).join(' · ');
+    const head = '🔎 ออเดอร์โรงน้ำ ' + (byDeliv ? 'นัดส่ง ' : 'ที่ลง ') + label + (flt ? ' · ' + flt : '');
+    if (!order.length) return head + ': ไม่พบค่ะ' + (byDeliv ? ' (ใบที่ไม่ได้ใส่วันนัดส่งจะไม่ขึ้น — ลองถามตามวันที่ลงออเดอร์แทนได้ค่ะ)' : '');
+    order.sort(function (x, y) { return g[x].date < g[y].date ? 1 : g[x].date > g[y].date ? -1 : 0; });
+    let qty = 0, amt = 0;
+    order.forEach(function (k) { qty += g[k].qty; amt += g[k].amt; });
+    const TOP = 20;
+    const lines = order.slice(0, TOP).map(function (k) {
+      const o = g[k];
+      return '• ' + dm(o.date) + ' ' + o.cust + ' — ' + o.items.join(', ').slice(0, 120) + ' (' + fm(o.amt) + ' บาท)'
+        + (o.seller ? ' · เซลส์ ' + o.seller : '') + (o.dby ? ' · ส่งโดย ' + o.dby : '')
+        + ' · ' + (o.done ? 'ส่งแล้ว' : 'ยังไม่ส่ง' + (o.dd ? ' (นัด ' + dm(o.dd) + ')' : ''));
+    });
+    return head + ': ' + order.length + ' ใบ · ' + fm(qty) + ' แพ็ค · ' + fm(amt) + ' บาท\n' + lines.join('\n')
+      + (order.length > TOP ? '\n… อีก ' + (order.length - TOP) + ' ใบ (ระบุร้าน/คนส่ง/ช่วงวันให้แคบลงได้ค่ะ)' : '');
+  } catch (e) { console.error('plantOrdersText: ' + e); return ''; }
+}
+
+// ➕ ข้อความหลังจดโน้ตพ่วงใบงาน — บอกตามสถานะจริง (10/11: พนักงานโรงขวดส่งบิล 3 สัปดาห์ เลขาตอบ "ลงให้แล้ว/ทีมเห็นเองเลย" แต่งานยังค้าง "รอทีม AI")
+//   งานยังไม่มีคนลงมือ + เปิดมาเกิน 1 วัน + คนส่งไม่ใช่คุณปาล์ม → เตือนคุณปาล์ม (วันละครั้งต่อใบงาน)
+function addNoteReplyText(ref, nt, owner, senderId) {
+  const st = String((nt && nt.status) || '').trim();
+  const waiting = /^(ใหม่|รอทีม\s*AI|รออนุมัติ|รอข้อมูล)$/i.test(st);
+  if (!waiting) return '\n\n➕ แนบข้อมูลเข้างาน #' + ref + ' ให้เรียบร้อยค่ะ';
+  try {
+    const age = nt.at ? (Date.now() - nt.at) / 864e5 : 0;
+    if (!owner && age >= 1) {
+      const c = CacheService.getScriptCache(), ck = 'STALE_TASK_' + ref;
+      if (!c.get(ck)) {
+        c.put(ck, '1', 21600);
+        const oid = cfg('OWNER_LINE_USER_ID');
+        if (oid) linePush(oid, '⏰ งาน #' + ref + ' ยัง "' + st + '" มา ' + Math.floor(age) + ' วันแล้วค่ะ และ ' + lineUserName(senderId)
+          + ' เพิ่งส่งข้อมูลเพิ่มเข้ามาอีก — ยังไม่มีใครลงมือทำ/ยังไม่ได้บันทึกเข้าระบบ รบกวนคุณปาล์มดูให้หน่อยนะคะ');
+      }
+    }
+  } catch (e) { console.error('addNoteReplyText: ' + e); }
+  return '\n\n➕ จดข้อมูลเพิ่มไว้ในใบงาน #' + ref + ' แล้วค่ะ — งานนี้ยัง "' + st + '" (ยังไม่มีคนลงมือ ยังไม่ได้บันทึกเข้าระบบนะคะ)';
+}
+
+// 👤 บอกสมองว่ากำลังคุยกับใคร (คนที่ไม่ใช่คุณปาล์ม) — ชื่อจากไลน์ ไม่ใช่การยืนยันสิทธิ์
+function senderCtxText(senderId, inGroup) {
+  try {
+    const nm = String(lineUserName(senderId) || '').trim();
+    return '(หมายเหตุระบบ: ผู้ส่งข้อความนี้คือ ' + (nm && nm !== 'LINE' ? '"' + nm + '"' : 'พนักงาน/ผู้ติดต่อ (ไม่ทราบชื่อ)') + ' — ไม่ใช่คุณปาล์ม'
+      + (inGroup ? '' : ' · ประวัติแชทนี้เป็นคำพูดของคนนี้เอง อย่าอ้างว่าเป็นคำพูด/คำสั่งของคุณปาล์ม') + ')\n\n';
+  } catch (e) { return ''; }
+}
+
 function plantSalesBreakdownText(range, by) {
   try {
     range = /^(today|yesterday|week|month|prevmonth)$/.test(String(range)) ? String(range) : 'today';
@@ -7012,7 +7125,10 @@ function appendNoteToTask(ref, note) {
         const cur = String(sheet.getRange(row, 9).getValue() || '');
         const stamp = Utilities.formatDate(new Date(), 'GMT+7', 'd/M HH:mm');
         sheet.getRange(row, 9).setValue(cur + '\n➕ เพิ่มเติม (' + stamp + '): ' + String(note).slice(0, 1500));
-        return true;
+        // 10/11: คืนสถานะ + วันที่เปิดใบงาน (ค่าจริง = truthy เหมือนเดิม) — คนเรียกใช้บอกผู้ส่งตามจริงว่างานมีคนรับแล้วหรือยัง
+        let st = '', at = 0;
+        try { const hd = sheet.getRange(row, 2, 1, 2).getValues()[0]; at = (hd[0] instanceof Date) ? hd[0].getTime() : (new Date(hd[0]).getTime() || 0); st = String(hd[1] || '').trim(); } catch (e2) {}
+        return { status: st, at: at };
       }
     }
     return false;

@@ -145,6 +145,10 @@ const SCENARIOS = [
     expect: { brain: true, run: 'salesby', fn: r => { const b = (r.all.RUN || []).find(x => x.cmd === 'salesby') || {}; return b.by === 'customer' && b.range === 'month' ? '' : 'ควรเป็น by=customer range=month'; } } },
   { id: 'R26', title: 'เซลส์ถามยอดรายคนในกลุ่มเซลส์ → ไม่เปิดยอดแยก', who: 'staff', where: 'ทีมเซลล์', text: 'เลขา ขอยอดขายเซลล์รายคนเดือนนี้หน่อยครับ',
     expect: { brain: false, reply: [/ไม่เปิดเผย/], replyNot: [/ยอดแยก\(/, /ยอดโรงน้ำ\(/] } },
+  { id: 'R27', title: '(จริง 7/11) ถามออเดอร์ของร้านเดียวที่คนส่งต้องไปส่ง → ค้นรายใบ (orders) ไม่ใช่ตารางยอดทั้งวัน', who: 'owner', where: 'dm',
+    text: 'วันนี้ออร์เดอร์ร้านมานะที่คุณเอจะต้องไปส่งนี่มีจำนวนเท่าไหร่',
+    expect: { brain: true, run: 'orders', replyNot: [NO_RETYPE, /ไม่มีช่องบอกว่าใคร/],
+              fn: r => { const b = (r.all.RUN || []).find(x => x.cmd === 'orders') || {}; return /มานะ/.test(String(b.customer || '')) ? '' : 'orders ควรกรอง customer = มานะ'; } } },
 ];
 
 module.exports = { SCENARIOS, GROUPS, STAFF };
