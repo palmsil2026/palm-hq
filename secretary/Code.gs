@@ -313,6 +313,11 @@ function doGet(e) {
     return jsonOut(learnFeed(String(p.force || '') === '1'));
   }
   // 🧪 ลองรุ่นเล็กอ่านรูปกับรูปจริงในคลัง (n รูป · apply=1 ผ่านเกณฑ์แล้วเปิดใช้) — LEARN_KEY เท่านั้น
+  // ⛽ บิลน้ำมันย้อนหลังจาก GroupChat กลุ่มสายรถ — ไม่ใส่ send=1 = ลองนับอย่างเดียว · LEARN_KEY เท่านั้น
+  if (p.action === 'fuelBackfill') {
+    if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
+    return jsonOut(fuelBackfill(String(p.from || ''), String(p.send || '') === '1'));
+  }
   if (p.action === 'imgTrial') {
     if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut(imageModelTrial(Math.min(30, Number(p.n) || 20), String(p.apply || '') === '1', String(p.cat || '')));
@@ -1368,6 +1373,7 @@ function fireDueReminders() {
   try { expenseOutboxTick(); } catch (err) { console.error('expenseOutboxTick: ' + err); }   // 📨 สรุปบิลลงกลุ่มบิล (แอปบัญชีคุมเวลาเอง)
   try { productionNudge(); } catch (err) { console.error('productionNudge: ' + err); }   // 🙋 ถามจอดเครื่องที่เงียบ (ก่อนงานเรียนรู้ที่ยาว)
   try { p10Flush(false); } catch (err) { console.error('p10Flush: ' + err); }   // 🍾 ส่งสรุป PET10 ที่รวมไว้ครบ ~10 นาทีแล้ว
+  try { fuelOutboxTick(); } catch (err) { console.error('fuelOutboxTick: ' + err); }   // ⛽ บิลน้ำมันที่ส่งแอปรถไม่ผ่าน ลองใหม่
   try { maybeLearnTick(); } catch (err) { console.error('maybeLearnTick: ' + err); }
 }
 
@@ -1913,7 +1919,7 @@ function mediaContext(chatId, senderId) {
 const IMAGE_MODEL_SMALL = 'claude-haiku-5-5';
 function imageModel(withPh) { return withPh ? MODEL : (cfg('IMAGE_MODEL') || MODEL); }
 
-function analyzeImage(blob, context, withPh, forceModel) {
+function analyzeImage(blob, context, withPh, forceModel, withFuel) {
   try {
     const apiKey = cfg('ANTHROPIC_API_KEY');
     if (!apiKey) return { relevant: true, desc: '' }; // วิเคราะห์ไม่ได้ → เก็บไว้ก่อนดีกว่าเสียของสำคัญไป
@@ -1925,12 +1931,13 @@ function analyzeImage(blob, context, withPh, forceModel) {
               + 'เอกสารเงินทุกชนิด (สลิปโอน ใบเสร็จ บิล ค่าน้ำมัน เลขไมล์) = เกี่ยวข้องเสมอ แม้โอนเข้าบัญชีชื่อบุคคลในครอบครัวเจ้าของ · ห้ามตัดสินว่าสลิปปลอม (ไม่ใช่หน้าที่ของคุณ)\n'
               + 'อย่ายึดหัวข้อเก่าในบริบท — รูปใหม่อาจเป็นคนละเรื่องกับที่คุยค้างอยู่\n\n'
               + (context ? ('บริบทตอนที่ส่งรูปมา:\n' + context + '\n\n') : '(คนส่งไม่ได้พิมพ์ข้อความอะไรมาพร้อมรูป)\n\n')
-              + 'ตอบตามรูปแบบนี้เป๊ะๆ ' + (withPh ? 4 : 3) + ' บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
+              + 'ตอบตามรูปแบบนี้เป๊ะๆ ' + (3 + (withPh ? 1 : 0) + (withFuel ? 1 : 0)) + ' บรรทัด ห้ามมีอย่างอื่นเพิ่ม:\n'
               + 'เกี่ยวข้อง: ใช่ หรือ ไม่\n'
               + 'บรรยาย: (1-2 ประโยคภาษาไทย บอกว่าในรูปมีอะไรและคนส่งน่าจะส่งมาทำไม ถ้ามีตัวเลข/ยอด/ราคา/ชื่อสำคัญ ให้ระบุครบ)\n'
               + 'หมวด: (ถ้าเกี่ยวข้อง เลือกอันเดียวจาก: โรงน้ำ-ละกอน | โรงน้ำ-เพียวซ่า | โรงน้ำ-อื่นๆ | คาเฟ่-OldDays | การเงิน-เอกสาร | การตลาด-งานดีไซน์ | อื่นๆ)\n'
               + (withPh ? 'ค่าpH: (ถ้าเป็นรูปชุดตรวจค่า pH/กรด-ด่างของน้ำ ให้เทียบสีน้ำในหลอดกับแผ่นสีอ้างอิงคร่าวๆ แล้วตอบเป็นตัวเลขทศนิยม 1 ตำแหน่ง เช่น 7.5 · '
                          + 'ประมาณเอาได้ ไม่ต้องเป๊ะ ไม่ต้องสนปริมาณน้ำในหลอด · ตอบ อ่านไม่ได้ เฉพาะเมื่อมองไม่เห็นสีน้ำในหลอดเลย (มืด/เบลอ/ไม่มีหลอด) · ไม่ใช่รูปตรวจ pH ตอบ -)\n' : '')
+              + (withFuel ? FUEL_PROMPT_LINE : '')   // ⛽ กลุ่มสายรถ: บิลน้ำมัน/หน้าปัด อ่านในการเรียกครั้งเดียวกัน
               + '\n'
               + 'ให้น้ำหนัก "บริบทข้อความ" มากกว่าหน้าตาของรูป — รูปแบบเดียวกันอาจเกี่ยวหรือไม่เกี่ยวก็ได้ ขึ้นกับว่าคนส่งพูดว่าอะไร\n'
               + 'ตอบ "ใช่" เมื่อ: คนส่งพูดถึงงาน/สั่งงาน/ขอให้ดู-ตรวจ-ทำอะไรต่อกับรูปนี้ เป็นคำตอบของคำถามที่ค้างอยู่ '
@@ -1971,7 +1978,7 @@ function analyzeImage(blob, context, withPh, forceModel) {
       if (num && Number(num[1]) >= 2 && Number(num[1]) <= 12) ph = Number(num[1]);
       else if (/อ่านไม่ได้/.test(mph[1])) ph = null;
     }
-    return { relevant: relevant, desc: (m ? m[1].trim() : t), cat: (mcat ? mcat[1].trim() : ''), ph: ph };
+    return { relevant: relevant, desc: (m ? m[1].trim() : t), cat: (mcat ? mcat[1].trim() : ''), ph: ph, fuel: withFuel ? fuelParseLine(t) : null };
   } catch (err) { AI_TAG = ''; console.error('analyzeImage: ' + err); return { relevant: true, desc: '' }; } // วิเคราะห์พลาด → เก็บไว้ก่อนกันเสียของ
 }
 
@@ -2044,13 +2051,17 @@ function handleMediaMessage(ev) {
     let relevant = true, desc = '', libCat = '', ph;
     const prodGroup = inGroup && chatId === productionGroupId();   // 🧪 กลุ่มฝ่ายผลิต: อ่านค่า pH จากรูปด้วยในคราวเดียว
     const twGroup = inGroup && isTeamworkGroup(chatId);   // 🍾 กลุ่ม TEAMWORK: คำบรรยายรูปเข้าตัวเฝ้า PET10 ด้วย
+    const vanGroup = inGroup && !prodGroup && fuelOn() && isVanGroup(chatId);   // ⛽ กลุ่มสายรถ: อ่านบิลน้ำมัน/หน้าปัดในคราวเดียว
+    let fuel = null;
     if (ev.message.type === 'image') {
-      const a = analyzeImage(blob, mediaContext(chatId, senderId), prodGroup && phOn());
+      const a = analyzeImage(blob, mediaContext(chatId, senderId), prodGroup && phOn(), undefined, vanGroup);
       relevant = a.relevant;
       desc = a.desc;
       libCat = a.cat || '';
       ph = a.ph;
+      fuel = a.fuel || null;
     }
+    if (fuel) relevant = true;   // บิลน้ำมัน/หน้าปัด เก็บเสมอ (แอปรถใช้ลิงก์รูปเป็นหลักฐาน)
     if (ph !== undefined) relevant = true;   // รูปตรวจ pH เก็บเสมอ (เป็นหลักฐานการตรวจน้ำ)
     if (openIssue) relevant = true;   // รูปหน้าจอที่ส่งตามเคสนักพัฒนา เก็บเสมอ
     if (!relevant) {
@@ -2083,6 +2094,7 @@ function handleMediaMessage(ev) {
       logRow(['รับไฟล์(กลุ่ม)', senderId, base, (desc ? desc + ' ' : '') + url]);
       if (prodGroup) phOnImage(ev, chatId, senderId, ph, url, { fileId: file.getId(), blob: blob });
       if (twGroup) p10Watch(ev, chatId, senderId, '[ส่งรูป/ไฟล์] ' + (desc || base));
+      if (fuel) fuelForward(ev, chatId, senderId, fuel, url);   // ⛽ ส่งแอปรถเงียบ ๆ
       return;
     }
 
@@ -2605,7 +2617,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-09c';
+const CODE_VERSION = '2026-11-10a';
 
 function healthCheck() {
   const L = [];
@@ -2683,6 +2695,8 @@ function healthCheck() {
 
   // 4.52 🍾 เฝ้าเครื่องเป่าขวด PET10 (กลุ่ม TEAMWORK โรงขวด)
   try { p10HealthLine(ok, warn); } catch (e) {}
+  // 4.53 ⛽ บิลน้ำมันจากกลุ่มสายรถ → แอปรถ
+  try { fuelHealthLine(ok, warn); } catch (e) {}
 
   // 4.55 🧾 แอปบัญชี (กลุ่มบิลค่าใช้จ่าย → รายจ่าย · เตือนบิล · ถามบิล)
   if (cfg('PLANT_SHEET_ID') || cfg('FINANCE_CHAT_TOKEN')) {
@@ -3898,6 +3912,230 @@ function p10HealthLine(ok, warn) {
   if (tw || s.watchFrom) ok('🍾 เฝ้า PET10: รู้จักกลุ่ม TEAMWORK แล้ว · ล่าสุด ' + now + ' · แจ้งคุณปาล์มเดือนนี้ ' + n + ' ครั้ง (ถาม "PET10 เป็นไง" ได้)');
   else warn('🍾 เฝ้า PET10: ยังไม่รู้จักกลุ่ม TEAMWORK', 'เชิญดิฉันเข้ากลุ่ม TEAMWORK (ดิฉันจะเงียบในกลุ่ม) · ชื่อกลุ่มไม่มีคำ TEAMWORK ให้ตั้ง GROUP_TEAMWORK_ID');
   if (s.pushErr) warn('🍾 แจ้ง PET10 ล่าสุดส่งไม่ออก: ' + s.pushErr, 'ส่วนใหญ่คือโควตาไลน์เดือนนี้หมด — ถาม "PET10 เป็นไง" ได้เสมอ (ตอบกลับฟรี)');
+}
+
+// ════════════════════════════════════════════════════════════
+//  ⛽ บิลน้ำมัน + เลขไมล์จากไลน์กลุ่มสายรถ → แอปรถ (origin-hq fleet-app v0.7.0 doPost action=fuelLine) — คุณปาล์มเลือก 09/11
+//   "เงินอยู่ในแอป ใบเสร็จมาจากไลน์" ("1 ดีละ") · บิลในกลุ่มนี้ = ของโรงน้ำทั้งหมด ("ไม่มีน้ำมันของ P&K ในกลุ่มนี้")
+//   ของจริง 08/10–07/11: กลุ่ม sale ละกอน สายรถ มีบิล 31 ใบ ≈30,400 บาท + รูปหน้าปัด 30 รูป · ในแอปเซลส์ลงแค่ 1 ใบ
+//   เลขาอ่านในการเรียก AI ครั้งเดียวกับที่อ่านรูปอยู่แล้ว (แบบค่า pH) → ส่งเงียบ ๆ ไม่ตอบในกลุ่ม · แอปรถจับคู่บิล↔หน้าปัด/รู้คัน/ตรวจไมล์เอง
+//   ส่งไม่ผ่าน = เก็บใน Script Property FUELQ_<messageId> ลองใหม่ทุก tick 15 นาที (ไม่เกิน 48 รอบ ≈12 ชม.) · ข้อมูลผิดรูปแบบ = ไม่ลองซ้ำ
+//   ตั้งค่า: GROUP_VAN_ID (ชื่อกลุ่มไม่มีคำ "สายรถ") · FLEET_APP_URL · FLEET_CHAT_TOKEN (ไม่ตั้ง = รหัสเดียวกับแอปทีมผลิต) · FUEL_LINE=off ปิด
+//   ใบสั่งงาน: origin-hq docs/ใบสั่งงาน-palm-hq-2026-11-09-บิลน้ำมันจากไลน์.md
+// ════════════════════════════════════════════════════════════
+const FLEET_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbydLeI_gCAUjpWZGC4_b1fdtTNAI7r0D7jj8yZSqcMfAI7KhGG3P8OvNZ2WpEf6N72PrA/exec';
+const FUEL_PERMANENT_RE = /ยอดเงินไม่ถูกต้อง|ลิตรเยอะผิดปกติ|เลขไมล์ไม่ถูกต้อง/;   // แอปรถไม่รับเพราะข้อมูล → ส่งซ้ำก็ไม่ผ่าน
+const FUEL_MAX_TRIES = 48;
+
+function fuelOn() { return String(cfg('FUEL_LINE') || '').toLowerCase() !== 'off'; }
+function isVanName(name) { return String(name || '').replace(/\s+/g, '').indexOf('สายรถ') !== -1; }
+function isVanGroup(chatId) {
+  if (!chatId || !/^[CR]/.test(String(chatId))) return false;
+  const set = cfg('GROUP_VAN_ID');
+  if (set) return chatId === set;
+  return isVanName(groupNameOf(chatId));
+}
+function vanGroupId() {
+  const set = cfg('GROUP_VAN_ID');
+  if (set) return set;
+  const g = listKnownGroups().filter(function (x) { return isVanName(x.name); })[0];
+  return g ? g.id : '';
+}
+function fleetToken() { return cfg('FLEET_CHAT_TOKEN') || productionChatToken(); }
+
+// บรรทัด "น้ำมัน:" ในคำตอบอ่านรูป (เฉพาะกลุ่มสายรถ) — ต่อท้ายพรอมต์ analyzeImage
+const FUEL_PROMPT_LINE = 'น้ำมัน: (บิล/ใบเสร็จ/ใบกำกับเติมน้ำมันรถ → JSON บรรทัดเดียว {"kind":"receipt","liters":ลิตร,"baht":ยอดรวมที่จ่ายจริง,"ppl":บาทต่อลิตร,'
+  + '"fuel":"ชนิดน้ำมัน เช่น ดีเซล / แก๊สโซฮอล์ 91","station":"ปั๊ม/สาขา","invoice":"เลขที่บิล/ใบกำกับ","plate":"ทะเบียนรถถ้ามีบนบิล","buyer":"ชื่อผู้ซื้อบนใบกำกับ",'
+  + '"time":"YYYY-MM-DD HH:mm เวลาบนบิล (ปี พ.ศ. ลบ 543 เป็น ค.ศ.)"} ช่องที่ไม่มีใส่ "" · '
+  + 'รูปหน้าปัดรถ → {"kind":"odo","odo":เลขไมล์ ODO เต็ม} อ่านไม่ชัดใส่ null ห้ามเดา ห้ามเอาเลข trip/ความเร็ว/รอบเครื่อง · รูปอย่างอื่นตอบ -)\n';
+
+function fuelNum(v) {
+  const n = Number(String(v == null ? '' : v).replace(/,|฿|บาท|ลิตร|กม\.?|\s/g, ''));
+  return isFinite(n) && n > 0 ? n : 0;
+}
+// เวลาบนบิล → "YYYY-MM-DD HH:mm" (ปี พ.ศ. → ค.ศ.) · อ่านไม่ได้ = ""
+function fuelTime(s) {
+  const m = String(s || '').match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+  if (!m) return '';
+  let y = Number(m[1]); if (y > 2400) y -= 543;
+  const p = function (x) { return ('0' + x).slice(-2); };
+  return y + '-' + p(m[2]) + '-' + p(m[3]) + (m[4] ? ' ' + p(m[4]) + ':' + m[5] : '');
+}
+// JSON จาก AI → { kind:'receipt', receipt:{…} } | { kind:'odo', odo } | null (ไม่ใช่ หรือข้อมูลไม่พอให้แอปรถรับ)
+function fuelNorm(o) {
+  if (!o || typeof o !== 'object') return null;
+  const str = function (v, n) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n || 60); };
+  if (o.kind === 'odo') {
+    const km = fuelNum(o.odo);
+    return km > 0 && km < 2000000 ? { kind: 'odo', odo: Math.round(km) } : null;
+  }
+  if (o.kind !== 'receipt') return null;
+  let baht = fuelNum(o.baht);
+  const liters = fuelNum(o.liters), ppl = fuelNum(o.ppl);
+  if (!baht && liters && ppl) baht = Math.round(liters * ppl * 100) / 100;
+  if (!(baht > 0) || baht > 5000) return null;
+  return { kind: 'receipt', receipt: { liters: liters, baht: baht, ppl: ppl, fuel: str(o.fuel, 30), station: str(o.station, 80),
+    invoice: str(o.invoice, 40).replace(/^#/, ''), plate: str(o.plate, 30), buyer: str(o.buyer, 60), time: fuelTime(o.time) } };
+}
+function fuelParseLine(t) {
+  const m = String(t || '').match(/น้ำมัน\s*:\s*(\{[^\n]*\})/);
+  if (!m) return null;
+  try { return fuelNorm(JSON.parse(m[1])); } catch (e) { return null; }
+}
+
+function fuelPost(p) {
+  try {
+    const body = { token: fleetToken(), action: 'fuelLine' };
+    Object.keys(p).forEach(function (k) { if (k !== 'token' && k !== 'action') body[k] = p[k]; });
+    const res = UrlFetchApp.fetch(cfg('FLEET_APP_URL') || FLEET_APP_URL_DEFAULT, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify(body)
+    });
+    try { return JSON.parse(res.getContentText() || '{}') || {}; } catch (e) { return { success: false, error: 'HTTP ' + res.getResponseCode() }; }
+  } catch (e) { return { success: false, error: String(e).slice(0, 120) }; }
+}
+function fuelWhat(p) { return p.kind === 'odo' ? 'เลขไมล์ ' + p.odo : 'บิล ' + (p.receipt && p.receipt.baht) + ' บาท' + (p.receipt && p.receipt.invoice ? ' #' + p.receipt.invoice : ''); }
+// สถิติให้ "เช็คระบบ": วันนี้ส่งผ่านกี่บิล/กี่เลขไมล์ · ผลล่าสุด
+function fuelStat(p, r) {
+  try {
+    const P = PropertiesService.getScriptProperties(), day = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+    let s = {}; try { s = JSON.parse(P.getProperty('FUEL_STAT') || '{}'); } catch (e) {}
+    if (s.d !== day) s = { d: day, rc: 0, od: 0 };
+    if (r && r.success) { if (p.kind === 'odo') s.od++; else s.rc++; }
+    s.last = { t: Date.now(), what: fuelWhat(p), act: r && r.success ? String(r.act || '') : '', err: r && r.success ? '' : String((r && r.error) || 'ไม่ทราบ').slice(0, 80) };
+    P.setProperty('FUEL_STAT', JSON.stringify(s));
+  } catch (e) {}
+}
+function fuelQueue(p, n, err) {
+  try { PropertiesService.getScriptProperties().setProperty('FUELQ_' + p.messageId, JSON.stringify({ p: p, n: n, err: String(err || '').slice(0, 80) })); } catch (e) { console.error('fuelQueue: ' + e); }
+}
+// ส่ง 1 รายการ · ไม่ผ่านเพราะแอปรถ/เน็ต = เข้าคิวลองใหม่ · ไม่ผ่านเพราะข้อมูล = จดไว้เฉย ๆ
+function fuelDeliver(p, tries) {
+  const r = fuelPost(p);
+  fuelStat(p, r);
+  if (r && r.success) {
+    logRow(['⛽ บิลน้ำมัน→แอปรถ', p.sender, fuelWhat(p), String(r.act || '') + (r.veh ? ' · ' + r.veh : '') + (r.note ? ' · ' + r.note : '')]);
+    return r;
+  }
+  const err = String((r && r.error) || 'ไม่ทราบ');
+  if (FUEL_PERMANENT_RE.test(err)) logRow(['⛽ บิลน้ำมัน→แอปรถ', p.sender, fuelWhat(p), 'แอปรถไม่รับ: ' + err]);
+  else if (tries >= FUEL_MAX_TRIES) logRow(['⛽ บิลน้ำมัน→แอปรถ', p.sender, fuelWhat(p), 'ทิ้ง: ส่งไม่ผ่าน ' + tries + ' รอบ · ' + err]);
+  else { fuelQueue(p, tries, err); return { success: false, error: err, queued: true }; }
+  return r;
+}
+// 📷 รูปในกลุ่มสายรถที่อ่านได้ว่าเป็นบิล/หน้าปัด → ส่งแอปรถ (เงียบ)
+function fuelForward(ev, chatId, senderId, fuel, url) {
+  try {
+    if (!fuel || !fuelOn()) return;
+    const p = { kind: fuel.kind, messageId: String(ev.message.id), at: Number(ev.timestamp) || Date.now(),
+                sender: groupMemberName(chatId, senderId) || '', group: groupNameOf(chatId), image: url || '' };
+    if (fuel.kind === 'odo') p.odo = fuel.odo; else p.receipt = fuel.receipt;
+    fuelDeliver(p, 1);
+  } catch (e) { console.error('fuelForward: ' + e); }
+}
+// ⏱️ ส่งที่ค้างอีกรอบ (fireDueReminders ทุก 15 นาที · ทีละไม่เกิน 10 รายการ เก่าก่อน)
+function fuelOutboxTick() {
+  const P = PropertiesService.getScriptProperties();
+  const keys = P.getKeys().filter(function (k) { return k.indexOf('FUELQ_') === 0; });
+  if (!keys.length) return 0;
+  const items = keys.map(function (k) { let q = null; try { q = JSON.parse(P.getProperty(k) || 'null'); } catch (e) {} return { k: k, q: q }; })
+    .filter(function (x) { if (!x.q || !x.q.p) { P.deleteProperty(x.k); return false; } return true; })
+    .sort(function (a, b) { return (a.q.p.at || 0) - (b.q.p.at || 0); }).slice(0, 10);
+  let sent = 0;
+  items.forEach(function (x) {
+    const r = fuelDeliver(x.q.p, (x.q.n || 1) + 1);   // ยังไม่ผ่าน = fuelDeliver เขียนทับคิวเดิม (นับรอบเพิ่ม)
+    if (!(r && r.queued)) P.deleteProperty(x.k);       // ลบหลังส่งผ่าน/ทิ้งแล้วเท่านั้น — สคริปต์หยุดกลางทางก็ไม่หาย
+    if (r && r.success) sent++;
+  });
+  return sent;
+}
+function fuelQueueCount() {
+  try { return PropertiesService.getScriptProperties().getKeys().filter(function (k) { return k.indexOf('FUELQ_') === 0; }).length; } catch (e) { return 0; }
+}
+
+// "เช็คระบบ" บรรทัด ⛽
+function fuelHealthLine(ok, warn) {
+  if (!fuelOn()) { warn('⛽ ส่งบิลน้ำมันเข้าแอปรถ ปิดอยู่ (FUEL_LINE=off)'); return; }
+  if (!vanGroupId()) { warn('⛽ ยังไม่รู้จักกลุ่มสายรถ (ส่งบิลน้ำมันเข้าแอปรถไม่ได้)', 'ชื่อกลุ่มไม่มีคำว่า "สายรถ" ให้ตั้ง GROUP_VAN_ID'); return; }
+  let s = {}; try { s = JSON.parse(PropertiesService.getScriptProperties().getProperty('FUEL_STAT') || '{}'); } catch (e) {}
+  const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd'), q = fuelQueueCount();
+  const n = s.d === today ? 'วันนี้ บิล ' + (s.rc || 0) + ' · เลขไมล์ ' + (s.od || 0) : 'วันนี้ยังไม่มีบิล';
+  const last = s.last ? ' · ล่าสุด ' + p10Dt(s.last.t) + ' ' + s.last.what + ' → ' + (s.last.err ? '❌ ' + s.last.err : s.last.act) : '';
+  (q || (s.last && s.last.err)) ? warn('⛽ ส่งบิลน้ำมันเข้าแอปรถ: ' + n + last + (q ? ' · ค้างส่ง ' + q + ' รายการ (ลองใหม่ทุก 15 นาที)' : ''), 'ส่งไม่ผ่านซ้ำ ๆ = แจ้งแชท origin-hq ให้เช็คแอปรถ (fuelLine)')
+                                : ok('⛽ ส่งบิลน้ำมันเข้าแอปรถ: ' + n + last);
+}
+
+// ── ย้อนหลังครั้งเดียว: คำบรรยายรูปใน GroupChat (+ คลังรายเดือน) ของกลุ่มสายรถ → อ่านเป็นฟิลด์ (รุ่นเล็ก อ่านข้อความ ไม่อ่านรูปซ้ำ) → ส่งตามลำดับเวลา
+//   doGet ?action=fuelBackfill&key=LEARN_KEY&from=2026-10-08 = ลองนับ (ไม่ส่ง) · &send=1 = ส่งจริง (เขียนชีตแอปรถ — คุณปาล์มยืนยันก่อน · §9)
+//   ⚠️ แอปรถ v0.7.0 รับ at ย้อนหลังได้ไม่เกิน 3 วัน (เก่ากว่านั้นใช้เวลาตอนส่งแทน) → ต้องให้แอปรถรับ backfill:true ก่อนส่งจริง
+const FUEL_HINT_RE = /น้ำมัน|ลิตร|ดีเซล|แก๊สโซฮอล์|โซฮอล์|เบนซิน|ปั๊ม|ใบกำกับ|เลขไมล์|ไมล์|odo|หน้าปัด|มาตรวัด|กม\./i;
+function fuelHistoryRows(gid, fromMs) {
+  const id = boardSheetId(); if (!id) return [];
+  const ss = ssById(id), out = [];
+  const tabs = ss.getSheets().map(function (s) { return s.getName(); })
+    .filter(function (n) { return n === 'GroupChat' || n.indexOf(CHAT_ARCHIVE_PREFIX) === 0; });
+  tabs.forEach(function (n) {
+    const s = ss.getSheetByName(n);
+    if (!s || s.getLastRow() < 2) return;
+    s.getRange(2, 1, s.getLastRow() - 1, 5).getValues().forEach(function (r) {
+      const t = r[0] instanceof Date ? r[0].getTime() : Date.parse(r[0]);
+      const text = String(r[4] || '');
+      if (String(r[1]) !== String(gid) || !(t >= fromMs) || text.indexOf('[ส่งรูป/ไฟล์]') !== 0 || !FUEL_HINT_RE.test(text)) return;
+      out.push({ t: t, uid: String(r[2] || ''), name: String(r[3] || ''), text: text });
+    });
+  });
+  return out.sort(function (a, b) { return a.t - b.t; });
+}
+// คำบรรยายรูปทีละชุด (≤15) → [{ kind… } | null] ตามลำดับเดิม
+function fuelReadDescs(descs) {
+  const apiKey = cfg('ANTHROPIC_API_KEY'); if (!apiKey || !descs.length) return descs.map(function () { return null; });
+  const prompt = 'ข้างล่างคือคำบรรยายรูปที่เคยอ่านไว้จากกลุ่มไลน์สายรถของโรงน้ำ (ข้อความ ไม่ใช่รูป) แต่ละบรรทัดขึ้นต้นด้วยเลขลำดับ\n'
+    + 'แปลงแต่ละบรรทัดเป็น JSON ตามกติกานี้ (ใช้เฉพาะสิ่งที่คำบรรยายบอก ห้ามเดา):\n' + FUEL_PROMPT_LINE.replace(/^น้ำมัน: \(|\)\n$/g, '') + '\n'
+    + 'ตอบเป็น JSON array ก้อนเดียว ยาวเท่าจำนวนบรรทัด เรียงตามลำดับ · บรรทัดที่ไม่ใช่บิล/หน้าปัดใส่ null\n\n'
+    + descs.map(function (d, i) { return (i + 1) + '. ' + String(d).slice(0, 600); }).join('\n');
+  try {
+    const body = { model: cfg('IMAGE_MODEL') || IMAGE_MODEL_SMALL, max_tokens: 4096, messages: [{ role: 'user', content: prompt }] };
+    if (body.model !== MODEL) body.output_config = { effort: 'low' };
+    const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, payload: JSON.stringify(body)
+    });
+    AI_TAG = 'บิลน้ำมันย้อนหลัง';
+    const t = claudeText(JSON.parse(res.getContentText()));
+    AI_TAG = '';
+    const m = String(t || '').match(/\[[\s\S]*\]/);
+    const arr = m ? JSON.parse(m[0]) : [];
+    return descs.map(function (_, i) { return fuelNorm(arr[i]); });
+  } catch (e) { AI_TAG = ''; console.error('fuelReadDescs: ' + e); return descs.map(function () { return null; }); }
+}
+function fuelBackfill(fromDay, send) {
+  const gid = vanGroupId();
+  if (!gid) return { ok: false, error: 'ยังไม่รู้จักกลุ่มสายรถ' };
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(fromDay || '')) ? String(fromDay) : '2026-10-08';
+  const rows = fuelHistoryRows(gid, new Date(from + 'T00:00:00+07:00').getTime());
+  const items = [];
+  for (let i = 0; i < rows.length; i += 15) {
+    const chunk = rows.slice(i, i + 15);
+    const got = fuelReadDescs(chunk.map(function (r) { return r.text.replace(/^\[ส่งรูป\/ไฟล์\]\s*/, ''); }));
+    chunk.forEach(function (r, j) {
+      const f = got[j]; if (!f) return;
+      const url = (r.text.match(/https:\/\/\S+/) || [''])[0];
+      const p = { kind: f.kind, messageId: 'gc_' + r.t + '_' + r.uid.slice(-6), at: r.t, sender: r.name, group: groupNameOf(gid), image: url, backfill: true };
+      if (f.kind === 'odo') p.odo = f.odo; else p.receipt = f.receipt;
+      items.push(p);
+    });
+  }
+  const sum = { ok: true, from: from, rows: rows.length, receipts: 0, odos: 0, baht: 0, send: !!send, acts: {}, errors: [] };
+  items.forEach(function (p) { if (p.kind === 'odo') sum.odos++; else { sum.receipts++; sum.baht += p.receipt.baht; } });
+  sum.baht = Math.round(sum.baht);
+  if (!send) { sum.sample = items.slice(0, 5).map(function (p) { return Utilities.formatDate(new Date(p.at), 'GMT+7', 'd/M HH:mm') + ' ' + p.sender + ' ' + fuelWhat(p); }); return sum; }
+  items.forEach(function (p) {
+    const r = fuelPost(p);
+    const k = r && r.success ? String(r.act || 'ok') : '⚠️';
+    sum.acts[k] = (sum.acts[k] || 0) + 1;
+    if (!(r && r.success)) sum.errors.push(fuelWhat(p) + ': ' + String((r && r.error) || 'ไม่ทราบ').slice(0, 60));
+  });
+  logRow(['⛽ บิลน้ำมันย้อนหลัง', 'ระบบ', 'ตั้งแต่ ' + from + ' · บิล ' + sum.receipts + ' · เลขไมล์ ' + sum.odos, JSON.stringify(sum.acts)]);
+  return sum;
 }
 
 // ════════════════════════════════════════════════════════════

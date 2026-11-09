@@ -7,7 +7,8 @@ const OWNER = 'Uowner000000000000000000000000000';
 const EXP_GID = 'Cexp00000000000000000000000000000';
 const PROD_GID = 'Cprod0000000000000000000000000000';
 const OTHER_GID = 'Cother000000000000000000000000000';
-const TW_GID = 'Ctw0000000000000000000000000000000';   // กลุ่ม TEAMWORK โรงขวด (ไม่อยู่ในทะเบียนกลุ่ม — รู้ชื่อจาก API summary)
+const TW_GID = 'Ctw0000000000000000000000000000000';
+const VAN_GID = 'Cvan000000000000000000000000000000';   // กลุ่ม sale ละกอน สายรถ (บิลน้ำมัน)   // กลุ่ม TEAMWORK โรงขวด (ไม่อยู่ในทะเบียนกลุ่ม — รู้ชื่อจาก API summary)
 const PLANT_SHEET = '1PlantSheetIdXYZ';
 const FIN_URL = 'https://script.google.com/macros/s/AKfycbwQdfDqibpZrpxEYSidLvcEO7amtO_EMND2anBXI_dpAJHpYHYHvJZwSztlzU3Q2Y7y/exec';
 
@@ -31,7 +32,8 @@ function makeEnv(opts) {
                                         getBlob: () => blob });
   const ctx = {
     console: { error: () => {}, log: () => {} }, Logger: { log: () => {} },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = v; } }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = v; },
+                                               getKeys: () => Object.keys(S.props), deleteProperty: k => { delete S.props[k]; } }) },
     CacheService: { getScriptCache: () => ({ get: k => (k in S.cache ? S.cache[k] : null), put: (k, v) => { S.cache[k] = v; }, remove: k => { delete S.cache[k]; } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }), getUserLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
     Utilities: {
@@ -58,7 +60,7 @@ function makeEnv(opts) {
       }
       if (url.indexOf('/member/') !== -1) return resp(200, { displayName: 'แม่' });
       if (url.indexOf('/summary') !== -1) { const id = url.split('/group/')[1].split('/')[0];
-        return resp(200, { groupName: id === EXP_GID ? 'บิลค่าใช้จ่าย 🧾' : id === PROD_GID ? 'ทีมผลิต' : id === TW_GID ? 'TEAMWORK โรงขวด' : 'กลุ่มคุยเล่น' }); }
+        return resp(200, { groupName: id === EXP_GID ? 'บิลค่าใช้จ่าย 🧾' : id === PROD_GID ? 'ทีมผลิต' : id === TW_GID ? 'TEAMWORK โรงขวด' : id === VAN_GID ? 'sale ละกอน สายรถ' : 'กลุ่มคุยเล่น' }); }
       if (url.indexOf('/message/reply') !== -1) { S.replies.push(rec.body); return resp(S.replyCode, { sentMessages: [] }); }
       if (url.indexOf('/message/push') !== -1) { S.pushes.push(rec.body); return resp(S.pushCode || 200, S.pushResp || { sentMessages: [] }); }
       if (url.indexOf('AKfycbyz9gSSkms44VWcnD3wtZx9C33aG1r5LAjxVPMjD_EcqzwzxU2UBtVVd15qfO_idObE') !== -1) {   // แอปทีมผลิต
@@ -69,6 +71,10 @@ function makeEnv(opts) {
         if (opts.helpFail) return resp(500, 'err');
         return resp(200, { ok: true, data: { success: true, app: 'sales', version: 'v40.43',
           text: '<!--\n  ห้ามมีข้อมูลลับ\n-->\n# 📘 คู่มือแอปเซลส์ละกอน — v40.43\n## 🛒 ลงออเดอร์\n1. กด **ลงออเดอร์** → เลือกร้าน\n## 📞 ส่งต่อ\n- เรื่องอื่น ถามหัวหน้าสาย' } }); }
+      if (url.indexOf('AKfycbydLeI_') !== -1) {   // แอปรถ (fuelLine)
+        S.fleet = S.fleet || []; S.fleet.push(rec.body);
+        if (S.fleetThrow) throw new Error('timeout');
+        return resp(S.fleetCode || 200, (S.fleetResp || (() => ({ success: true, act: 'new', id: 'FU1', veh: '06' })))(rec.body)); }
       if (url === FIN_URL) { if (opts.financeThrow) throw new Error('timeout'); return resp(200, S.financeResp(rec.body)); }
       if (url.indexOf('anthropic.com') !== -1) { S.anthropic++; S.prompts.push(rec.body);
         return resp(200, { content: [{ type: 'text', text: (opts.ai || (() => 'SKIP'))(rec.body) }], usage: { input_tokens: 1, output_tokens: 1 } }); }
@@ -107,5 +113,5 @@ const ev = (type, extra, gid) => Object.assign({ type: 'message', replyToken: 'r
 const dm = (uid, text) => ({ type: 'message', replyToken: 'rtD', source: { type: 'user', userId: uid }, message: { id: 'D' + Math.random(), type: 'text', text } });
 const replyText = S => S.replies.map(r => r.messages[0].text).join('\n---\n');
 
-module.exports = { makeEnv, finCalls, ev, dm, replyText, OWNER, EXP_GID, PROD_GID, OTHER_GID, TW_GID, PLANT_SHEET, FIN_URL };
+module.exports = { makeEnv, finCalls, ev, dm, replyText, OWNER, EXP_GID, PROD_GID, OTHER_GID, TW_GID, VAN_GID, PLANT_SHEET, FIN_URL };
 
