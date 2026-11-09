@@ -144,7 +144,7 @@ t('PET10: ถูกเชิญเข้ากลุ่ม TEAMWORK → ไม�
   ctx.handleEvent({ type: 'join', replyToken: 'rtJ', source: { type: 'group', groupId: TW_GID } });
   assert.strictEqual(S.replies.length, 0); assert.ok(st(S).watchFrom);
   ctx.handleEvent({ type: 'join', replyToken: 'rtJ2', source: { type: 'group', groupId: OTHER_GID } });
-  assert.strictEqual(S.replies.length, 1); assert.ok(/ดิฉันคุณเลขา/.test(replyText(S)));
+  assert.strictEqual(S.replies.length, 1); assert.ok(/ดิฉันผู้ดูแลระบบกลาง/.test(replyText(S)) && !/เลขา|ของคุณปาล์ม/.test(replyText(S)), replyText(S));
 });
 
 t('PET10: รูปในกลุ่ม TEAMWORK → คำบรรยายรูปเข้าตัวเฝ้า (จับสถานะได้) · ไม่ตอบในกลุ่ม', () => {
@@ -286,6 +286,30 @@ t('PET10: รุ่นเล็กตอบไม่เป็น JSON (ปฏิ
   assert.strictEqual(st(S).state, 'จอด', 'ถามอย่างเดียว ไม่แก้สถานะ');
   ctx.handleEvent(dm(OWNER, 'PET10 ไม่ได้จอดนะ'));
   assert.strictEqual(st(S).state, 'เดิน');
+});
+
+t('ชื่อบัญชีใหม่ "ผู้ดูแลระบบกลาง" (09/11): เรียกชื่อใหม่ = ตอบ · "เลขา" ยังได้ · ผู้ช่วยเซลส์/ผู้ดูแลลูกค้า/แอดมิน = เงียบ · กลุ่ม TEAMWORK ยังเงียบ', () => {
+  const { ctx } = makeEnv();
+  const e = () => ({ message: {} });
+  for (const x of ['ผู้ดูแลระบบ ช่วยสรุปหน่อยครับ', '@ผู้ดูแลระบบกลาง ยอดวันนี้', 'ผู้ดูแลระบบกลางคะ แอปค้าง', 'เลขา ช่วยหน่อย', '@เลขาคุณปาล์ม'])
+    assert.strictEqual(ctx.isAddressedToSecretary(e(), x), true, x);
+  for (const x of ['🚙 6/11/69 จับคู่เซลส์-ผู้ช่วยเซลส์ ท๊อป - อั้ม ต้นไม้ - บาส', 'รบกวนขอเบอร์เซลล์เร่และผู้ช่วยเซลล์ทุกคนนะคะ',
+                   'ผู้ดูแลลูกค้าสายเหนือคือใคร', 'ผู้ดูแลสาย 3 ส่งยอดด้วย', 'แอดมินเพจตอบลูกค้าด้วยนะ', 'ผู้ช่วยตอบหน่อย'])
+    assert.strictEqual(ctx.isAddressedToSecretary(e(), x), false, x);
+  // กลุ่มทั่วไป: เรียกชื่อใหม่ → สมองตอบ · ข้อความจับคู่ผู้ช่วยเซลส์ → เงียบ ไม่เรียกสมอง
+  const g = makeEnv({ ai: () => 'ได้เลยค่ะ' });
+  const msg = (x) => { const m = ev('text', { text: x }, OTHER_GID); m.source.userId = 'Ustaff9'; return m; };
+  g.ctx.handleEvent(msg('🚙 6/11/69 จับคู่เซลส์-ผู้ช่วยเซลส์ ท๊อป - อั้ม'));
+  assert.strictEqual(g.S.replies.length, 0); assert.strictEqual(g.S.prompts.length, 0);
+  g.ctx.handleEvent(msg('ผู้ดูแลระบบ พรุ่งนี้ฝากเตือนประชุมด้วยครับ'));
+  assert.strictEqual(g.S.replies.length, 1, 'เรียกชื่อใหม่แล้วตอบ');
+  const sys = JSON.stringify(g.S.prompts[g.S.prompts.length - 1]);
+  assert.ok(sys.indexOf('ผู้ดูแลระบบกลาง') !== -1 && sys.indexOf('ห้ามเรียกตัวเองว่า \\"เลขาคุณปาล์ม\\"') !== -1, 'สมองรู้ชื่อใหม่ + ห้ามเรียกตัวเองเลขาคุณปาล์มในกลุ่ม');
+  // กลุ่ม TEAMWORK: เรียกชื่อใหม่ก็ยังเงียบ
+  const w = makeEnv({ ai: () => 'ได้เลยค่ะ' });
+  w.ctx.handleEvent(tw('ผู้ดูแลระบบ ช่วยหน่อยครับ'));
+  w.ctx.handleEvent(tw('@ผู้ดูแลระบบกลาง สวัสดีครับ'));
+  assert.strictEqual(w.S.replies.length + w.S.pushes.length, 0);
 });
 
 console.log('\nเฝ้า PET10 ผ่านทั้งหมด ' + n + ' ข้อ');
