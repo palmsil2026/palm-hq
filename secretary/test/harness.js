@@ -7,6 +7,7 @@ const OWNER = 'Uowner000000000000000000000000000';
 const EXP_GID = 'Cexp00000000000000000000000000000';
 const PROD_GID = 'Cprod0000000000000000000000000000';
 const OTHER_GID = 'Cother000000000000000000000000000';
+const TW_GID = 'Ctw0000000000000000000000000000000';   // กลุ่ม TEAMWORK โรงขวด (ไม่อยู่ในทะเบียนกลุ่ม — รู้ชื่อจาก API summary)
 const PLANT_SHEET = '1PlantSheetIdXYZ';
 const FIN_URL = 'https://script.google.com/macros/s/AKfycbwQdfDqibpZrpxEYSidLvcEO7amtO_EMND2anBXI_dpAJHpYHYHvJZwSztlzU3Q2Y7y/exec';
 
@@ -15,6 +16,7 @@ function fmt(d, tz, f) {
   const p = n => String(n).padStart(2, '0');
   return f.replace('yyyy', t.getUTCFullYear()).replace('yy', String(t.getUTCFullYear()).slice(2))
     .replace('MM', p(t.getUTCMonth() + 1)).replace('dd', p(t.getUTCDate()))
+    .replace(/\bd\b/, String(t.getUTCDate())).replace(/\bM\b/, String(t.getUTCMonth() + 1))
     .replace('HH', p(t.getUTCHours())).replace(/\bH\b/, String(t.getUTCHours()))
     .replace('mm', p(t.getUTCMinutes())).replace('ss', p(t.getUTCSeconds()));
 }
@@ -56,7 +58,7 @@ function makeEnv(opts) {
       }
       if (url.indexOf('/member/') !== -1) return resp(200, { displayName: 'แม่' });
       if (url.indexOf('/summary') !== -1) { const id = url.split('/group/')[1].split('/')[0];
-        return resp(200, { groupName: id === EXP_GID ? 'บิลค่าใช้จ่าย 🧾' : id === PROD_GID ? 'ทีมผลิต' : 'กลุ่มคุยเล่น' }); }
+        return resp(200, { groupName: id === EXP_GID ? 'บิลค่าใช้จ่าย 🧾' : id === PROD_GID ? 'ทีมผลิต' : id === TW_GID ? 'TEAMWORK โรงขวด' : 'กลุ่มคุยเล่น' }); }
       if (url.indexOf('/message/reply') !== -1) { S.replies.push(rec.body); return resp(S.replyCode, { sentMessages: [] }); }
       if (url.indexOf('/message/push') !== -1) { S.pushes.push(rec.body); return resp(S.pushCode || 200, S.pushResp || { sentMessages: [] }); }
       if (url.indexOf('AKfycbyz9gSSkms44VWcnD3wtZx9C33aG1r5LAjxVPMjD_EcqzwzxU2UBtVVd15qfO_idObE') !== -1) {   // แอปทีมผลิต
@@ -105,5 +107,5 @@ const ev = (type, extra, gid) => Object.assign({ type: 'message', replyToken: 'r
 const dm = (uid, text) => ({ type: 'message', replyToken: 'rtD', source: { type: 'user', userId: uid }, message: { id: 'D' + Math.random(), type: 'text', text } });
 const replyText = S => S.replies.map(r => r.messages[0].text).join('\n---\n');
 
-module.exports = { makeEnv, finCalls, ev, dm, replyText, OWNER, EXP_GID, PROD_GID, OTHER_GID, PLANT_SHEET, FIN_URL };
+module.exports = { makeEnv, finCalls, ev, dm, replyText, OWNER, EXP_GID, PROD_GID, OTHER_GID, TW_GID, PLANT_SHEET, FIN_URL };
 
