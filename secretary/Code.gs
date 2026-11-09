@@ -2617,7 +2617,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-10a';
+const CODE_VERSION = '2026-11-10b';
 
 function healthCheck() {
   const L = [];
@@ -4124,16 +4124,20 @@ function fuelBackfill(fromDay, send) {
       items.push(p);
     });
   }
-  const sum = { ok: true, from: from, rows: rows.length, receipts: 0, odos: 0, baht: 0, send: !!send, acts: {}, errors: [] };
+  const sum = { ok: true, from: from, rows: rows.length, receipts: 0, odos: 0, baht: 0, send: !!send, acts: {}, errors: [], warns: [], inBaht: 0, inLiters: 0 };
   items.forEach(function (p) { if (p.kind === 'odo') sum.odos++; else { sum.receipts++; sum.baht += p.receipt.baht; } });
   sum.baht = Math.round(sum.baht);
   if (!send) { sum.sample = items.slice(0, 5).map(function (p) { return Utilities.formatDate(new Date(p.at), 'GMT+7', 'd/M HH:mm') + ' ' + p.sender + ' ' + fuelWhat(p); }); return sum; }
   items.forEach(function (p) {
     const r = fuelPost(p);
-    const k = r && r.success ? String(r.act || 'ok') : '⚠️';
+    const k = r && r.success ? String(r.act || 'ok') : 'error';
     sum.acts[k] = (sum.acts[k] || 0) + 1;
-    if (!(r && r.success)) sum.errors.push(fuelWhat(p) + ': ' + String((r && r.error) || 'ไม่ทราบ').slice(0, 60));
+    const when = Utilities.formatDate(new Date(p.at), 'GMT+7', 'd/M HH:mm');
+    if (!(r && r.success)) sum.errors.push(when + ' ' + fuelWhat(p) + ': ' + String((r && r.error) || 'ไม่ทราบ').slice(0, 60));
+    else if (/⚠️|💵/.test(String(r.note || ''))) sum.warns.push(when + ' ' + p.sender + ' ' + fuelWhat(p) + (r.veh ? ' (' + r.veh + ')' : '') + ': ' + String(r.note).slice(0, 120));
+    if (r && r.success && p.kind === 'receipt' && (r.act === 'new' || r.act === 'merged')) { sum.inBaht += p.receipt.baht; sum.inLiters += p.receipt.liters || 0; }
   });
+  sum.inBaht = Math.round(sum.inBaht); sum.inLiters = Math.round(sum.inLiters * 10) / 10;
   logRow(['⛽ บิลน้ำมันย้อนหลัง', 'ระบบ', 'ตั้งแต่ ' + from + ' · บิล ' + sum.receipts + ' · เลขไมล์ ' + sum.odos, JSON.stringify(sum.acts)]);
   return sum;
 }
