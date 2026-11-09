@@ -2605,7 +2605,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-09b';
+const CODE_VERSION = '2026-11-09c';
 
 function healthCheck() {
   const L = [];
@@ -3570,8 +3570,18 @@ function p10Judge(chatId, text, who, st, now) {
       + 'ตัดสินเฉพาะข้อความใหม่ (ใช้แชทรอบ ๆ ช่วยตีความ เช่น "เดินได้แล้ว" ที่ตอบเรื่อง PET10 ที่คุยค้างอยู่ = เกี่ยว)\n'
       + 'เครื่องอื่นของโรงขวด หรือขวดขนาด/รุ่นอื่นที่ไม่เกี่ยวกับ PET10 = "ไม่" · ไม่ชัดว่าหมายถึง PET10 ไหม = "ไม่แน่ใจ"\n'
       + 'ขวดไม่พอ = เป่าไม่ทัน ยอดเป่าไม่พอ พรีฟอร์มหมด ขวด 600 ไม่พอส่งโรงน้ำ\n'
+      + 'ภาษาหน้างาน: คนมักเล่า "เหตุ + ทำเสร็จ + ผลตอนนี้" ในประโยคเดียว → state_after ดูจากส่วนท้าย/ผลล่าสุดของข้อความ\n'
+      + '· เสร็จ / เรียบร้อย / เริ่มเป่า(ได้)ปกติ / เดินได้ / กลับมาเป่า = เดิน — ข้อความเดียวมีทั้งคำซ่อมและคำว่าเสร็จ ให้เลือก เดิน\n'
+      + '· "ให้ช่างเปลี่ยน…เสร็จ" = ช่างเปลี่ยนเสร็จแล้ว (อดีต) ไม่ใช่ "จะ/กำลัง" · summary ห้ามเปลี่ยนกาล (เสร็จแล้ว ≠ จะเสร็จ)\n'
+      + '· event "เดินเครื่อง" = เพิ่งกลับมาเดิน/เริ่มเดินหลังหยุด ซ่อม หรือเปลี่ยนโมลด์ · แค่บอกว่าเดินอยู่ปกติ = "อื่น"\n'
+      + 'ตัวอย่างข้อความจริงในกลุ่ม:\n'
+      + '· "เพท10เป่า600mkคอสั้นน้ำเงินให้ช่างเปลี่ยนลิเมียร์เสร็จเริ่มเป่าปกติครับ" → ใช่ · เดินเครื่อง · เดิน · 600 mk คอสั้น (ช่างเปลี่ยนลิเมียร์เสร็จแล้ว กลับมาเป่าปกติ)\n'
+      + '· "600mkคอสั้นหยุดเป่าเนื่องจากทำการแก้ไขชุดสไลด์หลอดครับ" → ใช่ · ซ่อม · ซ่อม (หยุดเป่าเพื่อแก้ชุดสไลด์หลอด)\n'
+      + '· "เพท4 หยุดเป่า…" / "เพท4 แก้ไขเสร็จ…" → ไม่ (เป็นเครื่องเพท4 ไม่ใช่ PET10)\n'
+      + p10FixesText()
+      + 'sure = มั่นใจ เมื่ออ่านแล้วชัด · ไม่มั่นใจ เมื่อตีความได้หลายทาง\n'
       + 'ตอบเป็น JSON ก้อนเดียว ห้ามมีข้อความอื่น:\n'
-      + '{"about_pet10":"ใช่|ไม่|ไม่แน่ใจ","event":"จอด|ซ่อม|เดินเครื่อง|เปลี่ยนโมลด์|ปัญหาคุณภาพ|ขวดไม่พอ|อื่น",'
+      + '{"about_pet10":"ใช่|ไม่|ไม่แน่ใจ","sure":"มั่นใจ|ไม่มั่นใจ","event":"จอด|ซ่อม|เดินเครื่อง|เปลี่ยนโมลด์|ปัญหาคุณภาพ|ขวดไม่พอ|อื่น",'
       + '"mold":"โมลด์ที่ PET10 เป่าอยู่/จะเป่าหลังข้อความนี้ ถ้ามีคนบอก เช่น 600 mk คอสั้น · ไม่รู้ใส่ว่าง",'
       + '"state_after":"เดิน|จอด|ซ่อม|เปลี่ยนโมลด์|ไม่ทราบ","summary":"สรุปสถานการณ์ 1–2 ประโยคภาษาไทย","who":"ใครแจ้ง",'
       + '"eta":"คาดว่าเสร็จ/เดินได้เมื่อไหร่ ถ้ามีคนบอก · ไม่มีใส่ว่าง"}';
@@ -3589,10 +3599,34 @@ function p10Judge(chatId, text, who, st, now) {
     };
     const model = cfg('PET10_MODEL') || IMAGE_MODEL_SMALL;
     const j = ask(model, 'เฝ้า PET10');
+    if (model === MODEL) return j;
     // รุ่นเล็กปฏิเสธ/ตอบไม่เป็น JSON → ให้รุ่นหลักอ่านซ้ำ (แบบเดียวกับอ่านรูป) ไม่ทิ้งข่าวเครื่องจอดเพราะรุ่นเล็กตอบไม่ได้
-    return (j || model === MODEL) ? j : ask(MODEL, 'เฝ้า PET10(สำรอง)');
+    if (!j) return ask(MODEL, 'เฝ้า PET10(สำรอง)');
+    // กำกวมจริง → รุ่นหลักอ่านซ้ำก่อนเชื่อ: รุ่นเล็กไม่มั่นใจ / ไม่แน่ใจว่าเกี่ยว / มีทั้งคำซ่อม+คำเสร็จ แต่ตัดสินว่าไม่ได้เดิน (09/11 อ่าน "…เปลี่ยนลิเมียร์เสร็จเริ่มเป่าปกติ" เป็นกำลังซ่อม)
+    if (j.about === 'ไม่' && j.sure) return j;
+    if (!j.sure || j.about === 'ไม่แน่ใจ' || (j.about === 'ใช่' && j.state !== 'เดิน' && p10DoneWords(text))) {
+      const j2 = ask(MODEL, 'เฝ้า PET10(อ่านซ้ำ)');
+      if (j2) return j2;
+    }
+    return j;
   } catch (e) { AI_TAG = ''; console.error('p10Judge: ' + e); return null; }
 }
+// คำบอกว่า "ทำเสร็จ/กลับมาเดินแล้ว" ในข้อความ (ใช้ตัดสินว่าควรให้รุ่นหลักอ่านซ้ำ)
+function p10DoneWords(t) { return /เสร็จ|เรียบร้อย|เดินได้|เป่าได้|เป่าปกติ|ทำงานปกติ|กลับมา(เป่า|เดิน|ทำ)|ปกติแล้ว|ใช้ได้แล้ว/.test(String(t || '')); }
+
+// 📝 ตัวอย่างที่คุณปาล์มเคยแก้ (ข้อความจริง → สถานะที่ถูก) ไม่เกิน 10 อันล่าสุด — ป้อนในพรอมต์ให้เรียนจากที่โดนแก้
+function p10Fixes() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('P10_FIXES') || '[]'); } catch (e) { return []; } }
+function p10AddFix(f) {
+  const list = p10Fixes().concat([f]).slice(-10);
+  PropertiesService.getScriptProperties().setProperty('P10_FIXES', JSON.stringify(list));
+}
+function p10FixesText() {
+  const fx = p10Fixes();
+  if (!fx.length) return '';
+  return 'ตัวอย่างที่คุณปาล์มเคยแก้ (ระบบเคยตีความผิด — เรียนจากนี้):\n'
+    + fx.map(function (f) { return '· "' + f.q + '" → ผิด: ' + f.wrong + ' · ถูก: ' + f.right; }).join('\n') + '\n';
+}
+
 function p10Parse(t) {
   const m = String(t || '').match(/\{[\s\S]*\}/);
   if (!m) return null;
@@ -3604,6 +3638,7 @@ function p10Parse(t) {
   const mold = s(o.mold, 60), eta = s(o.eta, 60);
   return {
     about: /ไม่แน่ใจ|unsure/i.test(a) ? 'ไม่แน่ใจ' : (/^(ใช่|yes|true)/i.test(a) ? 'ใช่' : 'ไม่'),
+    sure: !/ไม่มั่นใจ|unsure|false|low/i.test(s(o.sure)),
     event: pick(o.event, ['ขวดไม่พอ', 'เปลี่ยนโมลด์', 'เดินเครื่อง', 'ปัญหาคุณภาพ', 'ซ่อม', 'จอด'], 'อื่น'),
     mold: none(mold) ? '' : mold,
     state: pick(o.state_after, ['ไม่ทราบ', 'เปลี่ยนโมลด์', 'เดิน', 'ซ่อม', 'จอด'], 'ไม่ทราบ'),
@@ -3618,7 +3653,8 @@ function p10Apply(st, j, now, src) {
   const byEvent = { 'จอด': 'จอด', 'ซ่อม': 'ซ่อม', 'เดินเครื่อง': 'เดิน', 'เปลี่ยนโมลด์': 'เปลี่ยนโมลด์' };
   const ns = j.state !== 'ไม่ทราบ' ? j.state : (byEvent[j.event] || prevS);
   const nm = j.mold ? p10MoldName(j.mold) : prevM;
-  const stateCh = ns !== prevS && ns !== 'ไม่ทราบ' && !(prevS === 'ไม่ทราบ' && ns === 'เดิน');
+  // ไม่ทราบ→เดิน ไม่ใช่ข่าว ยกเว้นข้อความบอกว่า "เพิ่งกลับมาเดิน" (หยุด/ซ่อมช่วงที่ดิฉันยังไม่เห็น — 09/11 ช่างแก้ชุดสไลด์หลอดก่อนบอทเข้ากลุ่ม)
+  const stateCh = ns !== prevS && ns !== 'ไม่ทราบ' && !(prevS === 'ไม่ทราบ' && ns === 'เดิน' && j.event !== 'เดินเครื่อง');
   const moldCh = !!nm && (prevM ? !p10SameMold(nm, prevM) : !p10IsMk(nm));
   const leftMk = moldCh && (!prevM || p10IsMk(prevM)) && !p10IsMk(nm);
   const short = j.event === 'ขวดไม่พอ' && now - (st.shortAt || 0) > 3 * 3600000;
@@ -3629,6 +3665,7 @@ function p10Apply(st, j, now, src) {
   if (j.eta) st.eta = j.eta;
   st.state = ns; st.mold = nm; st.last = j.summary; st.updated = now; st.by = 'กลุ่ม';
   st.who = j.who || src.who;
+  if (ns !== prevS || nm !== prevM) { st.lastQ = src.text; st.lastAt = now; }   // ข้อความที่ทำให้สถานะเปลี่ยน (คุณปาล์มแก้ = เก็บเป็นตัวอย่าง)
   if (src.id) (st.ids = st.ids || []).push(String(src.id));
   const note = stateCh || moldCh || short;
   (st.log = st.log || []).push({ t: now, e: j.event, s: ns, m: nm, sum: j.summary.slice(0, 120), who: st.who, n: note ? 1 : 0 });
@@ -3809,6 +3846,19 @@ function p10Answer(t, replyToken, chatId, set) {
     const now = Date.now();
     p10Edit(function (s) {
       const ns = set.state || s.state || 'ไม่ทราบ';
+      // ระบบตีความข้อความกลุ่มผิด แล้วคุณปาล์มแก้ → จดเป็นตัวอย่างให้รอบหลังเรียน
+      //   แต่คุณปาล์มอาจแค่อัปเดตข่าวที่รู้เอง (กลุ่มบอกจอด แล้วเครื่องเดินทีหลัง) → จดเฉพาะเมื่อข้อความเดิมเองบอกตามที่คุณปาล์มแก้
+      //   (มีคำว่าเสร็จ/กลับมาเป่า แต่ระบบว่าไม่เดิน · มีคำว่าหยุด/จอด/ซ่อม แต่ระบบว่าเดิน) หรือคุณปาล์มบอกตรง ๆ ว่าผิด · ภายใน 6 ชม.
+      const moldWrong = set.mold && !p10SameMold(set.mold, s.mold || '');
+      const saysWrong = /ผิด|ไม่ใช่|ที่ถูก|จริง\s*ๆ|เข้าใจผิด/.test(t);
+      const msgBacks = ns === 'เดิน' ? (p10DoneWords(s.lastQ) && s.state !== 'เดิน')
+                                    : (p10Abnormal(ns) && s.state === 'เดิน' && /จอด|หยุด|เสีย|ซ่อม|ค้าง|ดับ/.test(String(s.lastQ || '')));
+      if (s.by === 'กลุ่ม' && s.lastQ && now - (s.lastAt || 0) < 6 * 3600000 && (ns !== s.state || moldWrong) && (saysWrong || (msgBacks && !moldWrong))) {
+        try {
+          p10AddFix({ t: now, q: s.lastQ, wrong: (s.state || 'ไม่ทราบ') + (s.mold ? ' · ' + s.mold : ''),
+                      right: ns + ((set.mold || s.mold) ? ' · ' + (set.mold || s.mold) : '') });
+        } catch (e) {}
+      }
       if (ns !== s.state) s.since = now;
       if (set.mold && !p10SameMold(set.mold, s.mold || '')) s.moldSince = now;
       s.state = ns; if (set.mold) s.mold = set.mold;
