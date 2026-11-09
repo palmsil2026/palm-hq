@@ -850,3 +850,6 @@ console.log('\nผ่านทั้งหมด ' + n + ' ข้อ');
 
 // 🛠️ นักพัฒนา — ไฟล์แยก แต่รันในคำสั่งเดียวกัน (CI + ก่อน deploy เรียกแค่ unit.test.js)
 require('./issue.test.js');
+
+// 🍾 เฝ้าเครื่องเป่าขวด PET10 (กลุ่ม TEAMWORK) — ไฟล์แยก รันต่อท้าย
+require('./pet10.test.js');
