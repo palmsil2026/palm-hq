@@ -126,6 +126,11 @@ t('⛽ ย้อนหลัง: อ่านคำบรรยายใน Grou
     [['receipt', rows[0].t, 'gc_' + rows[0].t + '_111111', true, 'https://drive.google.com/file/d/A1/view'],
      ['odo', rows[1].t, 'gc_' + rows[1].t + '_111111', true, 'https://drive.google.com/file/d/A2/view']]);
   assert.strictEqual(real.acts.new, 2);
+  assert.deepStrictEqual([real.inBaht, real.inLiters, real.warns.length, real.errors.length], [1000, 31, 0, 0], 'ยอดที่เข้าแอป');
+  S.fleetResp = b => (b.kind === 'odo' ? { success: false, error: 'HTTP 500' } : { success: true, act: 'new', veh: '', note: '⚠️ ไม่รู้ว่าคันไหน' });
+  const r2 = ctx.fuelBackfill('2026-10-08', true);
+  assert.strictEqual(r2.acts.error, 1); assert.strictEqual(r2.warns.length, 1); assert.ok(/8\/10 09:00 คนขับ ก บิล 1000 บาท: ⚠️ ไม่รู้ว่าคันไหน/.test(r2.warns[0]), r2.warns[0]);
+  assert.ok(/^8\/10 09:03 เลขไมล์ 6535: HTTP 500/.test(r2.errors[0]), r2.errors[0]);
   const res = ctx.doGet({ parameter: { action: 'fuelBackfill', key: 'ผิด' } });
   assert.ok(/unauthorized/.test(res.t));
 });
