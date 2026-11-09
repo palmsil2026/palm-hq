@@ -16,6 +16,7 @@ const ownerPush = S => S.pushes.filter(x => x.to === OWNER).map(x => x.messages[
 const J = o => JSON.stringify(Object.assign({ about_pet10: 'ใช่', event: 'อื่น', mold: '', state_after: 'ไม่ทราบ', summary: '', who: '', eta: '' }, o));
 const RULES = x => {
   if (/ไม่รู้เครื่องไหน/.test(x)) return { about_pet10: 'ไม่แน่ใจ', summary: 'ไม่ชัดว่าเครื่องไหนเสีย' };
+  if (/ปกติอยู่/.test(x)) return { event: 'อื่น', state_after: 'เดิน', mold: '600 mk คอสั้น', summary: 'PET10 เป่า 600 mk คอสั้นปกติ' };
   if (/จอด/.test(x)) return { event: 'จอด', state_after: 'จอด', summary: 'PET10 จอด หัวเป่ารั่ว', who: 'ช่างเอ', eta: 'บ่ายสอง' };
   if (/เดินได้แล้ว/.test(x)) return { event: 'เดินเครื่อง', state_after: 'เดิน', mold: '600 mk คอสั้น', summary: 'ซ่อมเสร็จ PET10 เดินได้แล้ว', who: 'ช่างเอ' };
   if (/1500/.test(x)) return { event: 'เปลี่ยนโมลด์', state_after: 'เดิน', mold: '1500 ml', summary: 'PET10 เปลี่ยนไปเป่าขวด 1500', who: 'หัวหน้ากะ' };
@@ -100,8 +101,8 @@ t('PET10: คุยต่อเนื่องสถานะเดิม → �
 
 t('PET10: เปลี่ยนโมลด์ออกจาก 600 mk คอสั้น → แจ้งพร้อม ⚠️ · เหตุการณ์ใน 10 นาทีรวมเป็นข้อความเดียว · รู้ครั้งแรกว่าเดิน 600 = ไม่แจ้ง', () => {
   const { ctx, S } = makeEnv({ now: new Date('2026-11-09T01:00:00Z'), ai: twAi(RULES) });
-  ctx.handleEvent(tw('PET10 เดินได้แล้ว 600 คอสั้น'));
-  assert.strictEqual(st(S).state, 'เดิน'); assert.strictEqual(st(S).mold, '600 mk คอสั้น'); assert.ok(!(st(S).pend || []).length, 'ไม่ทราบ→เดิน ไม่ใช่ข่าว');
+  ctx.handleEvent(tw('PET10 เป่า 600 คอสั้นปกติอยู่ครับ'));
+  assert.strictEqual(st(S).state, 'เดิน'); assert.strictEqual(st(S).mold, '600 mk คอสั้น'); assert.ok(!(st(S).pend || []).length, 'ไม่ทราบ→เดิน(ปกติอยู่) ไม่ใช่ข่าว');
   at(S, T0); ctx.handleEvent(tw('PET10 จอดครับ'));
   at(S, '2026-11-09T03:25:00Z'); ctx.handleEvent(tw('PET10 จะเปลี่ยนไปเป่า 1500 นะครับ'));
   assert.strictEqual(ownerPush(S).length, 0, 'ยังไม่ครบ 10 นาทีจากเรื่องแรก');
@@ -310,6 +311,78 @@ t('ชื่อบัญชีใหม่ "ผู้ดูแลระบบก
   w.ctx.handleEvent(tw('ผู้ดูแลระบบ ช่วยหน่อยครับ'));
   w.ctx.handleEvent(tw('@ผู้ดูแลระบบกลาง สวัสดีครับ'));
   assert.strictEqual(w.S.replies.length + w.S.pushes.length, 0);
+});
+
+// ── บั๊กจริง 09/11: "…ให้ช่างเปลี่ยนลิเมียร์เสร็จเริ่มเป่าปกติครับ" ถูกแจ้งเป็น "กำลังซ่อม" (คุณปาล์ม: "อันนี้ความหมายคือเค้าซ่อมเสร็จละนี่") ──
+const REAL_DONE = 'เพท10เป่า600mkคอสั้นน้ำเงินให้ช่างเปลี่ยนลิเมียร์เสร็จเริ่มเป่าปกติครับ';
+const REAL_STOP = '600mkคอสั้นหยุดเป่าเนื่องจากทำการแก้ไขชุดสไลด์หลอดครับ';
+const msgOf = body => { const m = body.messages[0].content.match(/ข้อความใหม่ที่ต้องตัดสิน — [^\n]*?: "([\s\S]*?)"\n\n/); return m ? m[1] : ''; };
+// รุ่นเล็กอ่านผิดแบบของจริง (ซ่อม · มั่นใจ) · รุ่นหลักอ่านถูก
+const realAi = body => {
+  if (!isP10(body)) return twAi(RULES)(body);
+  const x = msgOf(body), big = body.model === 'claude-sonnet-5-5';
+  if (x === REAL_DONE) return big ? J({ sure: 'มั่นใจ', event: 'เดินเครื่อง', state_after: 'เดิน', mold: '600 mk คอสั้น', summary: 'ช่างเปลี่ยนลิเมียร์เสร็จแล้ว PET10 กลับมาเป่า 600 mk คอสั้นปกติ', who: 'กัญ' })
+                               : J({ sure: 'มั่นใจ', event: 'ซ่อม', state_after: 'ซ่อม', mold: '600 mk คอสั้น', summary: 'ช่างกำลังเปลี่ยนลิเมียร์ เมื่อเสร็จจะเริ่มเป่าปกติ' });
+  if (x === REAL_STOP) return J({ sure: 'มั่นใจ', event: 'ซ่อม', state_after: 'ซ่อม', mold: '600 mk คอสั้น', summary: 'หยุดเป่าเพื่อแก้ชุดสไลด์หลอด' });
+  if (/เพท4/.test(x)) return J({ about_pet10: 'ไม่', sure: 'มั่นใจ' });
+  if (/ลังเล/.test(x)) return big ? J({ sure: 'มั่นใจ', event: 'จอด', state_after: 'จอด', summary: 'PET10 จอด' }) : J({ sure: 'ไม่มั่นใจ', event: 'อื่น' });
+  return J({ about_pet10: 'ไม่', sure: 'มั่นใจ' });
+};
+
+t('PET10 บั๊กจริง 09/11: "…เปลี่ยนลิเมียร์เสร็จเริ่มเป่าปกติ" = เดิน (รุ่นเล็กอ่านว่าซ่อม → มีคำว่าเสร็จ → รุ่นหลักอ่านซ้ำ) · จากไม่ทราบ = แจ้งว่ากลับมาเดิน', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-09T07:53:00Z') /* 14:53 */, ai: realAi });
+  ctx.handleEvent(tw(REAL_DONE));
+  const p = S.prompts.filter(isP10);
+  assert.deepStrictEqual(p.map(x => x.model), ['claude-haiku-5-5', 'claude-sonnet-5-5']);
+  const c = p[0].messages[0].content;
+  assert.ok(/state_after ดูจากส่วนท้าย\/ผลล่าสุด/.test(c) && /"ให้ช่างเปลี่ยน…เสร็จ" = ช่างเปลี่ยนเสร็จแล้ว/.test(c) && c.indexOf(REAL_DONE) !== -1 && c.indexOf(REAL_STOP) !== -1, 'พรอมต์มีกติกาภาษาหน้างาน + ตัวอย่างจริง');
+  assert.strictEqual(st(S).state, 'เดิน'); assert.strictEqual(st(S).pend.length, 1, 'กลับมาเดินหลังหยุดที่ดิฉันไม่เห็น = ข่าว');
+  at(S, '2026-11-09T08:04:00Z'); ctx.p10Flush(false);
+  const own = ownerPush(S);
+  assert.strictEqual(own.length, 1);
+  assert.ok(/— ✅ เดินเครื่อง ตั้งแต่ 14:53/.test(own[0]) && /• สรุป: ช่างเปลี่ยนลิเมียร์เสร็จแล้ว PET10 กลับมาเป่า 600 mk คอสั้นปกติ/.test(own[0]) && !/กำลังซ่อม/.test(own[0]), own[0]);
+});
+
+t('PET10 ข้อความจริง: "600mkคอสั้นหยุดเป่า…แก้ชุดสไลด์หลอด" = ซ่อม แจ้ง · "เพท4 หยุดเป่า" = ไม่ใช่ PET10 · รุ่นเล็กไม่มั่นใจ → รุ่นหลักอ่านซ้ำ · มั่นใจว่าไม่เกี่ยว = อ่านครั้งเดียว', () => {
+  const { ctx, S } = makeEnv({ now: new Date('2026-11-09T05:26:00Z'), ai: realAi });
+  ctx.handleEvent(tw(REAL_STOP));
+  assert.strictEqual(st(S).state, 'ซ่อม'); assert.strictEqual(st(S).pend.length, 1);
+  assert.strictEqual(S.prompts.filter(isP10).length, 1, 'ไม่มีคำว่าเสร็จ + มั่นใจ = ไม่ต้องอ่านซ้ำ');
+  const n0 = S.prompts.length;
+  ctx.handleEvent(tw('เพท4 หยุดเป่าเปลี่ยนโมลด์ครับ'));
+  assert.strictEqual(S.prompts.length - n0, 1, 'มั่นใจว่าไม่เกี่ยว = ไม่อ่านซ้ำ'); assert.strictEqual(st(S).state, 'ซ่อม');
+  const b = makeEnv({ now: new Date(T0), ai: realAi });
+  b.ctx.handleEvent(tw('PET10 ลังเลว่าจะจอดไหมครับ'));
+  assert.deepStrictEqual(b.S.prompts.filter(isP10).map(x => x.model), ['claude-haiku-5-5', 'claude-sonnet-5-5']);
+  assert.strictEqual(st(b.S).state, 'จอด', 'ใช้คำตอบรุ่นหลัก');
+});
+
+t('PET10: คุณปาล์มแก้สถานะหลังระบบอ่านผิด → จดเป็นตัวอย่าง · รอบหลังพรอมต์มีตัวอย่างนั้น · เก็บไม่เกิน 10 · แก้โดยไม่มีข้อความกลุ่มก่อนหน้า = ไม่จด', () => {
+  const wrongAi = body => (isP10(body) ? J({ sure: 'มั่นใจ', event: 'ซ่อม', state_after: 'ซ่อม', summary: 'ช่างกำลังแก้' }) : twAi(RULES)(body));
+  const { ctx, S } = makeEnv({ now: new Date(T0), ai: wrongAi });
+  ctx.handleEvent(tw('PET10 ช่างแก้หัวเป่าเสร็จเป่าต่อครับ'));
+  assert.strictEqual(st(S).state, 'ซ่อม', 'ทั้งสองรุ่นอ่านผิด (จำลอง)');
+  at(S, '2026-11-09T03:40:00Z'); ctx.handleEvent(dm(OWNER, 'PET10 เดินแล้ว'));
+  const fx = JSON.parse(S.props.P10_FIXES || '[]');
+  assert.strictEqual(fx.length, 1);
+  assert.deepStrictEqual([fx[0].q, fx[0].wrong, fx[0].right], ['PET10 ช่างแก้หัวเป่าเสร็จเป่าต่อครับ', 'ซ่อม', 'เดิน']);
+  at(S, '2026-11-09T04:00:00Z'); ctx.handleEvent(tw('PET10 จอดครับ'));
+  const last = S.prompts.filter(isP10).pop().messages[0].content;
+  assert.ok(/ตัวอย่างที่คุณปาล์มเคยแก้/.test(last) && last.indexOf('"PET10 ช่างแก้หัวเป่าเสร็จเป่าต่อครับ" → ผิด: ซ่อม · ถูก: เดิน') !== -1, 'ป้อนตัวอย่างแก้ผิดรอบหลัง');
+  for (let i = 0; i < 12; i++) ctx.p10AddFix({ t: i, q: 'q' + i, wrong: 'ซ่อม', right: 'เดิน' });
+  assert.strictEqual(JSON.parse(S.props.P10_FIXES).length, 10);
+  const o = makeEnv({ now: new Date(T0) });
+  o.ctx.handleEvent(dm(OWNER, 'PET10 จอด'));
+  assert.ok(!o.S.props.P10_FIXES, 'ไม่มีข้อความกลุ่มให้เทียบ = ไม่จด');
+  // คุณปาล์มแค่อัปเดตข่าวที่รู้เอง: กลุ่มบอกจอด (ระบบอ่านถูก) แล้วต่อมาเครื่องเดิน → ไม่ใช่การแก้ผิด ห้ามสอนผิด ๆ
+  const u = makeEnv({ now: new Date(T0), ai: twAi(RULES) });
+  u.ctx.handleEvent(tw('PET10 จอดครับ'));
+  at(u.S, '2026-11-09T05:00:00Z'); u.ctx.handleEvent(dm(OWNER, 'PET10 เดินแล้ว'));
+  assert.strictEqual(st(u.S).state, 'เดิน'); assert.ok(!u.S.props.P10_FIXES, 'อัปเดตข่าว ≠ แก้ผิด');
+  // บอกตรง ๆ ว่าอ่านผิด → จด
+  u.ctx.handleEvent(tw('PET10 จอดครับ'));
+  u.ctx.handleEvent(dm(OWNER, 'PET10 อ่านผิดนะ ที่ถูกคือเดินอยู่'));
+  assert.strictEqual(JSON.parse(u.S.props.P10_FIXES || '[]').length, 1, 'คุณปาล์มบอกว่าผิด = จด');
 });
 
 console.log('\nเฝ้า PET10 ผ่านทั้งหมด ' + n + ' ข้อ');
