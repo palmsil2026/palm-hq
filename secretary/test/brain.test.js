@@ -93,3 +93,23 @@ t('พรอมต์: bill อ่านอย่างเดียว · ห้
 });
 
 console.log('\n🧠 สมอง + orders + โน้ตใบงาน ผ่านทั้งหมด ' + n + ' ข้อ');
+
+// ---------- 10/11 ปลุกทีม AI ล้มเพราะโทเคน → รู้ทันที (ของจริง: 401 ตั้งแต่ 21/10 ไม่มีใครรู้) ----------
+t('ปลุกทีม AI ได้ 401 → จดผลล่าสุด + แจ้งคุณปาล์มวันละครั้งพร้อมวิธีแก้ · "เช็คระบบ" เตือน · ปลุกสำเร็จ = กลับเป็นปกติ', () => {
+  const FIRE = 'https://routine.example/fire';
+  const E = env({ props: { ROUTINE_FIRE_URL: FIRE, ROUTINE_TOKEN: 'old' } });
+  const real = E.ctx.UrlFetchApp.fetch; let code = 401;
+  E.ctx.UrlFetchApp.fetch = (u, o) => u === FIRE ? { getResponseCode: () => code, getContentText: () => '{}' } : real(u, o);
+  assert.strictEqual(E.ctx.fireRoutine('ทดสอบ').ok, false);
+  E.ctx.fireRoutine('ทดสอบอีกรอบ');
+  const warned = E.S.pushes.filter(p => p.to === OWNER && /ปลุกทีม AI ไม่ได้ค่ะ \(HTTP 401/.test(p.messages[0].text));
+  assert.strictEqual(warned.length, 1, 'แจ้งวันละครั้ง'); assert.ok(/Generate token ใหม่/.test(warned[0].messages[0].text));
+  assert.ok(/ปลุกทีม AI ครั้งล่าสุดไม่สำเร็จ \(HTTP 401\)/.test(E.ctx.healthCheck()), 'เช็คระบบเตือน');
+  code = 200;
+  assert.strictEqual(E.ctx.fireRoutine('ทดสอบ').ok, true);
+  assert.ok(/ปุ่ม "เริ่มทันที" บนบอร์ดใช้ได้ \(ปลุกล่าสุดสำเร็จ/.test(E.ctx.healthCheck()));
+  // Routine อื่น (นักพัฒนา/เรียนรู้) ใช้โทเคนคนละตัว — ไม่ปนกับสถานะของ Routine หลัก
+  code = 401; E.ctx.fireRoutine('เคส', FIRE, 'x');
+  assert.ok(/ปลุกล่าสุดสำเร็จ/.test(E.ctx.healthCheck()));
+});
+console.log('🧠 + ปลุกทีม AI ผ่านเพิ่ม 1 ข้อ');

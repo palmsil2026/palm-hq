@@ -632,12 +632,37 @@ function fireRoutine(note, urlOverride, tokOverride) {
       muteHttpExceptions: true
     });
     const code = res.getResponseCode();
+    if (!urlOverride) routineFireNote(code >= 200 && code < 300, code);
     if (code >= 200 && code < 300) return { ok: true, msg: 'สั่งทีม AI เริ่มทำทันทีแล้ว' };
     console.error('fireRoutine ' + code + ': ' + res.getContentText().slice(0, 300));
     return { ok: false, msg: 'ปลุกทีม AI ไม่สำเร็จ (HTTP ' + code + ') — งานยังอยู่ในคิวรอบถัดไป' };
   } catch (err) {
+    if (!urlOverride) routineFireNote(false, 0);
     return { ok: false, msg: 'ปลุกทีม AI ไม่สำเร็จ: ' + err };
   }
+}
+
+// 10/11 จดผลการปลุกทีม AI ครั้งล่าสุด (Routine หลัก) — ของจริง: ได้ HTTP 401 ตั้งแต่ 21/10 ไม่มีใครรู้ งานบันทึกบิลค้าง "รอทีม AI" 3 สัปดาห์
+//   "เช็คระบบ" โชว์ผลล่าสุด · ล้มเพราะโทเคน (401/403) = แจ้งคุณปาล์มวันละครั้งพร้อมวิธีแก้
+function routineFireNote(ok, code) {
+  try {
+    const P = PropertiesService.getScriptProperties();
+    P.setProperty('ROUTINE_LAST', JSON.stringify({ ok: !!ok, code: Number(code) || 0, at: Date.now() }));
+    if (ok || (code !== 401 && code !== 403)) return;
+    const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+    if (P.getProperty('ROUTINE_FAIL_DAY') === today) return;
+    P.setProperty('ROUTINE_FAIL_DAY', today);
+    const oid = cfg('OWNER_LINE_USER_ID');
+    if (oid) linePush(oid, '⚠️ ปลุกทีม AI ไม่ได้ค่ะ (HTTP ' + code + ' = โทเคนหมดอายุหรือถูกยกเลิก) — งานที่ฝากเข้าคิวทีม AI จะยังไม่มีใครรับ\n'
+      + 'วิธีแก้: หน้า Edit routine › Select a trigger › API › Generate token ใหม่ แล้วใส่ใน Script Property ROUTINE_TOKEN ของคุณเลขา\n(พิมพ์ "เช็คระบบ" ดูสถานะได้ค่ะ)');
+  } catch (e) { console.error('routineFireNote: ' + e); }
+}
+function routineLastText() {
+  try {
+    const v = JSON.parse(PropertiesService.getScriptProperties().getProperty('ROUTINE_LAST') || 'null');
+    if (!v || !v.at) return null;
+    return { ok: !!v.ok, text: (v.ok ? 'สำเร็จ' : 'ไม่สำเร็จ' + (v.code ? ' (HTTP ' + v.code + ')' : '')) + ' เมื่อ ' + Utilities.formatDate(new Date(v.at), 'GMT+7', 'd/M HH:mm') };
+  } catch (e) { return null; }
 }
 
 // ลิงก์บอร์ดของ deployment ปัจจุบันเสมอ (ไม่ต้องจำ URL เอง ต่อให้ deploy ใหม่ก็ยังถูก)
@@ -2628,7 +2653,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-10d';
+const CODE_VERSION = '2026-11-10e';
 
 function healthCheck() {
   const L = [];
@@ -2734,9 +2759,12 @@ function healthCheck() {
   } catch (e) {}
 
   // 5. ปลุกทีม AI ทันที
-  (cfg('ROUTINE_FIRE_URL') && cfg('ROUTINE_TOKEN'))
-    ? ok('ปุ่ม "เริ่มทันที" บนบอร์ดใช้ได้')
-    : warn('ปลุกทีม AI ทันทีไม่ได้', 'ตั้ง ROUTINE_FIRE_URL + ROUTINE_TOKEN (หน้า Edit routine → API)');
+  const rl = routineLastText();
+  !(cfg('ROUTINE_FIRE_URL') && cfg('ROUTINE_TOKEN'))
+    ? warn('ปลุกทีม AI ทันทีไม่ได้', 'ตั้ง ROUTINE_FIRE_URL + ROUTINE_TOKEN (หน้า Edit routine → API)')
+    : (rl && !rl.ok)
+      ? warn('ปลุกทีม AI ครั้งล่าสุด' + rl.text + ' — งานในคิวทีม AI ยังไม่มีใครรับ', 'ถ้าเป็น HTTP 401/403 = โทเคนหมดอายุ: หน้า Edit routine → API → Generate token ใหม่ แล้วใส่ ROUTINE_TOKEN')
+      : ok('ปุ่ม "เริ่มทันที" บนบอร์ดใช้ได้' + (rl ? ' (ปลุกล่าสุด' + rl.text + ')' : ''));
 
   // 5.5 🛠️ นักพัฒนา — เคสค้าง · ปลุกทันทีได้ไหม · ส่งผลไม่ออก (โควตาไลน์)
   issueHealthLines(ok, warn);
