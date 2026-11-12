@@ -853,6 +853,7 @@ require('./issue.test.js');
 
 // 🍾 เฝ้าเครื่องเป่าขวด PET10 (กลุ่ม TEAMWORK) — ไฟล์แยก รันต่อท้าย
 require('./pet10.test.js');
+require('./mw250.test.js');
 
 // ⛽ บิลน้ำมันจากกลุ่มสายรถ → แอปรถ — ไฟล์แยก รันต่อท้าย
 require('./fuel.test.js');
