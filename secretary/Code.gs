@@ -2659,7 +2659,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-18a';
+const CODE_VERSION = '2026-11-19a';
 
 function healthCheck() {
   const L = [];
@@ -4617,7 +4617,17 @@ function linePushExact(to, text) {
     return { ok: true, msgId: id };
   } catch (e) { return { ok: false, error: String(e) }; }
 }
+// 🌙 ช่วงกลางคืนไม่ส่งสรุปบิลลงกลุ่มบิล — ไม่ถามแอปบัญชีเลย ของค้างรอส่งตอนเช้า
+//   (คุณปาล์ม 19/11 ตอนสรุปบิลเก่า 12/11 จะเด้งเข้ากลุ่มตอนเที่ยงคืน: "ค่อยส่งพน.เช้าเอา")
+//   ตั้งค่า EXPENSE_QUIET = "21-8" (ค่าเริ่มต้น · ชั่วโมงไทย เริ่ม-จบ) · "off" = ส่งได้ทั้งวัน
+function expenseQuietNow() {
+  const m = String(cfg('EXPENSE_QUIET') || '21-8').trim().match(/^(\d{1,2})\s*-\s*(\d{1,2})$/);
+  if (!m) return false;
+  const a = Number(m[1]), b = Number(m[2]), h = Number(Utilities.formatDate(new Date(), 'GMT+7', 'H'));
+  return a > b ? (h >= a || h < b) : (h >= a && h < b);
+}
 function expenseOutboxTick() {
+  if (expenseQuietNow()) return;
   for (let i = 0; i < 3; i++) {   // ปกติมีทีละ 1 ข้อความ · กันค้างหลายอันได้ไม่เกิน 3 ต่อรอบ
     const r = financeCall({ action: 'expenseOutbox' });
     if (!r || r.act !== 'say' || !r.outId || !r.say) {

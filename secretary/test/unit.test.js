@@ -388,6 +388,23 @@ t('fireDueReminders: ชีตเตือนว่าง → ยังรัน
   assert.ok(finCalls(S).some(b => b.action === 'expenseOutboxSent' && b.outId === 'OUT9'));
 });
 
+t('expenseOutbox: กลางคืน 21:00–08:00 ไม่ส่งลงกลุ่มบิล (ไม่ถามแอปบัญชีเลย ของค้างรอเช้า) · 08:00 ส่งตามปกติ · EXPENSE_QUIET=off ส่งได้ทั้งวัน', () => {
+  const mk = (iso, props) => makeEnv({ now: new Date(iso), props, financeResp: b => (b.action === 'expenseOutbox' ? { success: true, act: 'say', outId: 'OUTN', say: 'สรุปบิลเก่า' } : { success: true }) });
+  for (const iso of ['2026-11-18T17:05:00Z' /* 00:05 */, '2026-11-18T14:00:00Z' /* 21:00 */, '2026-11-18T00:45:00Z' /* 07:45 */]) {
+    const { ctx, S } = mk(iso);
+    ctx.expenseOutboxTick();
+    assert.strictEqual(S.pushes.length, 0, iso); assert.ok(!finCalls(S).length, 'ไม่ถามแอปบัญชี ' + iso);
+  }
+  for (const iso of ['2026-11-19T01:00:00Z' /* 08:00 */, '2026-11-18T13:45:00Z' /* 20:45 */]) {
+    const { ctx, S } = mk(iso);
+    ctx.expenseOutboxTick();
+    assert.ok(S.pushes.some(p => p.messages[0].text === 'สรุปบิลเก่า'), iso);
+  }
+  const o = mk('2026-11-18T17:05:00Z', { EXPENSE_QUIET: 'off' });
+  o.ctx.expenseOutboxTick();
+  assert.ok(o.S.pushes.some(p => p.messages[0].text === 'สรุปบิลเก่า'), 'off = ส่งได้ทั้งวัน');
+});
+
 t('expenseOutbox: act none → ไม่ส่งอะไร ไม่แจ้งกลับ', () => {
   const { ctx, S } = makeEnv({ financeResp: () => ({ success: true, act: 'none' }) });
   ctx.expenseOutboxTick();
