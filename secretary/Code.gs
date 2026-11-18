@@ -324,6 +324,11 @@ function doGet(e) {
   }
   // 🧪 ลองรุ่นเล็กอ่านรูปกับรูปจริงในคลัง (n รูป · apply=1 ผ่านเกณฑ์แล้วเปิดใช้) — LEARN_KEY เท่านั้น
   // ⛽ บิลน้ำมันย้อนหลังจาก GroupChat กลุ่มสายรถ — ไม่ใส่ send=1 = ลองนับอย่างเดียว · LEARN_KEY เท่านั้น
+  // 📨 โควตาไลน์เดือนนี้ (อ่านอย่างเดียว) — LEARN_KEY เท่านั้น
+  if (p.action === 'lineQuota') {
+    if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
+    return jsonOut(Object.assign(lineQuotaInfo(true), { quotaOut: mwQuotaOut(), version: CODE_VERSION }));
+  }
   if (p.action === 'fuelBackfill') {
     if (!learnKeyOk(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut(fuelBackfill(String(p.from || ''), String(p.send || '') === '1', Number(p.start) || 0));
@@ -2654,7 +2659,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-12a';
+const CODE_VERSION = '2026-11-18a';
 
 function healthCheck() {
   const L = [];
@@ -2734,6 +2739,7 @@ function healthCheck() {
   try { p10HealthLine(ok, warn); } catch (e) {}
   // 4.53 ⛽ บิลน้ำมันจากกลุ่มสายรถ → แอปรถ
   try { fuelHealthLine(ok, warn); } catch (e) {}
+  try { lineQuotaHealthLine(ok, warn); } catch (e) {}
 
   // 4.55 🧾 แอปบัญชี (กลุ่มบิลค่าใช้จ่าย → รายจ่าย · เตือนบิล · ถามบิล)
   if (cfg('PLANT_SHEET_ID') || cfg('FINANCE_CHAT_TOKEN')) {
@@ -3640,9 +3646,45 @@ function mwDur(ms) {
   return h ? h + ' ชม.' + (m % 60 ? ' ' + (m % 60) + ' นาที' : '') : m + ' นาที';
 }
 // โควตาไลน์เดือนนี้หมด (LINE ตอบ 429 "monthly limit") → หยุดลองส่งซ้ำทุก tick · ลองใหม่ทุก 6 ชม. (เผื่อคุณปาล์มซื้อโควตาเพิ่ม)
+//   18/11 คุณปาล์มอัปเกรดแพ็กเสียเงิน (15,000/เดือน) → ธงตั้งอยู่ = ถามโควตาจาก LINE ทุก 30 นาที มีที่ว่างแล้วปลดทันที ไม่ต้องรอ 6 ชม.
 function mwQuotaOut() {
-  try { const q = JSON.parse(PropertiesService.getScriptProperties().getProperty('LINE_QUOTA_OUT') || 'null');
-        return !!q && q.m === p10Day(Date.now()).slice(0, 7) && Date.now() - q.t < 6 * 3600000; } catch (e) { return false; }
+  try {
+    const P = PropertiesService.getScriptProperties();
+    const q = JSON.parse(P.getProperty('LINE_QUOTA_OUT') || 'null');
+    if (!(!!q && q.m === p10Day(Date.now()).slice(0, 7) && Date.now() - q.t < 6 * 3600000)) return false;
+    if (Date.now() - (q.chk || q.t) >= 30 * 60000) {
+      const lq = lineQuotaInfo(true);
+      if (lq.ok && (lq.left === null || lq.left > 0)) { P.deleteProperty('LINE_QUOTA_OUT'); return false; }
+      q.chk = Date.now(); P.setProperty('LINE_QUOTA_OUT', JSON.stringify(q));
+    }
+    return true;
+  } catch (e) { return false; }
+}
+// 📨 โควตาไลน์ (push) จาก LINE API ตรง ๆ — { ok, type: 'limited'|'none', limit, used, left (null = ไม่จำกัด) } · จำ 30 นาที
+function lineQuotaInfo(fresh) {
+  const C = CacheService.getScriptCache();
+  if (!fresh) { try { const c = C.get('LINE_QUOTA'); if (c) return JSON.parse(c); } catch (e) {} }
+  const get = function (path) {
+    const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/' + path, { method: 'get', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') } });
+    if (res.getResponseCode() !== 200) throw new Error('LINE HTTP ' + res.getResponseCode() + ' ' + String(res.getContentText() || '').slice(0, 100));
+    return JSON.parse(res.getContentText() || '{}');
+  };
+  let out;
+  try {
+    const q = get('quota'), u = get('quota/consumption');
+    const limited = q.type === 'limited', used = Number(u.totalUsage) || 0, limit = limited ? Number(q.value) || 0 : null;
+    out = { ok: true, type: String(q.type || ''), limit: limit, used: used, left: limited ? Math.max(0, limit - used) : null };
+  } catch (e) { out = { ok: false, error: String(e && e.message || e).slice(0, 160) }; }
+  try { C.put('LINE_QUOTA', JSON.stringify(out), 1800); } catch (e) {}
+  return out;
+}
+function lineQuotaHealthLine(ok, warn) {
+  const q = lineQuotaInfo(false), fm = function (n) { return Number(n).toLocaleString('en-US'); };
+  if (!q.ok) { warn('📨 ดูโควตาไลน์ไม่ได้: ' + q.error); return; }
+  if (q.left === null) { ok('📨 โควตาไลน์: ไม่จำกัด · ใช้ไปเดือนนี้ ' + fm(q.used) + ' ข้อความ'); return; }
+  const line = '📨 โควตาไลน์เดือนนี้: ใช้ ' + fm(q.used) + ' / ' + fm(q.limit) + ' ข้อความ (เหลือ ' + fm(q.left) + ')';
+  if (q.left <= Math.max(50, q.limit * 0.1)) warn(line, 'ใกล้หมด — ส่งเข้ากลุ่มนับตามจำนวนคนในกลุ่ม · ตอบกลับไม่กินโควตา');
+  else ok(line);
 }
 function mwNoteQuota(err) {
   if (!/monthly limit/i.test(String(err || ''))) return false;
@@ -3914,6 +3956,11 @@ function p10Flush(force, id) {
       return out;
     }, id);
     if (!job) return false;
+    if (now - (job.pendAt || now) >= 6 * 3600000) {   // ค้างเกิน 6 ชม. (เช่น โควตาหมดแล้วเพิ่งกลับมา) = ข่าวเก่า ไม่ส่ง · ถามเองได้
+      mwMarkRows(job.pend.map(function (p) { return p.row; }), 'ไม่ส่ง: ค้างเกิน 6 ชม. ' + p10Dt(now));
+      logRow([id === 'PET10' ? 'แจ้ง PET10' : 'แจ้ง ' + M.short, 'ระบบ', job.pend.length + ' เรื่องค้างตั้งแต่ ' + p10Dt(job.pendAt), 'ทิ้ง: ค้างเกิน 6 ชม.']);
+      return false;
+    }
     const text = p10AlertText(job.st, job.pend, id);
     const r = linePushExact(owner, text);
     const quota = !r.ok && mwNoteQuota(r.error), drop = now - (job.pendAt || now) >= 6 * 3600000;

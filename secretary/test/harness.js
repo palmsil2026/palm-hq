@@ -62,6 +62,11 @@ function makeEnv(opts) {
       if (url.indexOf('/summary') !== -1) { const id = url.split('/group/')[1].split('/')[0];
         return resp(200, { groupName: id === EXP_GID ? 'บิลค่าใช้จ่าย 🧾' : id === PROD_GID ? 'ทีมผลิต' : id === TW_GID ? 'TEAMWORK โรงขวด' : id === VAN_GID ? 'sale ละกอน สายรถ' : 'กลุ่มคุยเล่น' }); }
       if (url.indexOf('/message/reply') !== -1) { S.replies.push(rec.body); return resp(S.replyCode, { sentMessages: [] }); }
+      if (url.indexOf('/message/quota') !== -1) {   // โควตาไลน์ (S.quotaLimit / S.quotaUsed / S.quotaCode)
+        S.quotaFetches = (S.quotaFetches || 0) + 1;
+        if (S.quotaCode && S.quotaCode !== 200) return resp(S.quotaCode, { message: 'err' });
+        return resp(200, url.indexOf('consumption') !== -1 ? { totalUsage: S.quotaUsed == null ? 10 : S.quotaUsed }
+                                                            : (S.quotaLimit === null ? { type: 'none' } : { type: 'limited', value: S.quotaLimit == null ? 15000 : S.quotaLimit })); }
       if (url.indexOf('/message/push') !== -1) { S.pushes.push(rec.body); return resp(S.pushCode || 200, S.pushResp || { sentMessages: [] }); }
       if (url.indexOf('AKfycbyz9gSSkms44VWcnD3wtZx9C33aG1r5LAjxVPMjD_EcqzwzxU2UBtVVd15qfO_idObE') !== -1) {   // แอปทีมผลิต
         if (opts.prodThrow) throw new Error('timeout');

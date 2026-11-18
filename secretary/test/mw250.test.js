@@ -253,7 +253,7 @@ t('250: โควตาไลน์เดือนนี้หมด (429 monthl
   const { ctx, S } = makeEnv({ now: new Date(D1), ai, props: { MW_PET250S6: run } });
   const rows = fakeSheet(ctx);
   ctx.handleEvent(tw(REAL.stop));
-  S.pushCode = 429; S.pushResp = { message: 'You have reached your monthly limit.' };
+  S.pushCode = 429; S.pushResp = { message: 'You have reached your monthly limit.' }; S.quotaLimit = 300; S.quotaUsed = 300;
   at(S, '2026-11-13T01:31:00Z'); assert.strictEqual(ctx.p10Flush(false), false);
   const tries = S.pushes.length;
   assert.ok(S.props.LINE_QUOTA_OUT); assert.strictEqual(m250(S).pushErr, 'โควตาไลน์เดือนนี้หมด (LINE 429 monthly limit)');
@@ -273,10 +273,10 @@ t('250: โควตาไลน์เดือนนี้หมด (429 monthl
   assert.strictEqual(S.pushes.length, tries + 1, 'ครบ 6 ชม. ลองอีกครั้ง'); assert.strictEqual(m250(S).pend.length, 1);
   at(S, '2026-11-13T08:40:00Z'); ctx.p10Flush(false);
   assert.strictEqual(S.pushes.length, tries + 1, 'ธงใหม่ (15:10) = ไม่ยิงซ้ำ');
-  at(S, '2026-11-13T14:15:00Z'); ctx.p10Flush(false);   // 21:15 ลองอีกครั้ง → เรื่องค้างเกิน 6 ชม. = เลิก
-  assert.strictEqual(S.pushes.length, tries + 2);
+  at(S, '2026-11-13T14:15:00Z'); ctx.p10Flush(false);   // 21:15 ธงหมดอายุ → เรื่องค้างเกิน 6 ชม. = ทิ้งเลย ไม่ส่งข่าวเก่า
+  assert.strictEqual(S.pushes.length, tries + 1, 'ข่าวเก่าเกิน 6 ชม. ไม่ส่ง');
   assert.strictEqual(m250(S).pend.length, 0, 'เกิน 6 ชม. = เลิก');
-  assert.ok(/\(เลิกลองแล้ว\)$/.test(rows[3][11]), rows[3][11]);
+  assert.ok(/^ไม่ส่ง: ค้างเกิน 6 ชม\. 13\/11 21:15$/.test(rows[3][11]), rows[3][11]);
   // ซื้อโควตาเพิ่ม/ขึ้นเดือนใหม่ → ส่งได้ตามปกติ
   S.pushCode = 200; delete S.pushResp; delete S.props.LINE_QUOTA_OUT;
   at(S, '2026-11-13T15:00:00Z'); ctx.handleEvent(tw(REAL.done));
@@ -289,6 +289,43 @@ t('250: เช็คระบบ บรรทัด 🍾 เครื่อง 2
   const h = health(ctx);
   assert.ok(/✅ 🍾 เฝ้า PET10: รู้จักกลุ่ม TEAMWORK แล้ว/.test(h), h);
   assert.ok(/✅ 🍾 เฝ้า เป่า 250 คอสั้น 6 ใบ \(เพท4\): ล่าสุด ⛔ จอดเครื่อง \(12\/11 17:26 · สถานะตั้งต้น\) · วันนี้หยุด 0 ครั้ง · แจ้งเดือนนี้ 0 ครั้ง \(ถาม "เครื่อง 250" ได้ · สรุปรายวัน 18:30 เฉพาะวันที่มีปัญหา\)/.test(h), h);
+});
+
+t('📨 โควตาไลน์ (18/11 อัปเกรด 15,000): ธงโควตาหมด + LINE บอกว่ามีที่ว่าง → ปลดเองภายใน 30 นาที ส่งได้ทันที · ยังเต็ม = คงธง ไม่ถามถี่ · เช็คระบบโชว์ใช้/เหลือ', () => {
+  const run = JSON.stringify({ state: 'เดิน', mold: '250 คอสั้น', updated: Date.parse(D1) - 3600e3, since: Date.parse(D1) - 3600e3 });
+  const { ctx, S } = makeEnv({ now: new Date(D1), ai, props: { MW_PET250S6: run } });
+  ctx.handleEvent(tw(REAL.stop));
+  S.pushCode = 429; S.pushResp = { message: 'You have reached your monthly limit.' }; S.quotaLimit = 300; S.quotaUsed = 300;
+  at(S, '2026-11-13T01:31:00Z'); ctx.p10Flush(false);
+  assert.ok(S.props.LINE_QUOTA_OUT); const tries = S.pushes.length;
+  at(S, '2026-11-13T01:46:00Z'); ctx.p10Flush(false);
+  assert.strictEqual(S.pushes.length, tries); assert.ok(!S.quotaFetches, 'ยังไม่ครบ 30 นาที ไม่ถามโควตา');
+  at(S, '2026-11-13T02:02:00Z'); ctx.p10Flush(false);
+  assert.strictEqual(S.quotaFetches, 2, 'ครบ 30 นาที ถาม quota + consumption'); assert.ok(S.props.LINE_QUOTA_OUT, 'ยังเต็ม = คงธง');
+  assert.strictEqual(S.pushes.length, tries);
+  // คุณปาล์มอัปเกรดแพ็ก → LINE บอกว่ามีที่ว่าง → ปลดธง ส่งเรื่องที่ค้างได้เลย (ยังไม่เกิน 6 ชม.)
+  S.quotaLimit = 15000; S.quotaUsed = 300; S.pushCode = 200; delete S.pushResp;
+  at(S, '2026-11-13T02:33:00Z'); assert.strictEqual(ctx.p10Flush(false), true);
+  assert.ok(!S.props.LINE_QUOTA_OUT, 'ปลดธงแล้ว'); assert.strictEqual(S.pushes.length, tries + 1);
+  assert.ok(/^🍾 เป่า 250 คอสั้น 6 ใบ \(เพท4\) — ⛔ จอดเครื่อง ตั้งแต่ 08:00/.test(ownerPush(S).pop()));
+  // เช็คระบบ: โชว์ใช้/เหลือ · ใกล้หมด = เตือน · ถาม LINE ไม่ได้ = เตือน
+  const a = makeEnv({ now: new Date(D1) }); a.S.quotaUsed = 812;
+  assert.ok(/✅ 📨 โควตาไลน์เดือนนี้: ใช้ 812 \/ 15,000 ข้อความ \(เหลือ 14,188\)/.test(health(a.ctx)), health(a.ctx));
+  const b = makeEnv({ now: new Date(D1) }); b.S.quotaUsed = 14000;
+  assert.ok(/⚠️ 📨 โควตาไลน์เดือนนี้: ใช้ 14,000 \/ 15,000 ข้อความ \(เหลือ 1,000\)/.test(health(b.ctx)), health(b.ctx));
+  const c = makeEnv({ now: new Date(D1) }); c.S.quotaCode = 401;
+  assert.ok(/⚠️ 📨 ดูโควตาไลน์ไม่ได้: LINE HTTP 401/.test(health(c.ctx)), health(c.ctx));
+});
+
+t('📨 แจ้งเครื่องที่ค้างเกิน 6 ชม. (ส่งไม่ออกนาน) → ทิ้ง ไม่ส่งข่าวเก่า · ช่องชีตบอกว่าไม่ส่ง · log ทิ้ง', () => {
+  const run = JSON.stringify({ state: 'เดิน', mold: '250 คอสั้น', updated: Date.parse(D1) - 3600e3, since: Date.parse(D1) - 3600e3 });
+  const { ctx, S } = makeEnv({ now: new Date(D1), ai, props: { MW_PET250S6: run } });
+  const rows = fakeSheet(ctx);
+  ctx.handleEvent(tw(REAL.stop));
+  at(S, '2026-11-13T07:05:00Z'); assert.strictEqual(ctx.p10Flush(false), false);
+  assert.strictEqual(ownerPush(S).length, 0); assert.strictEqual(m250(S).pend.length, 0);
+  assert.strictEqual(rows[1][11], 'ไม่ส่ง: ค้างเกิน 6 ชม. 13/11 14:05');
+  assert.ok(S.logs.some(l => l[0] === 'แจ้ง เครื่อง 250 คอสั้น' && l[3] === 'ทิ้ง: ค้างเกิน 6 ชม.'));
 });
 
 console.log('\n🍾 เครื่อง 250 คอสั้น 6 ใบ ผ่านทั้งหมด ' + n + ' ข้อ');
