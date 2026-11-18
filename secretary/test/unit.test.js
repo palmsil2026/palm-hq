@@ -567,6 +567,61 @@ t('pH: เลย 9 โมงยังไม่มีค่า + ทีมโพ�
   assert.strictEqual(b.S.replies.length, 1, 'ส่งแล้ว ไม่ทวง (มีแค่คำตอบรับรูป)');
 });
 
+t('pH ทวงเอง (19/11 โควตา 15,000): เลย 09:30 ไม่มีค่า ไม่มีใครโพสต์ให้ตอบ → ส่งทวงเข้ากลุ่มฝ่ายผลิตเอง ครั้งเดียว · วันหยุด/ทวงตอบกลับแล้ว/ส่งค่าแล้ว/ปิด = ไม่ส่ง', () => {
+  const prodPush = S => S.pushes.filter(p => p.to === PROD_GID).map(p => p.messages[0].text);
+  // มีรอบผลิตวันนี้ในแอป แต่ไม่มีใครโพสต์ในกลุ่มเลย
+  const a = makeEnv({ now: new Date('2026-11-03T02:20:00Z') /* 09:20 */ });
+  a.ctx.phMadeDays = () => ({ '2026-11-03': 1 });
+  a.ctx.fireDueReminders();
+  assert.strictEqual(prodPush(a.S).length, 0, 'ยังไม่ครบ 30 นาทีหลัง 9 โมง');
+  at(a.S, '2026-11-03T02:31:00Z'); a.ctx.fireDueReminders();
+  assert.strictEqual(prodPush(a.S).length, 1); assert.ok(/^เช้านี้ยังไม่เห็นค่า pH เลยนะคะ/.test(prodPush(a.S)[0]));
+  at(a.S, '2026-11-03T02:46:00Z'); a.ctx.fireDueReminders();
+  a.ctx.handleEvent(prodTxt('ขวดล้มครับ'));
+  assert.strictEqual(prodPush(a.S).length, 1, 'รอบละครั้ง'); assert.strictEqual(a.S.replies.length, 0, 'ทวงไปแล้ว ไม่ตอบกลับทวงซ้ำ');
+  assert.ok(a.S.logs.some(l => l[0] === 'ทวงค่า pH (ส่งเอง)' && l[2] === 'am'));
+  // รอบบ่าย 15:30 ก็ทวงเองเหมือนกัน
+  at(a.S, '2026-11-03T08:31:00Z'); a.ctx.fireDueReminders();
+  assert.strictEqual(prodPush(a.S).length, 2); assert.ok(/^รอบบ่ายยังไม่เห็นค่า pH/.test(prodPush(a.S)[1]));
+  // ทีมโพสต์ก่อน 9 โมง (วันทำงาน · แอปอ่านไม่ได้) แล้วเงียบ → 09:30 ทวงเอง
+  const b = makeEnv({ now: new Date('2026-11-03T01:50:00Z') /* 08:50 */ });
+  b.ctx.phMadeDays = () => null;
+  b.ctx.handleEvent(prodTxt('แจ้งเดินเครื่องผลิตน้ำครับ'));
+  at(b.S, '2026-11-03T02:31:00Z'); b.ctx.fireDueReminders();
+  assert.strictEqual(prodPush(b.S).length, 1);
+  // วันหยุด: ไม่มีรอบผลิต ไม่มีใครโพสต์ → ไม่ส่ง
+  const c = makeEnv({ now: new Date('2026-11-03T02:31:00Z') });
+  c.ctx.phMadeDays = () => ({});
+  c.ctx.fireDueReminders();
+  assert.strictEqual(prodPush(c.S).length, 0, 'วันหยุด ไม่ทวงเข้ากลุ่ม');
+  // ทวงด้วยการตอบกลับไปแล้ว 09:10 → 09:40 ไม่ส่งซ้ำ
+  const d = makeEnv({ now: new Date('2026-11-03T02:10:00Z') });
+  d.ctx.phMadeDays = () => ({ '2026-11-03': 1 });
+  d.ctx.handleEvent(prodTxt('ขวดล้มครับ'));
+  assert.strictEqual(d.S.replies.length, 1);
+  at(d.S, '2026-11-03T02:40:00Z'); d.ctx.fireDueReminders();
+  assert.strictEqual(prodPush(d.S).length, 0, 'ทวงตอบกลับแล้ว ไม่ push ซ้ำ');
+  // ส่งค่าแล้ว / PH_PUSH=off / ก่อนวันเริ่ม → ไม่ส่ง
+  const e = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('7.5') });
+  e.ctx.phMadeDays = () => ({ '2026-11-03': 1 });
+  e.ctx.handleEvent(ev('image', {}, PROD_GID));
+  at(e.S, '2026-11-03T02:31:00Z'); e.ctx.fireDueReminders();
+  assert.strictEqual(prodPush(e.S).length, 0, 'ส่งค่าแล้ว');
+  for (const props of [{ PH_PUSH: 'off' }, { PH_FROM: '2026-11-04' }]) {
+    const f = makeEnv({ now: new Date('2026-11-03T02:31:00Z'), props });
+    f.ctx.phMadeDays = () => ({ '2026-11-03': 1 });
+    f.ctx.fireDueReminders();
+    assert.strictEqual(prodPush(f.S).length, 0, JSON.stringify(props));
+  }
+  // ส่งไม่ผ่าน → ไม่จดว่าทวงแล้ว รอบหน้าลองใหม่
+  const h = makeEnv({ now: new Date('2026-11-03T02:31:00Z') });
+  h.ctx.phMadeDays = () => ({ '2026-11-03': 1 });
+  h.S.pushCode = 500; h.ctx.fireDueReminders();
+  h.S.pushCode = 200; h.S.pushes.length = 0;
+  at(h.S, '2026-11-03T02:46:00Z'); h.ctx.fireDueReminders();
+  assert.strictEqual(prodPush(h.S).length, 1, 'ลองใหม่รอบหน้า');
+});
+
 t('pH: รอบบ่าย — เลย 15:00 ยังไม่มีค่า → ทวงรอบบ่าย · ก่อนวันเริ่ม (PH_FROM 3/11) ไม่ทวงทั้งเช้าและบ่าย', () => {
   const { ctx, S } = makeEnv({ now: new Date('2026-11-03T01:20:00Z'), ai: phAi('7.5') });
   ctx.handleEvent(ev('image', {}, PROD_GID));

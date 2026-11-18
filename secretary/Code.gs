@@ -1382,6 +1382,7 @@ function fireDueReminders() {
   } catch (e) { console.error('shopAlertsDaily: ' + e); }
   // 🧪 ค่า pH ฝ่ายผลิต: วันนี้ขาดรอบไหน · ขาด 2 วันทำงานติด → แจ้งคุณปาล์ม (20–23 น. วันละครั้ง)
   try { phEveningCheck(); } catch (e) { console.error('phEveningCheck: ' + e); }
+  try { phPushNag(); } catch (e) { console.error('phPushNag: ' + e); }   // 🧪 ไม่มีใครโพสต์ให้ตอบ = ทวง pH เข้ากลุ่มเอง (19/11)
   // ⛔ ลบ trigger ที่เลิกใช้ซึ่งติดตั้งอยู่จริง (ครั้งเดียว — ไม่ต้องรอใครกดรัน setupTriggers)
   try {
     const P = PropertiesService.getScriptProperties();
@@ -2659,7 +2660,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-19a';
+const CODE_VERSION = '2026-11-19b';
 
 function healthCheck() {
   const L = [];
@@ -3150,7 +3151,8 @@ function productionAppPing() {
 //   ข้อมูลจริง 7/10–2/11: ส่ง pH แค่ 10/17 วันที่เดินเครื่อง · ส่งเป็นรูป ไม่เคยพิมพ์ตัวเลข · ไม่มีใครตอบรับเลย 0/10
 //   · ฟอร์ม QC ในแอปใช้ครั้งเดียว (29/8) → ไม่บังคับเปิดแอป (PALM-WAY ข้อ 13) ส่งรูปในไลน์เหมือนเดิม เลขาอ่านค่า+จดให้
 //   วันละ 2 รอบ (เช้า/บ่าย) + วัดซ้ำทุกครั้งที่เปลี่ยน/เติมสารปรับ pH ("วันนึงฉันอยากให้เค้าตรวจ pH 2 ครั้ง … หรือมากกว่า ถ้าเปลี่ยนสาร")
-//   ⚠️ ตอบกลับ (reply) เท่านั้น — ไม่ push เข้ากลุ่ม (นับโควต้าตามจำนวนคนในกลุ่ม) · ทวงแนบไปกับข้อความที่ทีมโพสต์เอง
+//   ทวงแนบไปกับข้อความที่ทีมโพสต์เอง (ตอบกลับ ฟรี) · 19/11 อัปเกรดไลน์ 15,000/เดือนแล้ว คุณปาล์ม: "อะไรที่น่าจะส่งเตือน … โดยที่ไม่ต้องมีข้อความไปก่อน" → "น่าจะเรื่อง pH อะ"
+//     → ไม่มีใครโพสต์ให้ตอบ = ส่งทวงเข้ากลุ่มเอง (push) หลังเลยเวลา PH_PUSH_AFTER_MIN (30) นาที · เฉพาะวันทำงาน (มีรอบผลิตในแอป / ทีมโพสต์ช่วงนั้น) · รอบละครั้ง · PH_PUSH=off ปิด
 //   แจ้งคุณปาล์มเฉพาะมีปัญหา: ค่านอกเกณฑ์ · ขาดส่ง 2 วันทำงานติด · ที่เหลือพิมพ์ "สรุป pH" ดูเอง
 //   ตั้งค่าได้ (Script Properties): PH_MIN/PH_MAX (6.5/8.5) · PH_AM_BY (09:00) · PH_PM_BY (15:00) · PH_FROM (เริ่มทวง 3/11) · PH_PM_FROM (เริ่มรอบบ่าย)
 //   · PH_CHEM_WAIT_MIN (60) · PH_WATCH=off ปิดทั้งหมด
@@ -3267,6 +3269,28 @@ function phMarkOff(o) {
   if (o.slot !== 'am') d.off.pm = 1;
   phStore(log);
 }
+// ⏰ ทวงเอง (push เข้ากลุ่มฝ่ายผลิต) เมื่อเลยเวลาทวงไป PH_PUSH_AFTER_MIN นาทีแล้วยังไม่มีค่า และยังไม่ได้ทวงด้วยการตอบกลับ — เรียกจาก fireDueReminders ทุก 15 นาที
+//   วันทำงานเท่านั้น: มีรอบผลิตวันนี้ในแอปทีมผลิต หรือทีมโพสต์ในกลุ่มช่วงนั้น (ไม่มีทั้งคู่ = อาจเป็นวันหยุด → ไม่ส่ง) · ส่งไม่ผ่าน = ลองใหม่รอบหน้า
+function phPushNag() {
+  try {
+    if (!phOn() || String(cfg('PH_PUSH') || '').toLowerCase() === 'off') return false;
+    const gid = productionGroupId(); if (!gid) return false;
+    const n = phNow(), delay = (Number(cfg('PH_PUSH_AFTER_MIN')) || 30) * 60000;
+    if (n.day < phFrom()) return false;
+    const late = { day: n.day, ms: n.ms - delay, min: n.min - delay / 60000 };
+    const d0 = phLoad()[n.day] || {};
+    const g0 = phNagText(d0, late);
+    if (!g0) return false;
+    const work = g0.k === 'chem' ? true : (g0.k === 'am' ? !!d0.actAm : !!d0.actPm) || (function () { const m = phMadeDays(); return !!(m && m[n.day]); })();
+    if (!work) return false;
+    const sent = linePushExact(gid, g0.t);
+    if (!sent.ok) { logRow(['ทวงค่า pH (ส่งเอง)', 'ระบบ', g0.k, 'ส่งไม่ออก: ' + sent.error]); return false; }
+    phEdit(function (d) { d.nag = d.nag || {}; d.nag[g0.k] = 1; });
+    logRow(['ทวงค่า pH (ส่งเอง)', 'ระบบ', g0.k, g0.t]);
+    return true;
+  } catch (e) { console.error('phPushNag: ' + e); return false; }
+}
+
 // วันที่มีรอบผลิตในแอปทีมผลิต { 'yyyy-MM-dd': 1 } · อ่านไม่ได้ = null (ใช้ "มีคนโพสต์ไหม" แทน)
 function phMadeDays() {
   try {
