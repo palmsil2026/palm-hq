@@ -1,0 +1,13 @@
+{
+  "name": "palm-ai-bos",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "miniflare": "4.20260730.0"
+  }
+}
