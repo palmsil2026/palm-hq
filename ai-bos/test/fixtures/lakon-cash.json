@@ -1,0 +1,15 @@
+{
+  "company": "lakon",
+  "throughDate": "2026-11-25",
+  "payments": [
+    {"id":"PAY-100","date":"2026-11-24","method":"เงินสด","amountSatang":120000,"status":"เข้าบริษัทแล้ว","remitId":"REM-100","referenceId":null},
+    {"id":"PAY-101","date":"2026-11-24","method":"เงินสด","amountSatang":35000,"status":"อยู่กับพนักงาน","remitId":null,"referenceId":null},
+    {"id":"PAY-102","date":"2026-11-24","method":"เงินสด","amountSatang":48000,"status":"อยู่กับพนักงาน","remitId":null,"referenceId":null},
+    {"id":"PAY-103","date":"2026-11-24","method":"เงินสด","amountSatang":9900,"status":"อยู่กับพนักงาน (กลับรายการแล้ว)","remitId":null,"referenceId":null},
+    {"id":"PAY-104","date":"2026-11-25","method":"เงินสด","amountSatang":-9900,"status":"กลับรายการ","remitId":null,"referenceId":"PAY-103"},
+    {"id":"PAY-105","date":"2026-11-24","method":"โอน","amountSatang":8500,"status":"เข้าบริษัทแล้ว","remitId":null,"referenceId":null}
+  ],
+  "remits": [
+    {"id":"REM-100","date":"2026-11-25","status":"รับแล้ว-ยอดไม่ตรง","paymentIds":["PAY-100","PAY-102"],"varianceSatang":-5000}
+  ]
+}
