@@ -1,0 +1,19 @@
+name = "palm-ai-bos"
+main = "index.mjs"
+compatibility_date = "2026-07-30"
+workers_dev = false
+preview_urls = false
+
+[triggers]
+# 21:30 Asia/Bangkok
+crons = ["30 14 * * *"]
+
+[[d1_databases]]
+binding = "AI_BOS_DB"
+database_name = "palm-ai-bos"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[services]]
+binding = "LAKON_FINANCE_SOURCE"
+service = "lakon-finance-read"
