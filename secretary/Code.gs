@@ -811,6 +811,15 @@ function handleEvent(ev) {
     return;
   }
   // 🧾 กลุ่มบิลค่าใช้จ่าย: ทุกรูป/ไฟล์/ข้อความ → แอปบัญชีเป็นคนอ่านและตอบ (เลขาไม่ตอบเอง กันตอบซ้อน)
+  // ถูกนำออกจากกลุ่ม → จดในทะเบียน (ไม่ลบแถว) + บอกคุณปาล์มทางแชทส่วนตัว — เดิมไม่รู้ตัว รายชื่อกลุ่มค้างกลุ่มที่ไม่ได้อยู่แล้ว (28/11)
+  if (ev.type === 'leave' && ev.source && (ev.source.groupId || ev.source.roomId)) {
+    const gid = ev.source.groupId || ev.source.roomId;
+    const gname = markGroupLeft_(gid);
+    logRow(['ออกจากกลุ่ม', 'ระบบ', gid, gname]);
+    const own = cfg_('OWNER_LINE_USER_ID');
+    if (own) { try { linePush(own, '📤 ดิฉันถูกนำออกจากกลุ่ม "' + (gname || gid) + '" แล้วค่ะ — จดในทะเบียนกลุ่มว่า "ออกแล้ว" งานของกลุ่มนี้หยุดจนกว่าจะเชิญกลับเข้าไปนะคะ'); } catch (e) {} }
+    return;
+  }
   if (ev.type === 'message' && ev.message && /^(text|image|file)$/.test(ev.message.type)
       && ev.source && isExpenseGroup(ev.source.groupId || ev.source.roomId || '')) {
     handleExpenseGroupEvent(ev);
@@ -2664,7 +2673,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-28a';
+const CODE_VERSION = '2026-11-28b';
 
 function healthCheck() {
   const L = [];
@@ -2842,6 +2851,43 @@ function healthCheck() {
 
 // ทะเบียนกลุ่ม — เลขาจำเอง ไม่ต้องตั้ง Script property ทีละกลุ่ม
 // บันทึกลงแท็บ Groups ทุกครั้งที่ (1) ถูกเชิญเข้ากลุ่ม (2) มีคนพูดในกลุ่ม (แคช 6 ชม. กันเขียนถี่)
+// 📒 ทะเบียนหน้าที่ของกลุ่ม (คุณปาล์มอนุมัติ 28/11) — คอลัมน์ D–G คุณปาล์มแก้ในชีตได้เลย มีผลภายใน ~10 นาที
+//   หน้าที่ = คำคั่นด้วย , (ผลิต · บิล · สายรถ · เฝ้าเครื่อง — คำอื่นใส่ได้ โค้ดไม่ใช้) · ทีม · สถานะ (อยู่ / ออกแล้ว …) · หมายเหตุ
+//   กลุ่มรู้จักด้วย chatId → เปลี่ยนชื่อกลุ่มในไลน์แล้วงานไม่หลุด (เดิมจับจากคำในชื่อกลุ่ม)
+const GROUP_HEAD = ['chatId', 'ชื่อกลุ่ม', 'อัปเดตเมื่อ', 'หน้าที่', 'ทีม', 'สถานะ', 'หมายเหตุ'];
+const GROUP_ROLE = { prod: 'ผลิต', bill: 'บิล', van: 'สายรถ', watch: 'เฝ้าเครื่อง' };
+const GROUP_COL_STATUS = 6;
+let _GRP_ROLE_MEM_ = null;   // ทะเบียนหน้าที่ อ่านครั้งเดียวต่อคำขอ
+
+// แท็บ Groups — create=true: ไม่มีแท็บ = สร้าง · หัวคอลัมน์ใหม่ยังไม่มี = เติมต่อท้าย (ไม่แตะคอลัมน์เดิม)
+function groupSheet_(create) {
+  const id = boardSheetId(); if (!id) return null;
+  const ss = ssById(id);
+  let sh = ss.getSheetByName('Groups');
+  if (!sh) {
+    if (!create) return null;
+    sh = ss.insertSheet('Groups'); sh.appendRow(GROUP_HEAD);
+    return sh;
+  }
+  const have = sh.getLastColumn();
+  if (create && have < GROUP_HEAD.length) sh.getRange(1, have + 1, 1, GROUP_HEAD.length - have).setValues([GROUP_HEAD.slice(have)]);
+  return sh;
+}
+function groupRowOf_(sh, chatId) {
+  const last = sh.getLastRow();
+  if (last < 2) return 0;
+  const ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(chatId)) return i + 2;
+  return 0;
+}
+function groupCacheClear_(chatId) {
+  _GRP_ROLE_MEM_ = null;
+  try {
+    const c = CacheService.getScriptCache();
+    ['grp_roles', 'grp_prod'].concat(chatId ? ['grp_' + chatId] : []).forEach(function (k) { c.remove(k); });
+  } catch (e) {}
+}
+
 function registerGroup(chatId) {
   if (!chatId || !/^[CR]/.test(String(chatId))) return;
   try {
@@ -2854,20 +2900,31 @@ function registerGroup(chatId) {
       });
       if (res.getResponseCode() === 200) name = JSON.parse(res.getContentText()).groupName || '';
     }
-    const id = boardSheetId(); if (!id) return;
-    const ss = ssById(id);
-    let sh = ss.getSheetByName('Groups');
-    if (!sh) { sh = ss.insertSheet('Groups'); sh.appendRow(['chatId', 'ชื่อกลุ่ม', 'อัปเดตเมื่อ']); }
-    const last = sh.getLastRow();
-    let row = 0;
-    if (last >= 2) {
-      const ids = sh.getRange(2, 1, last - 1, 1).getValues();
-      for (let i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(chatId)) { row = i + 2; break; }
-    }
-    if (row) sh.getRange(row, 2, 1, 2).setValues([[name || sh.getRange(row, 2).getValue(), new Date()]]);
-    else sh.appendRow([chatId, name, new Date()]);
+    const sh = groupSheet_(true); if (!sh) return;
+    const row = groupRowOf_(sh, chatId);
+    if (row) {
+      sh.getRange(row, 2, 1, 2).setValues([[name || sh.getRange(row, 2).getValue(), new Date()]]);
+      // มีข้อความ/ถูกเชิญ = อยู่ในกลุ่มแน่ ๆ → กลุ่มที่เคยจดว่าออกแล้ว (หรือยังไม่เคยจดสถานะ) กลับเป็น "อยู่"
+      const st = String(sh.getRange(row, GROUP_COL_STATUS).getValue() || '');
+      if (!st || /^ออก/.test(st)) { sh.getRange(row, GROUP_COL_STATUS).setValue('อยู่'); if (st) groupCacheClear_(); }
+    } else sh.appendRow([chatId, name, new Date(), '', '', 'อยู่', '']);
     cache.put('grp_' + chatId, '1', 21600);
   } catch (err) { console.error('registerGroup: ' + err); }
+}
+
+// ถูกนำออกจากกลุ่ม (event leave) → จดสถานะ "ออกแล้ว" ไม่ลบแถว · คืนชื่อกลุ่ม
+function markGroupLeft_(chatId) {
+  let name = '';
+  try {
+    const sh = groupSheet_(true); if (!sh) return '';
+    const row = groupRowOf_(sh, chatId);
+    if (row) {
+      name = String(sh.getRange(row, 2).getValue() || '');
+      sh.getRange(row, GROUP_COL_STATUS).setValue('ออกแล้ว ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy'));
+    }
+  } catch (err) { console.error('markGroupLeft_: ' + err); }
+  groupCacheClear_(chatId);
+  return name;
 }
 
 // อ่านทะเบียนกลุ่มทั้งหมด → [{id, name}]
@@ -2946,13 +3003,39 @@ function oldDaysSummaryText(which) {
 
 function listKnownGroups() {
   try {
-    const id = boardSheetId(); if (!id) return [];
-    const sh = ssById(id).getSheetByName('Groups');
+    const sh = groupSheet_(false);
     if (!sh || sh.getLastRow() < 2) return [];
-    return sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues()
-             .map(function (r) { return { id: String(r[0]), name: String(r[1] || '') }; })
+    const w = Math.min(GROUP_HEAD.length, Math.max(2, sh.getLastColumn()));
+    return sh.getRange(2, 1, sh.getLastRow() - 1, w).getValues()
+             .map(function (r) {
+               const st = String(r[5] || '');
+               return { id: String(r[0]), name: String(r[1] || ''), roles: groupRolesOf_(r[3]), team: String(r[4] || ''),
+                        status: st, gone: /^ออก/.test(st) };
+             })
              .filter(function (g) { return g.id; });
   } catch (err) { return []; }
+}
+// "ผลิต, บิล" → ['ผลิต','บิล'] (คั่นด้วย , · / หรือขึ้นบรรทัดใหม่)
+function groupRolesOf_(cell) {
+  return String(cell || '').split(/[,·\/\n]+/).map(function (x) { return x.trim(); }).filter(String);
+}
+// กลุ่มที่ลงหน้าที่นี้ไว้ในทะเบียน (ไม่นับกลุ่มที่ออกแล้ว) · [] = ยังไม่มีกลุ่มไหนลงหน้าที่นี้ → ผู้เรียกใช้กติกาเดิม (คำในชื่อกลุ่ม)
+function groupRoleIds_(role) {
+  if (!_GRP_ROLE_MEM_) {
+    let m = null;
+    const cache = CacheService.getScriptCache();
+    try { const hit = cache.get('grp_roles'); if (hit) m = JSON.parse(hit); } catch (e) {}
+    if (!m) {
+      m = {};
+      listKnownGroups().forEach(function (g) {
+        if (g.gone) return;
+        (g.roles || []).forEach(function (r) { (m[r] = m[r] || []).push(g.id); });
+      });
+      try { cache.put('grp_roles', JSON.stringify(m), 600); } catch (e) {}
+    }
+    _GRP_ROLE_MEM_ = m;
+  }
+  return _GRP_ROLE_MEM_[role] || [];
 }
 
 // หากลุ่มจากชื่อ (ตรงตัวก่อน แล้วค่อยแบบมีคำนั้นอยู่ในชื่อ)
@@ -3052,6 +3135,8 @@ const PRODUCTION_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbyz9
 function productionGroupId() {
   const set = cfg_('GROUP_PRODUCTION_ID');
   if (set) return set;
+  const reg = groupRoleIds_(GROUP_ROLE.prod);
+  if (reg.length) return reg[0];
   const cache = CacheService.getScriptCache();
   let gid = cache.get('grp_prod');
   if (gid === null) {
@@ -3597,11 +3682,15 @@ function isTeamworkGroup(chatId) {
   if (!chatId || !/^[CR]/.test(String(chatId))) return false;
   const set = cfg_('GROUP_TEAMWORK_ID');
   if (set) return chatId === set;
+  const reg = groupRoleIds_(GROUP_ROLE.watch);
+  if (reg.length) return reg.indexOf(chatId) !== -1;
   return isTeamworkName(groupNameOf(chatId));
 }
 function teamworkGroupId() {
   const set = cfg_('GROUP_TEAMWORK_ID');
   if (set) return set;
+  const reg = groupRoleIds_(GROUP_ROLE.watch);
+  if (reg.length) return reg[0];
   const g = listKnownGroups().filter(function (x) { return isTeamworkName(x.name); })[0];
   return g ? g.id : '';
 }
@@ -4236,11 +4325,15 @@ function isVanGroup(chatId) {
   if (!chatId || !/^[CR]/.test(String(chatId))) return false;
   const set = cfg_('GROUP_VAN_ID');
   if (set) return chatId === set;
+  const reg = groupRoleIds_(GROUP_ROLE.van);
+  if (reg.length) return reg.indexOf(chatId) !== -1;
   return isVanName(groupNameOf(chatId));
 }
 function vanGroupId() {
   const set = cfg_('GROUP_VAN_ID');
   if (set) return set;
+  const reg = groupRoleIds_(GROUP_ROLE.van);
+  if (reg.length) return reg[0];
   const g = listKnownGroups().filter(function (x) { return isVanName(x.name); })[0];
   return g ? g.id : '';
 }
@@ -4507,6 +4600,8 @@ function isExpenseGroup(chatId) {
   if (!chatId || !/^[CR]/.test(String(chatId))) return false;
   const set = cfg_('GROUP_EXPENSE_ID');
   if (set) return chatId === set;
+  const reg = groupRoleIds_(GROUP_ROLE.bill);
+  if (reg.length) return reg.indexOf(chatId) !== -1;
   return expenseNameKey(groupNameOf(chatId)).indexOf(expenseNameKey(EXPENSE_GROUP_NAME)) !== -1;
 }
 
@@ -4624,6 +4719,8 @@ function expenseDueDaily(force) {
 function expenseGroupId() {
   const set = cfg_('GROUP_EXPENSE_ID');
   if (set) return set;
+  const reg = groupRoleIds_(GROUP_ROLE.bill);
+  if (reg.length) return reg[0];
   const g = listKnownGroups().filter(function (x) { return isExpenseGroup(x.id); })[0];
   return g ? g.id : '';
 }
@@ -5168,10 +5265,18 @@ function salesSummaryReply(which, biz, owner, chatId) {
 }
 
 function groupsListText() {
-  const gs = listKnownGroups();
+  const all = listKnownGroups();
+  const gs = all.filter(function (g) { return !g.gone; });
+  const gone = all.filter(function (g) { return g.gone; });
+  const line = function (g, i) {
+    const tag = [(g.roles || []).length ? 'หน้าที่: ' + g.roles.join(', ') : '', g.team ? 'ทีม: ' + g.team : ''].filter(String).join(' · ');
+    return (i + 1) + '. ' + (g.name || '(ไม่ทราบชื่อ) ' + g.id) + (tag ? ' — ' + tag : '');
+  };
   return gs.length
-    ? 'กลุ่มที่ดิฉันอยู่ตอนนี้ค่ะ:\n' + gs.map(function (g, i) { return (i + 1) + '. ' + (g.name || '(ไม่ทราบชื่อ) ' + g.id); }).join('\n')
+    ? 'กลุ่มที่ดิฉันอยู่ตอนนี้ค่ะ:\n' + gs.map(line).join('\n')
+      + (gone.length ? '\n\n📤 ออกแล้ว: ' + gone.map(function (g) { return g.name || g.id; }).join(', ') : '')
       + '\n\nสั่งประกาศได้เลย เช่น "เลขา ประกาศในกลุ่ม' + (gs[0].name ? ' ' + gs[0].name : '') + ' ว่า ..."'
+      + '\n(หน้าที่/ทีมของแต่ละกลุ่ม แก้ได้ที่แท็บ Groups ในชีตบอร์ดค่ะ)'
     : 'ยังไม่รู้จักกลุ่มไหนเลยค่ะ — เชิญดิฉันเข้ากลุ่มก่อน แล้วให้ใครก็ได้ทักในกลุ่มสัก 1 ข้อความนะคะ';
 }
 
