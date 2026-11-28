@@ -23,10 +23,13 @@ const BRAIN_EFFORT = 'medium';   // ระดับการคิดของ�
 
 // ===== ดึงค่าลับจาก Script Properties =====
 const _CFG_MEM_ = {};   // อ่าน Script Properties ครั้งเดียวต่อคำขอ (เดิมถูกเรียก ~40 ครั้งต่อการโหลดห้องผู้บริหาร)
-function cfg(key) {
+// 🔐 ลงท้าย _ = google.script.run เรียกไม่ได้ (เดิมชื่อ cfg — ใครได้หน้า HtmlService ของ GAS นี้ไป อ่านค่าลับทุกตัวได้)
+function cfg_(key) {
   if (!(key in _CFG_MEM_)) _CFG_MEM_[key] = PropertiesService.getScriptProperties().getProperty(key) || '';
   return _CFG_MEM_[key];
 }
+// 🔐 รหัสเจ้าของ (QUEUE_KEY) — ยังไม่ได้ตั้ง = ไม่มีใครผ่าน (เดิม key ว่างเทียบค่าว่างแล้วผ่าน)
+function ownerKeyOk_(key) { const k = cfg_('QUEUE_KEY'); return !!k && String(key || '') === k; }
 
 // ===== บุคลิก + กฎของคุณเลขา (ต้นฉบับอ่านง่ายอยู่ที่ secretary/system-prompt.md) =====
 const SYSTEM_PROMPT = [
@@ -290,7 +293,7 @@ function doPost(e) {
     if (e && e.parameter && e.parameter.action === 'issueSave') return jsonOut(issueSave(e.parameter));
     // 💬 แชทคุณเลขาจากบอร์ด — ส่งแบบ POST เพราะคำถามยาวเกิน URL ได้ และคำตอบยาวใช้เวลาคิดนาน
     if (e && e.parameter && e.parameter.action === 'chat') {
-      if (e.parameter.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+      if (!ownerKeyOk_(e.parameter.key)) return jsonOut({ ok: false, error: 'unauthorized' });
       return jsonOut(boardChat(String(e.parameter.q || '')));
     }
     const body = JSON.parse(e.postData.contents);
@@ -343,32 +346,32 @@ function doGet(e) {
     return jsonOut(issueFeed());
   }
   if (p.action === 'aiqueue') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut({ ok: true, tasks: getAIQueue() });
   }
   // ให้ทีม AI อ่านข้อมูลธุรกิจจากชีต (DATA_SHEET_ID)
   // ?action=data&key=...            → รายชื่อแท็บทั้งหมด
   // ?action=data&key=...&tab=ชื่อแท็บ[&limit=200] → ข้อมูลในแท็บนั้น
   if (p.action === 'data') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut(readDataSheet(p.tab, p.limit));
   }
   // หน้าบอร์ดงาน (board.html / แอปบอร์ดบน GitHub Pages) เรียกดูงานทั้งหมด
   // 🔒 บอร์ดงาน = ของคุณปาล์มคนเดียว (สั่ง 01/10) — รับเฉพาะ QUEUE_KEY · ลิงก์บอร์ดทีม (TEAM_KEY) เก่าใช้ไม่ได้แล้ว
   if (p.action === 'board') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'รหัสไม่ถูกต้อง — บอร์ดงานดูได้เฉพาะคุณปาล์ม' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, error: 'รหัสไม่ถูกต้อง — บอร์ดงานดูได้เฉพาะคุณปาล์ม' });
     return jsonOut({ ok: true, mode: 'owner', next: nextRoundText(), tasks: readBoardAll() });
   }
   // ปุ่มบนบอร์ดยิงมาทางนี้ (fetch) → ตอบ JSON กลับ ไม่ต้องโหลดหน้าใหม่
   if (p.action === 'boardDo') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
     const r = String(boardAction(p['do'], p.ref) || '⚠️|ทำรายการไม่สำเร็จ');
     const parts = r.split('|');
     return jsonOut({ ok: parts[0] === '✅', msg: parts.slice(1).join('|') });
   }
   // เพิ่มงานจากบอร์ด (สำรองของ google.script.run) — เฉพาะ key เจ้าของ (พนักงานฝากงานทางไลน์/request.html)
   if (p.action === 'addTask') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
     return jsonOut(rpcAddTask(p.key, {
       biz: p.biz, type: p.type, detail: p.detail, urgency: p.urgency,
       due: p.due, assignee: p.assignee, dept: p.dept
@@ -376,22 +379,22 @@ function doGet(e) {
   }
   // คอมเมนต์ปรับแผน (สำรองของ google.script.run)
   if (p.action === 'comment') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
     return jsonOut(rpcComment(p.key, p.ref, p.text, p.redo === '1'));
   }
   // แก้/ยกเลิกประกาศตั้งเวลาจากบอร์ด (สำรองของ google.script.run)
   if (p.action === 'schedDo') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, msg: 'รหัสไม่ถูกต้อง' });
     return jsonOut(rpcSchedAction(p.key, p['do'], p.row, p.when || '', p.content || ''));
   }
   // 📚 คลังข้อมูลกลาง — ทีม AI อ่านดัชนี (ประหยัด token: ได้ ชื่อ+หมวด+คำอธิบาย+ลิงก์ ไม่ต้องเปิดไฟล์)
   // ?action=library&key=...[&cat=หมวด]  |  ลงทะเบียนงานไฟนอล: ?action=libAdd&key=...&cat=&title=&desc=&url=
   if (p.action === 'library') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut({ ok: true, cats: LIB_CATS, items: libIndex(p.cat, p.limit) });
   }
   if (p.action === 'libAdd') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
     if (!p.title || !p.url) return jsonOut({ ok: false, error: 'ต้องมี title และ url' });
     libRegister(p.cat || 'การตลาด-งานดีไซน์', p.title, p.desc || '', p.url, 'ทีมAI', p.source || 'งานไฟนอล');
     return jsonOut({ ok: true, msg: 'ลงทะเบียนเข้าคลังแล้ว' });
@@ -417,14 +420,15 @@ function doGet(e) {
 
   // 💬 คุยกับคุณเลขาจากแอปบอร์ด (เฉพาะ key เจ้าของ — สมอง/ความจำเดียวกับไลน์)
   if (p.action === 'chat') {
-    if (p.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+    if (!ownerKeyOk_(p.key)) return jsonOut({ ok: false, error: 'unauthorized' });
     return jsonOut(boardChat(String(p.q || '')));
   }
 
   // หน้าบอร์ดงาน เปิดจากมือถือได้เลย: ...exec?page=board&key=<QUEUE_KEY>
   // 🔒 รับเฉพาะ key เจ้าของ — โหมดบอร์ดทีม (TEAM_KEY) ปิดแล้ว 01/10
   if (p.page === 'board') {
-    if (p.key !== cfg('QUEUE_KEY')) return HtmlService.createHtmlOutput('<h3>รหัสไม่ถูกต้องค่ะ — บอร์ดงานดูได้เฉพาะคุณปาล์ม</h3>');
+    // 🔐 รหัสผิด = ตอบตัวหนังสือธรรมดา ห้ามเป็น HtmlService — หน้า HtmlService ทุกหน้าเปิดทาง google.script.run ให้เรียกฟังก์ชันชั้นบนสุดที่ไม่ลงท้าย _ ได้หมด
+    if (!ownerKeyOk_(p.key)) return ContentService.createTextOutput('รหัสไม่ถูกต้องค่ะ — บอร์ดงานดูได้เฉพาะคุณปาล์ม');
     const notice = (p['do'] && p.ref) ? boardAction(p['do'], p.ref) : '';
     return HtmlService.createHtmlOutput(boardHtml(p.key, notice, p.prj || '', false))
       .setTitle('บอร์ดงาน — ละกอน & คาเฟ่')
@@ -436,7 +440,7 @@ function doGet(e) {
 
 // อ่านชีตข้อมูลธุรกิจ (ตั้ง DATA_SHEET_ID ใน Script properties — ลิงก์เต็มก็ได้)
 function readDataSheet(tab, limit) {
-  const id = cfg('DATA_SHEET_ID');
+  const id = cfg_('DATA_SHEET_ID');
   if (!id) return { ok: false, error: 'ยังไม่ได้ตั้ง DATA_SHEET_ID' };
   try {
     const ss = ssById(id);
@@ -531,7 +535,7 @@ function boardAction(action, ref) {
     }
 
     if (action === 'vis') {
-      const ownerId = String(cfg('OWNER_LINE_USER_ID') || '');
+      const ownerId = String(cfg_('OWNER_LINE_USER_ID') || '');
       const contact = String(sheet.getRange(row, 8).getValue() || '');
       const cur = String(sheet.getRange(row, 25).getValue() || '')
                 || ((ownerId && contact === ownerId) ? 'ส่วนตัว' : 'ทีม');
@@ -596,8 +600,8 @@ function autoFireCount(inc) {
 // เรียกทุกจุดที่งานเปลี่ยนเป็น "รอทีม AI" — ตัดสินใจเองว่าจะยิงหรือข้าม
 function maybeFireRoutine(reason) {
   try {
-    if (!cfg('ROUTINE_FIRE_URL') || !cfg('ROUTINE_TOKEN')) return false;
-    if (cfg('AUTO_FIRE') === 'off') return false;
+    if (!cfg_('ROUTINE_FIRE_URL') || !cfg_('ROUTINE_TOKEN')) return false;
+    if (cfg_('AUTO_FIRE') === 'off') return false;
     const cache = CacheService.getScriptCache();
     if (cache.get('autofire_lock')) return false;                  // เพิ่งยิงไป รอรอบนั้นทำก่อน
     if (autoFireCount(false) >= AUTO_FIRE_DAILY_MAX) {
@@ -619,8 +623,8 @@ function maybeFireRoutine(reason) {
 //   ROUTINE_FIRE_URL = URL จากหน้า Edit routine → Select a trigger → API
 //   ROUTINE_TOKEN    = token ที่กด Generate ในหน้าเดียวกัน (แสดงครั้งเดียว เก็บให้ดี)
 function fireRoutine(note, urlOverride, tokOverride) {
-  const url = urlOverride || cfg('ROUTINE_FIRE_URL');
-  const tok = tokOverride || cfg('ROUTINE_TOKEN');
+  const url = urlOverride || cfg_('ROUTINE_FIRE_URL');
+  const tok = tokOverride || cfg_('ROUTINE_TOKEN');
   if (!url || !tok) {
     return { ok: false, msg: 'งานเข้าคิวแล้ว แต่ยังปลุกทีม AI ทันทีไม่ได้ (ยังไม่ได้ตั้ง ROUTINE_FIRE_URL / ROUTINE_TOKEN)' };
   }
@@ -657,7 +661,7 @@ function routineFireNote(ok, code) {
     const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
     if (P.getProperty('ROUTINE_FAIL_DAY') === today) return;
     P.setProperty('ROUTINE_FAIL_DAY', today);
-    const oid = cfg('OWNER_LINE_USER_ID');
+    const oid = cfg_('OWNER_LINE_USER_ID');
     if (oid) linePush(oid, '⚠️ ปลุกทีม AI ไม่ได้ค่ะ (HTTP ' + code + ' = โทเคนหมดอายุหรือถูกยกเลิก) — งานที่ฝากเข้าคิวทีม AI จะยังไม่มีใครรับ\n'
       + 'วิธีแก้: หน้า Edit routine › Select a trigger › API › Generate token ใหม่ แล้วใส่ใน Script Property ROUTINE_TOKEN ของคุณเลขา\n(พิมพ์ "เช็คระบบ" ดูสถานะได้ค่ะ)');
   } catch (e) { console.error('routineFireNote: ' + e); }
@@ -674,13 +678,13 @@ function routineLastText() {
 // 🎯 Mission Board — แอปบอร์ดตัวปัจจุบัน เสิร์ฟผ่าน GitHub Pages (เร็ว/นิ่งกว่า GAS)
 // ตัวเก่า (?page=board บน GAS) ยังทำงานอยู่เป็น fallback แต่ไม่ใช้ลิงก์นี้ส่งให้ผู้ใช้อีกแล้ว
 function boardUrl() {
-  return 'https://palmsil2026.github.io/palm-hq/board/?key=' + encodeURIComponent(cfg('QUEUE_KEY'));
+  return 'https://palmsil2026.github.io/palm-hq/board/?key=' + encodeURIComponent(cfg_('QUEUE_KEY'));
 }
 
 // กุญแจบอร์ดทีม — 🔒 พักไว้ตั้งแต่ 01/10 (บอร์ดงานเป็นของคุณปาล์มคนเดียว) ไม่มีทางเข้าไหนรับกุญแจนี้แล้ว
 //   เก็บฟังก์ชัน/property TEAM_KEY ไว้ตามหลัก "พัก ไม่ตัดทิ้ง" — ห้ามเอากลับมาใช้เปิดบอร์ดโดยไม่ถามคุณปาล์ม
-function teamKey() {
-  let k = cfg('TEAM_KEY');
+function teamKey_() {
+  let k = cfg_('TEAM_KEY');
   if (!k) {
     k = 'T' + Utilities.getUuid().replace(/-/g, '').slice(0, 11);
     PropertiesService.getScriptProperties().setProperty('TEAM_KEY', k);
@@ -688,7 +692,7 @@ function teamKey() {
   return k;
 }
 function teamBoardUrl() {
-  return 'https://palmsil2026.github.io/palm-hq/board/?key=' + encodeURIComponent(teamKey());
+  return 'https://palmsil2026.github.io/palm-hq/board/?key=' + encodeURIComponent(teamKey_());
 }
 
 // ปุ่ม "เปิดบอร์ดงาน" แบบ LINE template message — แนบต่อท้ายข้อความได้เลย
@@ -708,7 +712,7 @@ function boardButtonMessage() {
 const BOARD_OWNER_ONLY_MSG = 'บอร์ดงานดูได้เฉพาะคุณปาล์มนะคะ 🔒 มีงานจะฝาก พิมพ์บอกดิฉันได้เลยค่ะ';
 
 function isOwner(senderId) {
-  return !!senderId && senderId === cfg('OWNER_LINE_USER_ID');
+  return !!senderId && senderId === cfg_('OWNER_LINE_USER_ID');
 }
 
 // ในกลุ่ม/ห้อง เลขาจะพูดเฉพาะตอนถูกเรียกหา "เลขา" / "ผู้ดูแลระบบ" (หรือถูก mention)
@@ -716,7 +720,7 @@ function isOwner(senderId) {
 //   นับเฉพาะ "ผู้ดูแลระบบ" ไม่นับ "ผู้ดูแล" เฉย ๆ (ผู้ดูแลลูกค้า/สาย) · ไม่นับ "ผู้ช่วย" (ผู้ช่วยเซลส์ โผล่แทบทุกวันในกลุ่มสายรถ) · ไม่นับ "แอดมิน"
 function isAddressedToSecretary(ev, text) {
   if (/เลขา|ผู้ดูแลระบบ/i.test(text)) return true;
-  const botId = cfg('BOT_USER_ID'); // ตั้งได้ถ้าอยากให้จับ @mention แม่นขึ้น
+  const botId = cfg_('BOT_USER_ID'); // ตั้งได้ถ้าอยากให้จับ @mention แม่นขึ้น
   const men = ev.message && ev.message.mention;
   if (botId && men && men.mentionees) {
     return men.mentionees.some(function (m) { return m.userId === botId; });
@@ -770,7 +774,7 @@ function handleAnnouncementFollowUp(ev, chatId, senderId, text, replyToken) {
     const r = p.reply.trim();
 
     if (p.blocks.ALERT) {
-      const ownerId = cfg('OWNER_LINE_USER_ID');
+      const ownerId = cfg_('OWNER_LINE_USER_ID');
       if (ownerId) {
         let gname = '';
         try { const g = listKnownGroups().filter(function (x) { return x.id === chatId; })[0]; gname = (g && g.name) ? g.name : ''; } catch (e) {}
@@ -1243,7 +1247,7 @@ function handleEvent(ev) {
 //  แล้วเรียก pushToGroup('GROUP_CAFE_ID', 'ข้อความ...')
 // ════════════════════════════════════════════════════════════
 function pushToGroup(propName, text) {
-  const gid = cfg(propName);
+  const gid = cfg_(propName);
   if (!gid) { console.warn('ยังไม่ได้ตั้ง ' + propName); return; }
   linePush(gid, text);
 }
@@ -1256,9 +1260,9 @@ function pushToGroup(propName, text) {
 // ════════════════════════════════════════════════════════════
 function nudgeStaleTasks(e) {
   if (retiredTriggerFired(e)) return;
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) return;
-  const days = Number(cfg('NUDGE_DAYS')) || 2;
+  const days = Number(cfg_('NUDGE_DAYS')) || 2;
   const limit = days * 86400000;
   try {
     const sheet = reqSheet(); if (!sheet) return;
@@ -1686,7 +1690,7 @@ function readScheduledAll() {
 
 // ปุ่มแก้/ยกเลิกประกาศจากหน้าบอร์ด (google.script.run + fetch fallback ผ่าน action=schedDo)
 function rpcSchedAction(key, action, row, when, content) {
-  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  if (!ownerKeyOk_(key)) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
   try {
     const sh = schedSheet();
     const r = Number(row) + 1;   // แถวจริงในชีต (แถว 1 = หัวตาราง)
@@ -1802,7 +1806,7 @@ function fireDuePosts() {
 //  โฟลเดอร์ปลายทาง: ตั้ง MEDIA_FOLDER_ID ได้ ถ้าไม่ตั้งจะสร้าง "ละกอน-รูปจากไลน์" ให้เอง
 // ════════════════════════════════════════════════════════════
 function mediaFolder() {
-  const fid = cfg('MEDIA_FOLDER_ID');
+  const fid = cfg_('MEDIA_FOLDER_ID');
   if (fid) { try { return DriveApp.getFolderById(sheetIdFrom(fid)); } catch (e) {} }
   const name = 'ละกอน-รูปจากไลน์';
   const it = DriveApp.getFoldersByName(name);
@@ -1817,7 +1821,7 @@ const LIB_CATS = ['โรงน้ำ-ละกอน', 'โรงน้ำ-เ�
                   'การเงิน-เอกสาร', 'การตลาด-งานดีไซน์', 'อื่นๆ'];
 
 function libRoot() {
-  const fid = cfg('LIB_FOLDER_ID');
+  const fid = cfg_('LIB_FOLDER_ID');
   if (fid) { try { return DriveApp.getFolderById(sheetIdFrom(fid)); } catch (e) {} }
   const name = '📚 คลังข้อมูลธุรกิจ';
   const it = DriveApp.getFoldersByName(name);
@@ -1866,7 +1870,7 @@ function libIndex(cat, max) {
 function classifyForLibrary(blob, fileName, hint) {
   const fallback = { cat: 'อื่นๆ', title: String(fileName || 'ไฟล์'), desc: '' };
   try {
-    const apiKey = cfg('ANTHROPIC_API_KEY'); if (!apiKey) return fallback;
+    const apiKey = cfg_('ANTHROPIC_API_KEY'); if (!apiKey) return fallback;
     const isImg = /^image\//.test(String(blob.getContentType() || ''));
     const rules = 'คุณเป็นนักจัดการข้อมูลของธุรกิจ: โรงน้ำดื่ม (แบรนด์ "ละกอน" และ "เพียวซ่า" + รับ OEM) และร้านคาเฟ่ "Old Days"\n'
       + 'ช่วยจัดไฟล์นี้เข้าคลังข้อมูลกลาง\n\n'
@@ -1901,7 +1905,7 @@ function classifyForLibrary(blob, fileName, hint) {
 
 // อัปโหลดจากบอร์ด (การ์ดฝ่ายข้อมูล) — รับทีละไฟล์เป็น base64 ผ่าน google.script.run
 function rpcLibUpload(key, f) {
-  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  if (!ownerKeyOk_(key)) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
   try {
     if (!f || !f.b64) return { ok: false, msg: 'ไม่มีข้อมูลไฟล์' };
     const blob = Utilities.newBlob(Utilities.base64Decode(f.b64), f.mime || 'application/octet-stream', f.name || 'file');
@@ -1960,11 +1964,11 @@ function mediaContext(chatId, senderId) {
 //   รุ่นที่ใช้ = Script Property IMAGE_MODEL (ไม่ตั้ง = MODEL ตามเดิม) · ตั้งเป็น claude-haiku-5-5 ผ่าน imageModelTrial เมื่อลองรูปจริงผ่านเกณฑ์
 //   ย้อนกลับ = ลบ/แก้ IMAGE_MODEL · รูปตรวจ pH (withPh) ใช้ MODEL เสมอ (ค่าลงตารางตรวจน้ำ ไม่เสี่ยงอ่านสีผิด)
 const IMAGE_MODEL_SMALL = 'claude-haiku-5-5';
-function imageModel(withPh) { return withPh ? MODEL : (cfg('IMAGE_MODEL') || MODEL); }
+function imageModel(withPh) { return withPh ? MODEL : (cfg_('IMAGE_MODEL') || MODEL); }
 
 function analyzeImage(blob, context, withPh, forceModel, withFuel) {
   try {
-    const apiKey = cfg('ANTHROPIC_API_KEY');
+    const apiKey = cfg_('ANTHROPIC_API_KEY');
     if (!apiKey) return { relevant: true, desc: '' }; // วิเคราะห์ไม่ได้ → เก็บไว้ก่อนดีกว่าเสียของสำคัญไป
     const bytes = blob.getBytes();
     if (bytes.length > 3500000) return { relevant: true, desc: '(รูปใหญ่เกินอ่าน)' };
@@ -2083,7 +2087,7 @@ function handleMediaMessage(ev) {
   const openIssue = inGroup ? issueOpenCached(chatId, senderId) : '';   // 🛠️ คนนี้เพิ่งแท็กแจ้งปัญหาแอป → รูปที่ตามมาคือหลักฐาน
   try {
     const res = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/message/' + ev.message.id + '/content', {
-      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+      headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') }, muteHttpExceptions: true
     });
     if (res.getResponseCode() !== 200) { if (!inGroup) lineReply(replyToken, 'ขออภัยค่ะ ดาวน์โหลดไฟล์ไม่สำเร็จ รบกวนส่งอีกครั้งนะคะ 🙏'); return; }
 
@@ -2202,7 +2206,7 @@ function salesHelpDoc() {
   const c = CacheService.getScriptCache();
   try { const hit = c.get('SALES_HELP'); if (hit) return JSON.parse(hit); } catch (e) {}
   try {
-    const res = UrlFetchApp.fetch(cfg('SALES_APP_URL') || SALES_APP_URL_DEFAULT, {
+    const res = UrlFetchApp.fetch(cfg_('SALES_APP_URL') || SALES_APP_URL_DEFAULT, {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
       payload: JSON.stringify({ fn: 'getHelpDoc', args: [{}] })
     });
@@ -2216,7 +2220,7 @@ function salesHelpDoc() {
 
 // ถาม AI พร้อมคู่มือ → { kind: ANSWER | NOTDOC | SKIP, text }
 function appHelpAnswer(question, ctx, doc) {
-  const apiKey = cfg('ANTHROPIC_API_KEY');
+  const apiKey = cfg_('ANTHROPIC_API_KEY');
   if (!apiKey) return { kind: 'SKIP', text: '' };
   const sys = 'คุณคือ "ผู้ดูแลระบบกลาง" ผู้ช่วยในไลน์ของบริษัท ออริจิ้น แล็บส์ (น้ำดื่มละกอน) ช่วยพนักงานที่งง/สงสัยวิธีใช้ "แอปเซลส์" โดยตอบจากคู่มือข้างล่างเท่านั้น\n'
     + 'กติกา: สั้น ไม่เกิน 5 บรรทัด · เป็นขั้น 1-2-3 · ใช้ชื่อปุ่มตามคู่มือ (รวมอีโมจิ) · ภาษาง่าย ๆ แบบคนหน้างาน ไม่ใช้ศัพท์เทคนิค · ลงท้ายค่ะ\n'
@@ -2278,7 +2282,7 @@ function handleAppHelpAsk(ev, chatId, senderId, text, replyToken, inGroup) {
     if (inGroup && (chatId === productionGroupId() || isExpenseGroup(chatId))) return false;
     // กันค่า AI บานปลาย: เรียกได้ไม่เกิน APP_HELP_MAX (40) ครั้งต่อ 6 ชม.
     const c = CacheService.getScriptCache(), used = Number(c.get('APPHELP_N') || 0);
-    if (used >= (Number(cfg('APP_HELP_MAX')) || 40)) return false;
+    if (used >= (Number(cfg_('APP_HELP_MAX')) || 40)) return false;
     const doc = salesHelpDoc();
     if (!doc) {
       if (inGroup) return false;
@@ -2323,7 +2327,7 @@ const ISSUE_ACK = 'รับเรื่องแล้วค่ะ 🛠️ ส�
 
 // แท็กคุณปาล์ม: mention ตรง userId (แม่นสุด) · สำรองข้อความ @Palm / @ปาล์ม
 function isPalmMention(ev, text) {
-  const ownerId = cfg('OWNER_LINE_USER_ID');
+  const ownerId = cfg_('OWNER_LINE_USER_ID');
   const men = ev && ev.message && ev.message.mention;
   if (ownerId && men && men.mentionees && men.mentionees.some(function (m) { return m.userId === ownerId; })) return true;
   return /@\S*(palm|ปาล์ม)/i.test(String(text || ''));
@@ -2499,7 +2503,7 @@ function issueCreate(R, o) {
 
 // ปลุก Routine 🛠️ นักพัฒนา (ไม่ตั้ง URL/TOKEN = ไม่ยิง — Routine มีรอบสำรองทุกชั่วโมงเวลางาน) · กันยิงถี่ 2 นาที
 function maybeFireIssueRoutine(id) {
-  const url = cfg('ISSUE_ROUTINE_FIRE_URL'), tok = cfg('ISSUE_ROUTINE_TOKEN');
+  const url = cfg_('ISSUE_ROUTINE_FIRE_URL'), tok = cfg_('ISSUE_ROUTINE_TOKEN');
   if (!url || !tok) return 'ไม่ได้ปลุก (ยังไม่ตั้ง ISSUE_ROUTINE_FIRE_URL/TOKEN — รอรอบชั่วโมง)';
   const c = CacheService.getScriptCache();
   if (c.get('issue_fire_lock')) return 'เพิ่งปลุกไป ไม่ยิงซ้ำ';
@@ -2585,7 +2589,7 @@ function issueSave(p) {
   // ส่งข้อความหลังปล่อยล็อก (เรียกไลน์ช้า) · ปลายทางมาจากชีต ไม่ใช่จากคำขอ
   const sent = { group: null, palm: null };
   if (reply) sent.group = issueReplyGroup(c, reply, p.id);
-  const ownerId = cfg('OWNER_LINE_USER_ID');
+  const ownerId = cfg_('OWNER_LINE_USER_ID');
   if (ownerId && (palm || st === 'ถามคุณปาล์ม')) {
     const msg = '🛠️ ' + st + ' · ' + (c.group || 'กลุ่ม') + ' · ' + (c.sender || 'ไม่ทราบชื่อ') + '\n'
       + (palm || ('เรื่องที่แจ้ง: "' + c.text.slice(0, 400) + '"')) + (pr ? '\n🔗 ' + pr : '') + '\n(เคส ' + p.id + ')';
@@ -2613,7 +2617,7 @@ function issuePush(to, messages, id) {
   try {
     const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
       method: 'post', contentType: 'application/json',
-      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
+      headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') },
       payload: JSON.stringify({ to: to, messages: messages }), muteHttpExceptions: true
     });
     code = res.getResponseCode();
@@ -2642,7 +2646,7 @@ function issueHealthLines(ok, warn) {
     }
     ok('🛠️ นักพัฒนา: เคสค้าง ' + (fresh + doing) + ' เคส (ใหม่ ' + fresh + ' · กำลังแก้ ' + doing + ')');
   } catch (e) { warn('อ่านชีต AppIssues ไม่ได้ (' + e.message + ')'); }
-  (cfg('ISSUE_ROUTINE_FIRE_URL') && cfg('ISSUE_ROUTINE_TOKEN'))
+  (cfg_('ISSUE_ROUTINE_FIRE_URL') && cfg_('ISSUE_ROUTINE_TOKEN'))
     ? ok('ปลุกนักพัฒนาทันทีได้ (มีคนแท็กแจ้งปัญหาแอป → เริ่มแก้เลย)')
     : warn('ปลุกนักพัฒนาทันทีไม่ได้ — เคสรอรอบทุกชั่วโมงเวลางาน',
            'claude.ai → Routines → 🛠️ นักพัฒนา → Edit → Add trigger → API → Generate token แล้วใส่ ISSUE_ROUTINE_FIRE_URL + ISSUE_ROUTINE_TOKEN ใน Script properties');
@@ -2660,7 +2664,7 @@ function issueHealthLines(ok, warn) {
 //  🩺 "เลขา เช็คระบบ" — ไล่ตรวจว่าอะไรพร้อม อะไรยังขาด พร้อมวิธีแก้
 // ════════════════════════════════════════════════════════════
 // เวอร์ชันโค้ดที่รันอยู่ — อัปเดตทุกครั้งที่แก้ไฟล์นี้แล้ววาง GAS (ดูใน "เช็คระบบ" ได้เลยว่า GAS ทันกับ repo ไหม)
-const CODE_VERSION = '2026-11-19b';
+const CODE_VERSION = '2026-11-28a';
 
 function healthCheck() {
   const L = [];
@@ -2670,14 +2674,14 @@ function healthCheck() {
   function warn(t, fix) { L.push('⚠️ ' + t + (fix ? ('\n     → ' + fix) : '')); }
 
   // 1. LINE
-  cfg('LINE_TOKEN') ? ok('LINE token ตั้งแล้ว') : bad('ไม่มี LINE_TOKEN', 'ออก Channel access token ใหม่ใน LINE Developers');
-  const owner = cfg('OWNER_LINE_USER_ID');
+  cfg_('LINE_TOKEN') ? ok('LINE token ตั้งแล้ว') : bad('ไม่มี LINE_TOKEN', 'ออก Channel access token ใหม่ใน LINE Developers');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) bad('ไม่รู้ userId ของคุณปาล์ม', 'ทักหาดิฉันแล้วพิมพ์ "chat id" เอาค่าไปใส่ OWNER_LINE_USER_ID');
   else if (!/^U[0-9a-f]{20,}$/i.test(owner)) bad('OWNER_LINE_USER_ID รูปแบบผิด (' + owner + ')', 'ต้องขึ้นต้นด้วย U และเป็นรหัสยาว');
   else ok('รู้จักคุณปาล์มแล้ว (เด้งเตือนได้)');
 
   // 2. Claude API — ยิงจริงเพื่อดูว่า key ใช้ได้
-  const key = cfg('ANTHROPIC_API_KEY');
+  const key = cfg_('ANTHROPIC_API_KEY');
   if (!key) bad('ไม่มี ANTHROPIC_API_KEY', 'สร้าง key ที่ console.anthropic.com');
   else {
     try {
@@ -2704,7 +2708,7 @@ function healthCheck() {
       ok('บอร์ดงานต่อติด (' + (sh ? Math.max(0, sh.getLastRow() - 1) : 0) + ' งานในระบบ)');
     } catch (e) { bad('เปิดชีตบอร์ดไม่ได้', 'เช็คว่า LOG_SHEET_ID ถูกต้องและแชร์สิทธิ์ให้สคริปต์'); }
   }
-  const did = cfg('DATA_SHEET_ID');
+  const did = cfg_('DATA_SHEET_ID');
   if (!did) warn('ยังไม่ได้ตั้ง DATA_SHEET_ID', 'ทีม AI จะดูข้อมูลธุรกิจโรงน้ำไม่ได้');
   else {
     try { ok('ชีตข้อมูลธุรกิจต่อติด (' + ssById(did).getSheets().length + ' แท็บ)'); }
@@ -2717,7 +2721,7 @@ function healthCheck() {
             : warn('ยังไม่รู้จักกลุ่มไหนเลย', 'เชิญดิฉันเข้ากลุ่ม แล้วให้ใครทักในกลุ่ม 1 ข้อความ');
 
   // 4.5 🏭 แอปทีมผลิต (ส่งต่อข้อความกลุ่มทีมผลิต → บันทึกจอดเครื่อง)
-  if (cfg('PLANT_SHEET_ID') || cfg('PRODUCTION_CHAT_TOKEN')) {
+  if (cfg_('PLANT_SHEET_ID') || cfg_('PRODUCTION_CHAT_TOKEN')) {
     const pp = productionAppPing();
     pp.ok ? ok('เชื่อมแอปทีมผลิตได้ ✓') : bad('เชื่อมแอปทีมผลิตไม่ได้ ✗ (' + pp.why + ')', 'แจ้งแชท origin-hq ให้เช็คแอปทีมผลิต');
     productionGroupId() ? ok('รู้จักกลุ่มทีมผลิตแล้ว (ส่งต่อข้อความจอดเครื่องได้)')
@@ -2743,7 +2747,7 @@ function healthCheck() {
   try { lineQuotaHealthLine(ok, warn); } catch (e) {}
 
   // 4.55 🧾 แอปบัญชี (กลุ่มบิลค่าใช้จ่าย → รายจ่าย · เตือนบิล · ถามบิล)
-  if (cfg('PLANT_SHEET_ID') || cfg('FINANCE_CHAT_TOKEN')) {
+  if (cfg_('PLANT_SHEET_ID') || cfg_('FINANCE_CHAT_TOKEN')) {
     const fp = financeAppPing();
     const minor = Number((fp.version.match(/^v0\.(\d+)/) || [])[1] || 0);
     if (!fp.ok) bad('เชื่อมแอปบัญชีไม่ได้ ✗ (' + fp.why + ')', 'แจ้งแชท origin-hq ให้เช็ค finance-app');
@@ -2768,7 +2772,7 @@ function healthCheck() {
 
   // 5. ปลุกทีม AI ทันที
   const rl = routineLastText();
-  !(cfg('ROUTINE_FIRE_URL') && cfg('ROUTINE_TOKEN'))
+  !(cfg_('ROUTINE_FIRE_URL') && cfg_('ROUTINE_TOKEN'))
     ? warn('ปลุกทีม AI ทันทีไม่ได้', 'ตั้ง ROUTINE_FIRE_URL + ROUTINE_TOKEN (หน้า Edit routine → API)')
     : (rl && !rl.ok)
       ? warn('ปลุกทีม AI ครั้งล่าสุด' + rl.text + ' — งานในคิวทีม AI ยังไม่มีใครรับ', 'ถ้าเป็น HTTP 401/403 = โทเคนหมดอายุ: หน้า Edit routine → API → Generate token ใหม่ แล้วใส่ ROUTINE_TOKEN')
@@ -2846,7 +2850,7 @@ function registerGroup(chatId) {
     let name = '';
     if (String(chatId).charAt(0) === 'C') {   // room (R...) ไม่มี API ชื่อ
       const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + chatId + '/summary', {
-        headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+        headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') }, muteHttpExceptions: true
       });
       if (res.getResponseCode() === 200) name = JSON.parse(res.getContentText()).groupName || '';
     }
@@ -2874,7 +2878,7 @@ function registerGroup(chatId) {
  */
 function oldDaysSummaryText(which) {
   try {
-    const id = cfg('OLDDAYS_SHEET_ID'); if (!id) return '';
+    const id = cfg_('OLDDAYS_SHEET_ID'); if (!id) return '';
     const sh = ssById(id).getSheetByName('DailyClose');
     if (!sh || sh.getLastRow() < 2) return '';
     const vals = sh.getRange(2, 1, sh.getLastRow() - 1, 19).getValues();
@@ -3046,7 +3050,7 @@ const PRODUCTION_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbyz9
 // กลุ่มทีมผลิต = Script Property GROUP_PRODUCTION_ID ถ้าตั้งไว้ · ไม่ตั้ง = กลุ่มที่ชื่อมีคำ "ทีมผลิต"/"ฝ่ายผลิต"
 //   (เทียบแบบมีคำนั้นในชื่อเท่านั้น ไม่ใช้เทียบรายคำแบบหลวม — กันส่งข้อความกลุ่มอื่นไปบันทึกจอดเครื่องผิด)
 function productionGroupId() {
-  const set = cfg('GROUP_PRODUCTION_ID');
+  const set = cfg_('GROUP_PRODUCTION_ID');
   if (set) return set;
   const cache = CacheService.getScriptCache();
   let gid = cache.get('grp_prod');
@@ -3065,12 +3069,12 @@ function productionGroupId() {
 
 // รหัสเชื่อม = HMAC ของ ID ชีตโรงน้ำ (แอปทีมผลิตคิดแบบเดียวกัน) → ไม่ต้องคัดลอกรหัสไปมา
 //   ถ้าวันหน้าตั้ง CHAT_TOKEN ในแอปทีมผลิต ให้ตั้ง PRODUCTION_CHAT_TOKEN ค่าเดียวกันที่นี่
-function productionChatToken() {
-  return cfg('PRODUCTION_CHAT_TOKEN') || lakonChatToken();
+function productionChatToken_() {
+  return cfg_('PRODUCTION_CHAT_TOKEN') || lakonChatToken_();
 }
 // แอปโรงน้ำทุกตัวที่รับแชทจากเลขา (ทีมผลิต · บัญชี) คิดรหัสจากชีตกลางเดียวกัน → ได้ค่าเดียวกัน
-function lakonChatToken() {
-  const sig = Utilities.computeHmacSha256Signature('lakon-line-chat-v1', sheetIdFrom(cfg('PLANT_SHEET_ID')));
+function lakonChatToken_() {
+  const sig = Utilities.computeHmacSha256Signature('lakon-line-chat-v1', sheetIdFrom(cfg_('PLANT_SHEET_ID')));
   return sig.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
 }
 
@@ -3083,7 +3087,7 @@ function groupMemberName(gid, uid) {
     const hit = cache.get(ck);
     if (hit) return hit;
     const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + gid + '/member/' + uid, {
-      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+      headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') }, muteHttpExceptions: true
     });
     if (res.getResponseCode() === 200) {
       const n = JSON.parse(res.getContentText()).displayName || '';
@@ -3100,10 +3104,10 @@ function forwardProductionChat(ev, chatId, senderId, text) {
     if (!String(text || '').trim()) return;
     const gid = productionGroupId();
     if (!gid || chatId !== gid) return;
-    const res = UrlFetchApp.fetch(cfg('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
+    const res = UrlFetchApp.fetch(cfg_('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
       payload: JSON.stringify({
-        token: productionChatToken(), action: 'lineChat', text: text,
+        token: productionChatToken_(), action: 'lineChat', text: text,
         sender: groupMemberName(gid, senderId), messageId: ev.message.id, at: ev.timestamp, group: chatId
       })
     });
@@ -3121,9 +3125,9 @@ function productionNudge() {
   try {
     const gid = productionGroupId();
     if (!gid) return;
-    const res = UrlFetchApp.fetch(cfg('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
+    const res = UrlFetchApp.fetch(cfg_('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ token: productionChatToken(), action: 'lineNudge' })
+      payload: JSON.stringify({ token: productionChatToken_(), action: 'lineNudge' })
     });
     let r = {};
     try { r = JSON.parse(res.getContentText() || '{}'); } catch (e) {}
@@ -3137,9 +3141,9 @@ function productionNudge() {
 // "เช็คระบบ": ยิง ping หาแอปทีมผลิตด้วยรหัสเชื่อม → true = เชื่อมได้
 function productionAppPing() {
   try {
-    const res = UrlFetchApp.fetch(cfg('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
+    const res = UrlFetchApp.fetch(cfg_('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ token: productionChatToken(), action: 'ping' })
+      payload: JSON.stringify({ token: productionChatToken_(), action: 'ping' })
     });
     const r = JSON.parse(res.getContentText() || '{}');
     return { ok: !!r.success, why: r.error || r.message || ('HTTP ' + res.getResponseCode()) };
@@ -3159,8 +3163,8 @@ function productionAppPing() {
 // ════════════════════════════════════════════════════════════
 const PH_CHEM_RE = /(เปลี่ยน|เติม|ใส่|ผสม|เพิ่ม|ลด)\s*\S{0,12}?(สาร|เคมี|โซดา|ด่าง|กรด|ปูน)|ปรับ\s*(ค่า)?\s*p\s*h/i;
 
-function phOn() { return String(cfg('PH_WATCH') || '').toLowerCase() !== 'off'; }
-function phRange() { return { min: Number(cfg('PH_MIN')) || 6.5, max: Number(cfg('PH_MAX')) || 8.5 }; }
+function phOn() { return String(cfg_('PH_WATCH') || '').toLowerCase() !== 'off'; }
+function phRange() { return { min: Number(cfg_('PH_MIN')) || 6.5, max: Number(cfg_('PH_MAX')) || 8.5 }; }
 function phHm(s, def) { const m = String(s || def).match(/(\d{1,2})[:.](\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : 0; }
 function phNow() {
   const d = new Date();
@@ -3168,8 +3172,8 @@ function phNow() {
            min: Number(Utilities.formatDate(d, 'GMT+7', 'H')) * 60 + Number(Utilities.formatDate(d, 'GMT+7', 'mm')) };
 }
 // ทวง/นับขาด เริ่มวันที่ PH_FROM (ค่าตั้งต้น 3/11 — วันที่ระบบขึ้นยังไม่รู้ว่าเช้านั้นส่งแล้ว) · รอบบ่ายเริ่ม PH_PM_FROM (ไม่ตั้ง = PH_FROM)
-function phFrom() { return String(cfg('PH_FROM') || '2026-11-03'); }
-function phPmOn(day) { return day >= String(cfg('PH_PM_FROM') || phFrom()); }
+function phFrom() { return String(cfg_('PH_FROM') || '2026-11-03'); }
+function phPmOn(day) { return day >= String(cfg_('PH_PM_FROM') || phFrom()); }
 // บันทึกรายวันใน Script Property PH_LOG (เก็บ 21 วัน): { วัน: { am, pm, ex:[], chem, chemDone, actAm, actPm, nag:{}, miss, warned } }
 function phLoad() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('PH_LOG') || '{}'); } catch (e) { return {}; } }
 function phStore(log) {
@@ -3230,7 +3234,7 @@ function phAckText(ph, r, how) {
 // ค่านอกเกณฑ์ → แจ้งคุณปาล์มส่วนตัว (ครั้งแรกของรอบนั้น ต่อวิธีอ่าน · 1 ข้อความ)
 function phWarnOwner(ph, r, by, url, how) {
   if (!r.warnFirst) return;
-  const owner = cfg('OWNER_LINE_USER_ID'); if (!owner) return;
+  const owner = cfg_('OWNER_LINE_USER_ID'); if (!owner) return;
   linePush(owner, '⚠️ pH ฝ่ายผลิต ' + (r.afterChem ? 'หลังเปลี่ยนสาร' : r.slot === 'am' ? 'รอบเช้า' : 'รอบบ่าย') + ' ' + r.t + ' น. = '
     + phFmt(ph) + (how === 'photo' ? ' (เลขาอ่านจากรูป อาจคลาดได้)' : ' (พิมพ์มาเอง)')
     + ' · เกณฑ์ ' + r.R.min + '–' + r.R.max + (by ? ' · ' + by : '') + (url ? '\n' + url : '')
@@ -3240,9 +3244,9 @@ function phWarnOwner(ph, r, by, url, how) {
 // ส่งเข้าแอปทีมผลิต (ตาราง QCChecks) — ต้องมี action lineQc ฝั่ง origin-hq (ใบสั่งงาน 02/11) · ยังไม่มี = จด log เฉย ๆ
 function phToApp(ph, r, by, url, how, msgId) {
   try {
-    const res = UrlFetchApp.fetch(cfg('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
+    const res = UrlFetchApp.fetch(cfg_('PRODUCTION_APP_URL') || PRODUCTION_APP_URL_DEFAULT, {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify({ token: productionChatToken(), action: 'lineQc', ph: ph, slot: r.afterChem ? 'chem' : r.slot,
+      payload: JSON.stringify({ token: productionChatToken_(), action: 'lineQc', ph: ph, slot: r.afterChem ? 'chem' : r.slot,
                                 how: how, sender: by, image: url || '', messageId: msgId || '', at: Date.now() })
     });
     let j = {}; try { j = JSON.parse(res.getContentText() || '{}'); } catch (e) {}
@@ -3273,9 +3277,9 @@ function phMarkOff(o) {
 //   วันทำงานเท่านั้น: มีรอบผลิตวันนี้ในแอปทีมผลิต หรือทีมโพสต์ในกลุ่มช่วงนั้น (ไม่มีทั้งคู่ = อาจเป็นวันหยุด → ไม่ส่ง) · ส่งไม่ผ่าน = ลองใหม่รอบหน้า
 function phPushNag() {
   try {
-    if (!phOn() || String(cfg('PH_PUSH') || '').toLowerCase() === 'off') return false;
+    if (!phOn() || String(cfg_('PH_PUSH') || '').toLowerCase() === 'off') return false;
     const gid = productionGroupId(); if (!gid) return false;
-    const n = phNow(), delay = (Number(cfg('PH_PUSH_AFTER_MIN')) || 30) * 60000;
+    const n = phNow(), delay = (Number(cfg_('PH_PUSH_AFTER_MIN')) || 30) * 60000;
     if (n.day < phFrom()) return false;
     const late = { day: n.day, ms: n.ms - delay, min: n.min - delay / 60000 };
     const d0 = phLoad()[n.day] || {};
@@ -3311,11 +3315,11 @@ function phMadeDays() {
 function phNagText(d, n) {
   if (n.day < phFrom()) return null;
   const off = d.off || {};
-  const wait = (Number(cfg('PH_CHEM_WAIT_MIN')) || 60) * 60000;
+  const wait = (Number(cfg_('PH_CHEM_WAIT_MIN')) || 60) * 60000;
   if (d.chem && !d.chemDone && n.ms - d.chem >= wait && !(d.nag || {}).chem) return { k: 'chem', t: 'หลังเปลี่ยนสารยังไม่เห็นค่า pH ซ้ำนะคะ 🙏 ช่วยวัดแล้วส่งรูปในกลุ่มด้วยค่ะ' };
-  if (n.min >= phHm(cfg('PH_AM_BY'), '09:00') && n.min < 12 * 60 && !d.am && !off.am && !(d.nag || {}).am)
+  if (n.min >= phHm(cfg_('PH_AM_BY'), '09:00') && n.min < 12 * 60 && !d.am && !off.am && !(d.nag || {}).am)
     return { k: 'am', t: 'เช้านี้ยังไม่เห็นค่า pH เลยนะคะ 🙏 วัดแล้วส่งรูปในกลุ่มได้เลยค่ะ\n(ถ้าวันนี้ไม่ได้ผลิตน้ำ พิมพ์ว่า "วันนี้ไม่ผลิต" ได้เลยค่ะ)' };
-  if (phPmOn(n.day) && n.min >= phHm(cfg('PH_PM_BY'), '15:00') && n.min < 18 * 60 && !d.pm && !off.pm && !(d.nag || {}).pm)
+  if (phPmOn(n.day) && n.min >= phHm(cfg_('PH_PM_BY'), '15:00') && n.min < 18 * 60 && !d.pm && !off.pm && !(d.nag || {}).pm)
     return { k: 'pm', t: 'รอบบ่ายยังไม่เห็นค่า pH นะคะ 🙏 วัดแล้วส่งรูปในกลุ่มได้เลยค่ะ\n(ถ้าบ่ายนี้ไม่ได้ผลิตน้ำ พิมพ์ว่า "บ่ายนี้ไม่ผลิต" ได้เลยค่ะ)' };
   return null;
 }
@@ -3388,7 +3392,7 @@ function phDayTime(r) { return Number(r.day.slice(8)) + '/' + Number(r.day.slice
 // AI เทียบรูปใหม่กับรูป pH เก่า (ชุดตรวจเดิม วางที่เดิม หน้าตาคล้ายกันเป็นปกติ) → คืนรูปเก่าที่ "ถ่ายครั้งเดียวกัน" หรือ null
 function phSameShot(blob, prev) {
   try {
-    const apiKey = cfg('ANTHROPIC_API_KEY'); if (!apiKey || !prev.length) return null;
+    const apiKey = cfg_('ANTHROPIC_API_KEY'); if (!apiKey || !prev.length) return null;
     const img = function (b) { return { type: 'image', source: { type: 'base64', media_type: b.getContentType(), data: Utilities.base64Encode(b.getBytes()) } }; };
     const olds = [];
     prev.forEach(function (r) { try { const b = DriveApp.getFileById(r.f).getBlob(); if (b.getBytes().length < 3500000) olds.push({ r: r, b: b }); } catch (e) {} });
@@ -3433,7 +3437,7 @@ function phOnImage(ev, chatId, senderId, ph, url, media) {
     if (same) {   // ชั้น 1: ไฟล์เดิมเป๊ะ — ไม่นับเป็นการวัด รอบนั้นยังทวงได้ตามปกติ
       phEdit(function (d) { (d.dup = d.dup || []).push({ t: phNow().hhmm, by: by, of: same.day + ' ' + same.t }); });
       lineReply(replyToken, 'รูปนี้เป็นรูปเดียวกับรูปค่า pH ที่ส่งเมื่อ ' + phDayTime(same) + ' เลยค่ะ 🙏 รบกวนวัดใหม่แล้วถ่ายรูปใหม่ส่งอีกครั้งนะคะ');
-      const owner = cfg('OWNER_LINE_USER_ID');
+      const owner = cfg_('OWNER_LINE_USER_ID');
       if (owner) linePush(owner, '🔁 รูป pH ซ้ำ (ไฟล์เดิมเป๊ะ) · ' + (by || 'ไม่ทราบชื่อ') + ' ส่งรูปของ ' + phDayTime(same) + ' มาอีกครั้ง'
         + '\nในกลุ่มขอให้วัดใหม่แล้วค่ะ · ไม่นับเป็นการวัด\n' + (same.u || ''));
       logRow(['ค่า pH: รูปซ้ำ', by, 'ซ้ำกับ ' + same.day + ' ' + same.t, url]);
@@ -3466,7 +3470,7 @@ function phCheckLookalike(blob, prev, mid, by, url) {
   phEdit(function (d) {
     [d.am, d.pm].concat(d.ex || []).forEach(function (r) { if (r && r.m === mid) r.sus = old.day + ' ' + old.t; });
   });
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (owner) linePush(owner, '🔁 รูป pH อาจเป็นรูปเดิม · ' + (by || 'ไม่ทราบชื่อ') + ' ส่งรูปที่ AI เทียบแล้วเหมือนถ่ายครั้งเดียวกับรูป ' + phDayTime(old)
     + '\nในกลุ่มยังตอบรับตามปกติ (ไม่แน่นอน 100%) — คุณปาล์มดู 2 รูปแล้วตัดสินได้เลยค่ะ\nใหม่: ' + url + '\nเก่า: ' + (old.u || ''));
   logRow(['ค่า pH: รูปคล้ายรูปเก่า', by, 'เหมือน ' + old.day + ' ' + old.t, url]);
@@ -3501,7 +3505,7 @@ function phEveningCheck() {
   const pd = prevDay ? (log[prevDay] || {}) : {};
   const prevMiss = prevDay ? (pd.miss || phMissed(prevDay, pd, madeOn(prevDay))) : [];
   if (miss.length && prevMiss.length && !pd.alerted) {
-    const owner = cfg('OWNER_LINE_USER_ID');
+    const owner = cfg_('OWNER_LINE_USER_ID');
     const dd = function (k) { return Number(k.slice(8)) + '/' + Number(k.slice(5, 7)); };
     const sent = owner ? linePushExact(owner, '📋 ค่า pH ฝ่ายผลิต: ขาดส่ง 2 วันทำงานติดกันค่ะ\n• ' + dd(n.day) + ' ขาดรอบ' + miss.join(', ')
       + '\n• ' + dd(prevDay) + ' ขาดรอบ' + prevMiss.join(', ') + '\n(พิมพ์ "สรุป pH" ดูย้อนหลังได้ค่ะ)') : { ok: true };
@@ -3585,18 +3589,18 @@ function mwMoldName(m, id) { const M = mwOf(id); return M.isMain(m) ? M.mainMold
 // คำเรื่องหยุด/เสียของเครื่อง 250 (ใบสั่งงาน 12/11) — ใช้เทียบสาเหตุซ้ำในสรุปรายวัน
 const MW_KW = ['ก้ามปู', 'ลูกกลิ้ง', 'โซ่', 'หลอดติด', 'น็อต', 'น๊อต', 'กระบอกสูบ', 'สไลด์', 'ลิเมียร์', 'หัวเป่า', 'ฮีต', 'ลม', 'ไฟ', 'โมล'];
 
-function p10On() { return String(cfg('PET10_WATCH') || '').toLowerCase() !== 'off'; }
+function p10On() { return String(cfg_('PET10_WATCH') || '').toLowerCase() !== 'off'; }
 
 // กลุ่ม TEAMWORK = Script Property GROUP_TEAMWORK_ID ถ้าตั้งไว้ · ไม่ตั้ง = กลุ่มที่ชื่อมีคำ TEAMWORK (ไม่สนตัวพิมพ์/ช่องว่าง)
 function isTeamworkName(name) { return /teamwork/i.test(String(name || '').replace(/\s+/g, '')); }
 function isTeamworkGroup(chatId) {
   if (!chatId || !/^[CR]/.test(String(chatId))) return false;
-  const set = cfg('GROUP_TEAMWORK_ID');
+  const set = cfg_('GROUP_TEAMWORK_ID');
   if (set) return chatId === set;
   return isTeamworkName(groupNameOf(chatId));
 }
 function teamworkGroupId() {
-  const set = cfg('GROUP_TEAMWORK_ID');
+  const set = cfg_('GROUP_TEAMWORK_ID');
   if (set) return set;
   const g = listKnownGroups().filter(function (x) { return isTeamworkName(x.name); })[0];
   return g ? g.id : '';
@@ -3689,7 +3693,7 @@ function lineQuotaInfo(fresh) {
   const C = CacheService.getScriptCache();
   if (!fresh) { try { const c = C.get('LINE_QUOTA'); if (c) return JSON.parse(c); } catch (e) {} }
   const get = function (path) {
-    const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/' + path, { method: 'get', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') } });
+    const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/' + path, { method: 'get', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') } });
     if (res.getResponseCode() !== 200) throw new Error('LINE HTTP ' + res.getResponseCode() + ' ' + String(res.getContentText() || '').slice(0, 100));
     return JSON.parse(res.getContentText() || '{}');
   };
@@ -3723,7 +3727,7 @@ function mwCountPush(s, now) {
 
 // ด่าน 1 (ฟรี): 2 = ชื่อเครื่องชัด · 1 = คำเรื่องเครื่อง/ขวด หรือคำตอบต่อเรื่องที่ค้าง · 0 = ไม่ส่ง AI
 function p10Words() {
-  return String(cfg('PET10_WORDS') || '').split(/[,\n]/).map(function (w) { return w.trim().toLowerCase(); })
+  return String(cfg_('PET10_WORDS') || '').split(/[,\n]/).map(function (w) { return w.trim().toLowerCase(); })
     .filter(function (w) { return w.length >= 2; });
 }
 //   st = สถานะ PET10 · others = สถานะเครื่องอื่น (กดตอบกลับ/คำตอบสั้นระหว่างจอด นับทุกเครื่อง)
@@ -3740,7 +3744,7 @@ function p10AiBudget(strong) {
   const P = PropertiesService.getScriptProperties(), day = p10Day(Date.now());
   let b = {}; try { b = JSON.parse(P.getProperty('P10_AIN') || '{}'); } catch (e) {}
   if (b.d !== day) b = { d: day, n: 0 };
-  if (!strong && b.n >= (Number(cfg('PET10_AI_MAX')) || 150)) return false;
+  if (!strong && b.n >= (Number(cfg_('PET10_AI_MAX')) || 150)) return false;
   b.n++; P.setProperty('P10_AIN', JSON.stringify(b));
   return true;
 }
@@ -3749,7 +3753,7 @@ function p10AiBudget(strong) {
 //   sts = { PET10: สถานะ, PET250S6: สถานะ } (หรือสถานะ PET10 ก้อนเดียวแบบเดิม)
 function p10Judge(chatId, text, who, sts, now) {
   try {
-    const apiKey = cfg('ANTHROPIC_API_KEY'); if (!apiKey) return null;
+    const apiKey = cfg_('ANTHROPIC_API_KEY'); if (!apiKey) return null;
     const rows = recentGroupRows(chatId, now - 2 * 3600000, now).slice(-20);
     const ctxLines = rows.map(function (r) { return '[' + p10Hm(r.t) + '] ' + (r.name || 'ไม่ทราบชื่อ') + ': ' + String(r.text || '').slice(0, 300); }).join('\n');
     if (!sts || sts.state !== undefined || !sts.PET10) sts = { PET10: sts || {}, PET250S6: (sts && sts.PET250S6) || p10Load('PET250S6') };
@@ -3802,7 +3806,7 @@ function p10Judge(chatId, text, who, sts, now) {
       AI_TAG = '';
       return p10Parse(t);
     };
-    const model = cfg('PET10_MODEL') || IMAGE_MODEL_SMALL;
+    const model = cfg_('PET10_MODEL') || IMAGE_MODEL_SMALL;
     const j = ask(model, 'เฝ้า PET10');
     if (model === MODEL) return j;
     // รุ่นเล็กปฏิเสธ/ตอบไม่เป็น JSON → ให้รุ่นหลักอ่านซ้ำ (แบบเดียวกับอ่านรูป) ไม่ทิ้งข่าวเครื่องจอดเพราะรุ่นเล็กตอบไม่ได้
@@ -3969,9 +3973,9 @@ function p10Flush(force, id) {
   try {
     const M = mwOf(id), st0 = p10Load(id);
     if (!st0.pend || !st0.pend.length) return false;
-    const now = Date.now(), wait = (Number(cfg(M.batchKey)) || M.batchDef) * 60000;
+    const now = Date.now(), wait = (Number(cfg_(M.batchKey)) || M.batchDef) * 60000;
     if (!force && now - (st0.pendAt || now) < wait) return false;
-    const owner = cfg('OWNER_LINE_USER_ID'); if (!owner) return false;
+    const owner = cfg_('OWNER_LINE_USER_ID'); if (!owner) return false;
     if (mwQuotaOut()) return false;   // โควตาไลน์เดือนนี้หมด → ไม่ยิงซ้ำทุก tick (ลองใหม่ทุก 6 ชม.) · คุณปาล์มถามเองได้เสมอ (ตอบกลับฟรี)
     const job = p10Edit(function (s) {
       if (!s.pend || !s.pend.length || (!force && now - (s.pendAt || now) < wait)) return null;
@@ -4034,11 +4038,11 @@ function mwDailySummary(force) {
     if (!p10On()) return false;
     const now = Date.now(), d = p10Day(now), hm = p10Hm(now), P = PropertiesService.getScriptProperties();
     if (!force) {
-      if (hm < (cfg('MW_DAILY_AT') || '18:30') || hm >= '23:00') return false;
+      if (hm < (cfg_('MW_DAILY_AT') || '18:30') || hm >= '23:00') return false;
       if (P.getProperty('MW_DAILY_SENT') === d) return false;
     }
     if (!teamworkGroupId() && !p10Load('PET10').watchFrom) return false;
-    const owner = cfg('OWNER_LINE_USER_ID'); if (!owner) return false;
+    const owner = cfg_('OWNER_LINE_USER_ID'); if (!owner) return false;
     const blocks = MW_IDS.map(function (id) { return mwDailyBlock(id, now); }).filter(String);
     const plan = mwPlanLine(now);
     P.setProperty('MW_DAILY_SENT', d);
@@ -4182,7 +4186,7 @@ function p10Answer(t, replyToken, chatId, set, ids) {
   mwMarkRows(rows, 'คุณปาล์มรู้แล้ว (ถาม/แก้เอง ' + p10Dt(Date.now()) + ')');
   lineReply(replyToken, out);
   memAppend(chatId, t, out);
-  logRow([set ? 'แก้สถานะ ' + M.short : 'ถาม ' + ids.map(function (x) { return mwOf(x).short; }).join('+'), cfg('OWNER_LINE_USER_ID'), t, '']);
+  logRow([set ? 'แก้สถานะ ' + M.short : 'ถาม ' + ids.map(function (x) { return mwOf(x).short; }).join('+'), cfg_('OWNER_LINE_USER_ID'), t, '']);
   return true;
 }
 
@@ -4207,7 +4211,7 @@ function p10HealthLine(ok, warn) {
   MW_IDS.slice(1).forEach(function (id) {
     const M = mwOf(id), m = p10Load(id), v = mwDayView(m, Date.now()), k = (m.pushes || {})[p10Day(Date.now()).slice(0, 7)] || 0;
     ok('🍾 เฝ้า ' + M.label + ': ล่าสุด ' + (m.updated ? (P10_STATES[m.state] || m.state) + ' (' + p10Dt(m.updated) + (m.seeded ? ' · สถานะตั้งต้น' : '') + ')' : 'ยังไม่มีใครพูดถึง')
-      + ' · วันนี้หยุด ' + v.stops + ' ครั้ง · แจ้งเดือนนี้ ' + k + ' ครั้ง (ถาม ' + M.ask + ' ได้ · สรุปรายวัน ' + (cfg('MW_DAILY_AT') || '18:30') + ' เฉพาะวันที่มีปัญหา)');
+      + ' · วันนี้หยุด ' + v.stops + ' ครั้ง · แจ้งเดือนนี้ ' + k + ' ครั้ง (ถาม ' + M.ask + ' ได้ · สรุปรายวัน ' + (cfg_('MW_DAILY_AT') || '18:30') + ' เฉพาะวันที่มีปัญหา)');
     if (m.pushErr) warn('🍾 แจ้ง ' + M.short + ' ล่าสุดส่งไม่ออก: ' + m.pushErr);
   });
   if (mwQuotaOut()) warn('🍾 โควตาไลน์เดือนนี้หมด — แจ้งเครื่องเป่าขวดส่งเองไม่ได้ (ลองใหม่ทุก 6 ชม.)', 'ถาม "PET10 เป็นไง" / "เครื่อง 250" ได้เสมอ (ตอบกลับฟรี) · เพิ่มโควตาที่ LINE Official Account Manager หรือรอรีเซ็ตต้นเดือน');
@@ -4226,21 +4230,21 @@ const FLEET_APP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbydLeI_gC
 const FUEL_PERMANENT_RE = /ยอดเงินไม่ถูกต้อง|ลิตรเยอะผิดปกติ|เลขไมล์ไม่ถูกต้อง/;   // แอปรถไม่รับเพราะข้อมูล → ส่งซ้ำก็ไม่ผ่าน
 const FUEL_MAX_TRIES = 48;
 
-function fuelOn() { return String(cfg('FUEL_LINE') || '').toLowerCase() !== 'off'; }
+function fuelOn() { return String(cfg_('FUEL_LINE') || '').toLowerCase() !== 'off'; }
 function isVanName(name) { return String(name || '').replace(/\s+/g, '').indexOf('สายรถ') !== -1; }
 function isVanGroup(chatId) {
   if (!chatId || !/^[CR]/.test(String(chatId))) return false;
-  const set = cfg('GROUP_VAN_ID');
+  const set = cfg_('GROUP_VAN_ID');
   if (set) return chatId === set;
   return isVanName(groupNameOf(chatId));
 }
 function vanGroupId() {
-  const set = cfg('GROUP_VAN_ID');
+  const set = cfg_('GROUP_VAN_ID');
   if (set) return set;
   const g = listKnownGroups().filter(function (x) { return isVanName(x.name); })[0];
   return g ? g.id : '';
 }
-function fleetToken() { return cfg('FLEET_CHAT_TOKEN') || productionChatToken(); }
+function fleetToken_() { return cfg_('FLEET_CHAT_TOKEN') || productionChatToken_(); }
 
 // บรรทัด "น้ำมัน:" ในคำตอบอ่านรูป (เฉพาะกลุ่มสายรถ) — ต่อท้ายพรอมต์ analyzeImage
 const FUEL_PROMPT_LINE = 'น้ำมัน: (บิล/ใบเสร็จ/ใบกำกับเติมน้ำมันรถ → JSON บรรทัดเดียว {"kind":"receipt","liters":ลิตร,"baht":ยอดรวมที่จ่ายจริง,"ppl":บาทต่อลิตร,'
@@ -4284,9 +4288,9 @@ function fuelParseLine(t) {
 
 function fuelPost(p) {
   try {
-    const body = { token: fleetToken(), action: 'fuelLine' };
+    const body = { token: fleetToken_(), action: 'fuelLine' };
     Object.keys(p).forEach(function (k) { if (k !== 'token' && k !== 'action') body[k] = p[k]; });
-    const res = UrlFetchApp.fetch(cfg('FLEET_APP_URL') || FLEET_APP_URL_DEFAULT, {
+    const res = UrlFetchApp.fetch(cfg_('FLEET_APP_URL') || FLEET_APP_URL_DEFAULT, {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify(body)
     });
     try { return JSON.parse(res.getContentText() || '{}') || {}; } catch (e) { return { success: false, error: 'HTTP ' + res.getResponseCode() }; }
@@ -4386,13 +4390,13 @@ function fuelHistoryRows(gid, fromMs) {
 }
 // คำบรรยายรูปทีละชุด (≤15) → [{ kind… } | null] ตามลำดับเดิม
 function fuelReadDescs(descs) {
-  const apiKey = cfg('ANTHROPIC_API_KEY'); if (!apiKey || !descs.length) return descs.map(function () { return null; });
+  const apiKey = cfg_('ANTHROPIC_API_KEY'); if (!apiKey || !descs.length) return descs.map(function () { return null; });
   const prompt = 'ข้างล่างคือคำบรรยายรูปที่เคยอ่านไว้จากกลุ่มไลน์สายรถของโรงน้ำ (ข้อความ ไม่ใช่รูป) แต่ละบรรทัดขึ้นต้นด้วยเลขลำดับ\n'
     + 'แปลงแต่ละบรรทัดเป็น JSON ตามกติกานี้ (ใช้เฉพาะสิ่งที่คำบรรยายบอก ห้ามเดา):\n' + FUEL_PROMPT_LINE.replace(/^น้ำมัน: \(|\)\n$/g, '') + '\n'
     + 'ตอบเป็น JSON array ก้อนเดียว ยาวเท่าจำนวนบรรทัด เรียงตามลำดับ · บรรทัดที่ไม่ใช่บิล/หน้าปัดใส่ null\n\n'
     + descs.map(function (d, i) { return (i + 1) + '. ' + String(d).slice(0, 600); }).join('\n');
   try {
-    const body = { model: cfg('IMAGE_MODEL') || IMAGE_MODEL_SMALL, max_tokens: 4096, messages: [{ role: 'user', content: prompt }] };
+    const body = { model: cfg_('IMAGE_MODEL') || IMAGE_MODEL_SMALL, max_tokens: 4096, messages: [{ role: 'user', content: prompt }] };
     if (body.model !== MODEL) body.output_config = { effort: 'low' };
     const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
@@ -4489,7 +4493,7 @@ function groupNameOf(chatId) {
   if (!name && String(chatId).charAt(0) === 'C') {
     try {
       const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + chatId + '/summary', {
-        headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+        headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') }, muteHttpExceptions: true
       });
       if (res.getResponseCode() === 200) name = JSON.parse(res.getContentText()).groupName || '';
     } catch (e) {}
@@ -4501,19 +4505,19 @@ function groupNameOf(chatId) {
 // กลุ่มบิล = Script Property GROUP_EXPENSE_ID ถ้าตั้งไว้ · ไม่ตั้ง = กลุ่มที่ชื่อมีคำ "บิลค่าใช้จ่าย"
 function isExpenseGroup(chatId) {
   if (!chatId || !/^[CR]/.test(String(chatId))) return false;
-  const set = cfg('GROUP_EXPENSE_ID');
+  const set = cfg_('GROUP_EXPENSE_ID');
   if (set) return chatId === set;
   return expenseNameKey(groupNameOf(chatId)).indexOf(expenseNameKey(EXPENSE_GROUP_NAME)) !== -1;
 }
 
-function financeChatToken() { return cfg('FINANCE_CHAT_TOKEN') || lakonChatToken(); }
+function financeChatToken_() { return cfg_('FINANCE_CHAT_TOKEN') || lakonChatToken_(); }
 
 // เรียกแอปบัญชี — คืน object คำตอบเสมอ (พัง = { success:false, error })
 function financeCall(payload) {
   try {
-    const res = UrlFetchApp.fetch(cfg('FINANCE_APP_URL') || FINANCE_APP_URL_DEFAULT, {
+    const res = UrlFetchApp.fetch(cfg_('FINANCE_APP_URL') || FINANCE_APP_URL_DEFAULT, {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      payload: JSON.stringify(Object.assign({ token: financeChatToken() }, payload))
+      payload: JSON.stringify(Object.assign({ token: financeChatToken_() }, payload))
     });
     try { return JSON.parse(res.getContentText() || '{}'); }
     catch (e) { return { success: false, error: 'HTTP ' + res.getResponseCode() + ' (คำตอบไม่ใช่ JSON)' }; }
@@ -4522,7 +4526,7 @@ function financeCall(payload) {
 
 // โฟลเดอร์เก็บบิล — แยกจากรูปไลน์ทั่วไป · ไม่แชร์สาธารณะ (เอกสารเงิน) แอปบัญชีรันบัญชีเดียวกันจึงเปิดได้
 function expenseFolder() {
-  const fid = cfg('EXPENSE_FOLDER_ID');
+  const fid = cfg_('EXPENSE_FOLDER_ID');
   if (fid) { try { return DriveApp.getFolderById(sheetIdFrom(fid)); } catch (e) {} }
   const parent = mediaFolder();
   const it = parent.getFoldersByName('บิลค่าใช้จ่าย');
@@ -4531,7 +4535,7 @@ function expenseFolder() {
 
 function saveExpenseMedia(ev) {
   const res = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/message/' + ev.message.id + '/content', {
-    headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+    headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') }, muteHttpExceptions: true
   });
   if (res.getResponseCode() !== 200) throw new Error('ดาวน์โหลดจากไลน์ไม่สำเร็จ (HTTP ' + res.getResponseCode() + ')');
   const blob = res.getBlob();
@@ -4555,7 +4559,7 @@ function expenseFailAlert(msg) {
     const c = CacheService.getScriptCache();
     if (c.get('expfail_alert')) return;
     c.put('expfail_alert', '1', 1800);
-    linePush(cfg('OWNER_LINE_USER_ID'), '⚠️ ส่งบิลจากกลุ่ม "บิลค่าใช้จ่าย" เข้าแอปบัญชีไม่สำเร็จค่ะ\n' + msg
+    linePush(cfg_('OWNER_LINE_USER_ID'), '⚠️ ส่งบิลจากกลุ่ม "บิลค่าใช้จ่าย" เข้าแอปบัญชีไม่สำเร็จค่ะ\n' + msg
       + '\n(พิมพ์ "เช็คระบบ" ดูการเชื่อมแอปบัญชีได้ค่ะ)');
   } catch (e) {}
 }
@@ -4591,7 +4595,7 @@ function handleExpenseGroupEvent(ev) {
   // ไม่ดูธง duplicate ของแอปบัญชี: ถ้าเลขาเคยได้คำตอบแล้วจะถูกกันด้วย expfw_ ข้างบน
   // ที่เหลือ = รอบก่อนเลขาไม่ได้รับคำตอบ (หมดเวลา) → ข้อความยังไม่เคยถึงใคร ต้องส่ง
   if (r.say) expenseSay(ev.replyToken, chatId, String(r.say));
-  if (r.notify && r.notice) linePush(cfg('OWNER_LINE_USER_ID'), String(r.notice));
+  if (r.notify && r.notice) linePush(cfg_('OWNER_LINE_USER_ID'), String(r.notice));
   if (!r.success && m.type !== 'text') {
     expenseFailAlert('👤 ' + sender + ' ส่ง' + (m.type === 'image' ? 'รูป' : 'ไฟล์') + ' — ' + (r.error || r.message || r.code || 'ไม่ทราบสาเหตุ')
       + (body.fileId ? '\nไฟล์เก็บไว้แล้ว: https://drive.google.com/file/d/' + body.fileId + '/view' : ''));
@@ -4609,7 +4613,7 @@ function expenseDueDaily(force) {
   const r = financeCall({ action: 'expenseDue' });
   if (!r.success) { logRow(['เตือนบิล ✗', '', '', r.error || r.message || r.code || '']); return; }
   P.setProperty('EXPENSE_DUE_DAY', today);
-  if (r.notify && r.notice) linePush(cfg('OWNER_LINE_USER_ID'), String(r.notice));
+  if (r.notify && r.notice) linePush(cfg_('OWNER_LINE_USER_ID'), String(r.notice));
   logRow(['เตือนบิล', '', '', r.act === 'due' ? ('เลย ' + (r.overdue || 0) + ' · วันนี้ ' + (r.today || 0) + ' · ใกล้ ' + (r.soon || 0)) : 'ไม่มีบิลครบกำหนด']);
 }
 
@@ -4618,7 +4622,7 @@ function expenseDueDaily(force) {
 //   เลขาแค่ถาม expenseOutbox ทุกรอบ 15 นาที → ได้ say = ส่งลงกลุ่ม "ตามตัวอักษร" (มีเลขข้อที่คนตอบอ้างถึง ห้ามเรียบเรียง) → แจ้งผลกลับ expenseOutboxSent
 //   คนในกลุ่มตอบกลับ ("1 โอนแล้ว" / Reply ใส่สรุป) ไหลเข้า expenseChat ตามเดิม (แนบ quotedMessageId)
 function expenseGroupId() {
-  const set = cfg('GROUP_EXPENSE_ID');
+  const set = cfg_('GROUP_EXPENSE_ID');
   if (set) return set;
   const g = listKnownGroups().filter(function (x) { return isExpenseGroup(x.id); })[0];
   return g ? g.id : '';
@@ -4631,7 +4635,7 @@ function linePushExact(to, text) {
     if (t.length > 5000) return { ok: false, error: 'ข้อความยาว ' + t.length + ' ตัวอักษร เกินที่ไลน์รับ (5,000)' };
     const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
+      headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') },
       payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: t }] })
     });
     const code = res.getResponseCode();
@@ -4645,7 +4649,7 @@ function linePushExact(to, text) {
 //   (คุณปาล์ม 19/11 ตอนสรุปบิลเก่า 12/11 จะเด้งเข้ากลุ่มตอนเที่ยงคืน: "ค่อยส่งพน.เช้าเอา")
 //   ตั้งค่า EXPENSE_QUIET = "21-8" (ค่าเริ่มต้น · ชั่วโมงไทย เริ่ม-จบ) · "off" = ส่งได้ทั้งวัน
 function expenseQuietNow() {
-  const m = String(cfg('EXPENSE_QUIET') || '21-8').trim().match(/^(\d{1,2})\s*-\s*(\d{1,2})$/);
+  const m = String(cfg_('EXPENSE_QUIET') || '21-8').trim().match(/^(\d{1,2})\s*-\s*(\d{1,2})$/);
   if (!m) return false;
   const a = Number(m[1]), b = Number(m[2]), h = Number(Utilities.formatDate(new Date(), 'GMT+7', 'H'));
   return a > b ? (h >= a || h < b) : (h >= a && h < b);
@@ -4665,7 +4669,7 @@ function expenseOutboxTick() {
       ? Object.assign({ action: 'expenseOutboxSent', outId: r.outId, ok: true }, sent.msgId ? { msgId: sent.msgId } : {})
       : { action: 'expenseOutboxSent', outId: r.outId, ok: false, error: sent.error });
     logRow(['สรุปบิลลงกลุ่ม', '', String(r.outId), sent.ok ? 'ส่งแล้ว ' + (sent.msgId || '') : 'ส่งไม่ได้: ' + sent.error]);
-    if (back && back.notify && back.notice) linePush(cfg('OWNER_LINE_USER_ID'), String(back.notice));
+    if (back && back.notify && back.notice) linePush(cfg_('OWNER_LINE_USER_ID'), String(back.notice));
     if (!sent.ok) return;
   }
 }
@@ -4703,9 +4707,9 @@ function resolveGroupTarget(target) {
   };
   const t = String(target || '').trim();
   let gid = '';
-  if (map[t]) gid = cfg(map[t]);
+  if (map[t]) gid = cfg_(map[t]);
   else if (/^[CRU][0-9a-fA-F]{20,}$/.test(t)) gid = t;   // ใส่ group id ตรงๆ
-  else if (cfg(t)) gid = cfg(t);                          // เผื่อใส่ชื่อ property
+  else if (cfg_(t)) gid = cfg_(t);                          // เผื่อใส่ชื่อ property
   if (!gid) gid = findGroupByName(t);                     // หาในทะเบียนกลุ่มที่เลขาอยู่
   return gid;
 }
@@ -4732,7 +4736,7 @@ function testPushCafe() {
 //  ⛔ เลิกส่ง 8 โมงทุกวันแล้ว (20/10 ดู RETIRED_TRIGGERS) — เรื่องที่ต้องตัดสินใจจริงย้ายไป shopAlertsDaily
 function morningBrief(e) {
   if (retiredTriggerFired(e)) return;
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) { console.warn('ยังไม่ได้ตั้ง OWNER_LINE_USER_ID'); return; }
 
   const rows = readBoard('', true); // เจ้าของเห็นทั้งหมด
@@ -4773,7 +4777,7 @@ function morningBrief(e) {
 //  ⛔ เลิกแล้ว (20/10) — ซ้ำกับ createTaskDirect ที่เด้ง "🔴 งานด่วนมากเข้าใหม่" ตอนงานเข้าอยู่แล้ว
 function boardWatch(e) {
   if (retiredTriggerFired(e)) return;
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) return;
   const id = boardSheetId();
   if (!id) return;
@@ -4882,7 +4886,7 @@ function claudeText(data) {
 
 // เรียกนักวางแผน — คืน object แผนงาน หรือ null ถ้าไม่สำเร็จ
 function askPlanner(userText) {
-  const apiKey = cfg('ANTHROPIC_API_KEY');
+  const apiKey = cfg_('ANTHROPIC_API_KEY');
   if (!apiKey) return null;
   try {
     const kb = loadKBCached();
@@ -4920,7 +4924,7 @@ function askPlanner(userText) {
 //  Claude API — สมองของคุณเลขา
 // ════════════════════════════════════════════════════════════
 function askClaude(userText, history) {
-  const apiKey = cfg('ANTHROPIC_API_KEY');
+  const apiKey = cfg_('ANTHROPIC_API_KEY');
   if (!apiKey) return 'ระบบยังไม่ได้ตั้งค่า API key ค่ะ (แจ้งผู้ดูแลระบบด้วยนะคะ)';
 
   const kb = loadKBCached();
@@ -4987,7 +4991,7 @@ function lineReply(replyToken, text, extraMessages) {
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'post',
     contentType: 'application/json',
-    headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
+    headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') },
     payload: JSON.stringify({ replyToken: replyToken, messages: messages }),
     muteHttpExceptions: true
   });
@@ -5000,7 +5004,7 @@ function linePush(to, text) {
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
     method: 'post',
     contentType: 'application/json',
-    headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
+    headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') },
     payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: cleanOut(text) }] }),
     muteHttpExceptions: true
   });
@@ -5020,7 +5024,7 @@ function rememberBotMsgIds(res) {
 
 // เด้งเตือนคุณปาล์มเมื่อมีคนถามเรื่องการเงิน
 function alertOwner(senderId, text) {
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) return;
   linePush(owner,
     '📩 มีคนถามเรื่องการเงิน/ต้นทุน — คุณเลขาปฏิเสธไปแล้วค่ะ\n' +
@@ -5049,7 +5053,7 @@ function ssById(v) {
 }
 
 function logRow(arr) {
-  const sheetId = cfg('LOG_SHEET_ID');
+  const sheetId = cfg_('LOG_SHEET_ID');
   if (!sheetId) return;
   try {
     const ss = ssById(sheetId);
@@ -5068,7 +5072,7 @@ function logRow(arr) {
 //  บันทึกงานลงบอร์ดรับงาน (แท็บ Requests เดียวกับ request.html)
 // ════════════════════════════════════════════════════════════
 function boardSheetId() {
-  return cfg('REQUEST_SHEET_ID') || cfg('LOG_SHEET_ID'); // ไม่ตั้งแยกก็ใช้ชีตเดียวกับ log
+  return cfg_('REQUEST_SHEET_ID') || cfg_('LOG_SHEET_ID'); // ไม่ตั้งแยกก็ใช้ชีตเดียวกับ log
 }
 
 // แยกบล็อกซ่อน [[TASK]]{...}[[/TASK]] ฯลฯ ออกจากคำตอบ
@@ -5205,7 +5209,7 @@ function parseBlocks(raw) {
 
 // เด้งสรุปข้อเสนอ/ตามงานถึงคุณปาล์ม
 function alertOwnerProposal(alert, senderId) {
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) return;
   linePush(owner,
     '📣 เรื่องฝากเรียนคุณปาล์ม\n' +
@@ -5218,7 +5222,7 @@ function alertOwnerProposal(alert, senderId) {
 
 // เด้งเตือนงานด่วนมากที่เพิ่งเข้ามา
 function alertOwnerUrgentTask(task, ref, senderId) {
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) return;
   linePush(owner,
     '🔴 งานด่วนมากเข้าใหม่ #' + ref + '\n' +
@@ -5265,7 +5269,7 @@ function readBoardAll() {
     if (last < 2) return [];
     const start = Math.max(2, last - 299);
     const data = sheet.getRange(start, 1, last - start + 1, 25).getValues();
-    const ownerId = String(cfg('OWNER_LINE_USER_ID') || '');
+    const ownerId = String(cfg_('OWNER_LINE_USER_ID') || '');
     const out = [];
     for (let i = data.length - 1; i >= 0 && out.length < 200; i--) {
       const r = data[i];
@@ -5315,8 +5319,8 @@ function readBoard(senderId, owner) {
 //  🏭 แอปผู้บริหาร (Executive) — ภาพรวมบริษัท ออริจิ้น แล็บส์
 //  รหัสแยกจากบอร์ด: EXEC_KEY (ผู้บริหารไม่กี่คน) | QUEUE_KEY ของ CEO ก็เข้าได้
 // ════════════════════════════════════════════════════════════
-function execKey() {
-  let k = cfg('EXEC_KEY');
+function execKey_() {
+  let k = cfg_('EXEC_KEY');
   if (!k) {
     k = 'E' + Utilities.getUuid().replace(/-/g, '').slice(0, 11);
     PropertiesService.getScriptProperties().setProperty('EXEC_KEY', k);
@@ -5331,9 +5335,9 @@ function execAuth(key) {
 // บทบาท: (ว่าง)=ผู้บริหารทั่วไป ไม่เห็นเงินเดือน · กรรมการ/board=เห็นทุกอย่างเท่า CEO แต่แก้ไข/จ่ายเงินไม่ได้
 function execViewer(key) {
   if (!key) return { role: '', name: '' };
-  if (key === cfg('QUEUE_KEY')) return { role: 'ceo', name: 'คุณปาล์ม' };
-  if (key === execKey()) return { role: 'exec', name: '' };
-  const list = String(cfg('EXEC_KEYS') || '');
+  if (ownerKeyOk_(key)) return { role: 'ceo', name: 'คุณปาล์ม' };
+  if (key === execKey_()) return { role: 'exec', name: '' };
+  const list = String(cfg_('EXEC_KEYS') || '');
   if (list) {
     const items = list.split(/[\n,]+/);
     for (let i = 0; i < items.length; i++) {
@@ -5350,7 +5354,7 @@ function execViewer(key) {
 // สิทธิ์ "เห็นข้อมูลเงิน" — CEO และกรรมการ (การแก้ไข/จ่ายเงินยังเช็ค === 'ceo' ตรง ๆ เสมอ)
 function execCanMoney(role) { return role === 'ceo' || role === 'board'; }
 function execBoardUrl() {
-  return 'https://palmsil2026.github.io/palm-hq/exec/?key=' + encodeURIComponent(execKey());
+  return 'https://palmsil2026.github.io/palm-hq/exec/?key=' + encodeURIComponent(execKey_());
 }
 
 // แท็บข้อมูลผู้บริหาร — สร้างอัตโนมัติพร้อมหัวตาราง ถ้ายังไม่มี
@@ -5400,7 +5404,7 @@ function execDateKey(v) {
 //  อ่านอย่างเดียว ไม่เขียนกลับ — ระบบโรงงานยังเป็นเจ้าของข้อมูลเหมือนเดิม
 // ════════════════════════════════════════════════════════════
 function plantSS() {
-  const id = cfg('PLANT_SHEET_ID');
+  const id = cfg_('PLANT_SHEET_ID');
   if (!id) return null;
   try { return ssById(sheetIdFrom(id)); } catch (e) { console.error('plantSS: ' + e); return null; }
 }
@@ -6096,7 +6100,7 @@ function shopAlertsDaily() {
   const P = PropertiesService.getScriptProperties();
   const today = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
   if (P.getProperty('SHOP_ALERT_DAY') === today) return;
-  const owner = cfg('OWNER_LINE_USER_ID'); if (!owner) return;
+  const owner = cfg_('OWNER_LINE_USER_ID'); if (!owner) return;
   const data = plantShopData(); if (!data) return;
   const al = shopAlerts(data, today);
   if (al.length) {
@@ -6185,7 +6189,7 @@ function addNoteReplyText(ref, nt, owner, senderId) {
       const c = CacheService.getScriptCache(), ck = 'STALE_TASK_' + ref;
       if (!c.get(ck)) {
         c.put(ck, '1', 21600);
-        const oid = cfg('OWNER_LINE_USER_ID');
+        const oid = cfg_('OWNER_LINE_USER_ID');
         if (oid) linePush(oid, '⏰ งาน #' + ref + ' ยัง "' + st + '" มา ' + Math.floor(age) + ' วันแล้วค่ะ และ ' + lineUserName(senderId)
           + ' เพิ่งส่งข้อมูลเพิ่มเข้ามาอีก — ยังไม่มีใครลงมือทำ/ยังไม่ได้บันทึกเข้าระบบ รบกวนคุณปาล์มดูให้หน่อยนะคะ');
       }
@@ -7204,7 +7208,7 @@ function boardChat(q) {
     let reply = p.reply;
     const ran = runCommandBlocks(p.all.RUN, { owner: true, inGroup: false, chatId: chatId, srcType: 'board', text: q });
     if (ran) reply = (reply ? reply + '\n\n' : '') + ran;
-    const OWNER = cfg('OWNER_LINE_USER_ID') || 'board-owner';
+    const OWNER = cfg_('OWNER_LINE_USER_ID') || 'board-owner';
 
     if (p.blocks.TASK) {
       if (p.blocks.TASK.multiStep === true) {
@@ -7381,7 +7385,7 @@ function linePushChecked(to, text) {
     const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
       method: 'post',
       contentType: 'application/json',
-      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') },
+      headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') },
       payload: JSON.stringify({ to: to, messages: [{ type: 'text', text: cleanOut(text) }] }),
       muteHttpExceptions: true
     });
@@ -7399,7 +7403,7 @@ function lineUserName(uid) {
     let name = cache.get(ck);
     if (name) return name;
     const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/profile/' + uid, {
-      headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+      headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') }, muteHttpExceptions: true
     });
     if (res.getResponseCode() === 200) {
       name = JSON.parse(res.getContentText()).displayName || '';
@@ -7495,7 +7499,7 @@ function createTaskDirect(t, preApproved) {
   // งานที่ต้องอนุมัติ หรือ งานด่วนมากจากคนอื่น → เด้งบอกคุณปาล์ม
   if (status === 'รออนุมัติ') pushTaskForApproval(ref, { dept: dept, detail: detail, biz: t.biz, urgency: t.urgency }, '');
   else if (String(t.urgency) === 'ด่วนมาก' && !preApproved) {
-    const owner = cfg('OWNER_LINE_USER_ID');
+    const owner = cfg_('OWNER_LINE_USER_ID');
     if (owner) linePush(owner, '🔴 งานด่วนมากเข้าใหม่ค่ะ\n#' + ref + ' ' + (t.biz || '') + '\n' + detail
       + (t.from ? ('\nโดย ' + t.from) : ''));
   }
@@ -7517,7 +7521,7 @@ function handleSubmitRequest(body) {
 // ── RPC ให้หน้าบอร์ดเรียกผ่าน google.script.run (ไม่ติด CORS) ──
 function rpcAddTask(key, t) {
   // 🔒 เฉพาะ key เจ้าของ (บอร์ดทีมปิด 01/10) — พนักงานฝากงานผ่านไลน์/request.html
-  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  if (!ownerKeyOk_(key)) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
   t.vis = 'ส่วนตัว';
   const r = createTaskDirect(t, true);             // เจ้าของกรอกเอง = อนุมัติแล้ว
   if (r.ok) {
@@ -7533,7 +7537,7 @@ function rpcAddTask(key, t) {
 // 💬 คอมเมนต์เพื่อปรับแผน — จดลงคอลัมน์ "โน้ตจากเจ้าของ" ให้ทีม AI อ่านก่อนลงมือ
 // redo = true → ส่งงานกลับเข้าคิวให้ทำใหม่ตามคอมเมนต์ (ใช้กับงานที่เสร็จแล้วหรือรออนุมัติ)
 function rpcComment(key, ref, text, redo) {
-  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  if (!ownerKeyOk_(key)) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
   const note = String(text || '').trim();
   if (!note) return { ok: false, msg: 'กรุณาพิมพ์คอมเมนต์' };
   try {
@@ -7590,7 +7594,7 @@ function rpcComment(key, ref, text, redo) {
 }
 
 function rpcBoardAction(key, action, ref) {
-  if (key !== cfg('QUEUE_KEY')) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
+  if (!ownerKeyOk_(key)) return { ok: false, msg: 'รหัสไม่ถูกต้อง' };
   const parts = String(boardAction(action, ref) || '⚠️|ทำรายการไม่สำเร็จ').split('|');
   return { ok: parts[0] === '✅', msg: parts.slice(1).join('|') };
 }
@@ -7603,7 +7607,7 @@ function needsApproval(dept) {
 
 // ส่งงานเดี่ยวให้คุณปาล์มพิจารณา พร้อมความเห็นของคุณเลขา
 function pushTaskForApproval(ref, task, senderId) {
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) return;
   const DEPT = { coder: '💻 โค้ด/ระบบ', data: '🗄️ ฝ่ายข้อมูล' };
   let msg = '📝 ขออนุมัติก่อนจ่ายงานค่ะคุณปาล์ม\n'
@@ -7627,7 +7631,7 @@ function pushTaskForApproval(ref, task, senderId) {
 function nextRoundText() {
   try {
     // โหมดยิงทันที: งานใหม่เริ่มภายในไม่กี่นาที รอบตั้งเวลาเหลือแค่กันตกหล่น
-    if (cfg('ROUTINE_FIRE_URL') && cfg('ROUTINE_TOKEN') && cfg('AUTO_FIRE') !== 'off') {
+    if (cfg_('ROUTINE_FIRE_URL') && cfg_('ROUTINE_TOKEN') && cfg_('AUTO_FIRE') !== 'off') {
       return 'ทันทีที่งานเข้าคิว ⚡ (สำรอง 8:15 / 17:15 น.)';
     }
     const nowH = parseInt(Utilities.formatDate(new Date(), 'GMT+7', 'H'), 10);
@@ -8017,7 +8021,7 @@ function createProjectPlan(plan, senderId) {
 
 // ส่งแผนให้คุณปาล์มดูในไลน์ เพื่ออนุมัติ/สั่งแก้
 function pushPlanForApproval(pid, plan, senderId) {
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) return;
   const DEPT = { data:'📊 ฝ่ายข้อมูล', analyst:'📈 นักวิเคราะห์', content:'🎨 ดีไซน์',
                  writer:'✍️ นักเขียน', researcher:'🔍 นักวิจัย', coder:'💻 โค้ด',
@@ -8175,7 +8179,7 @@ function approveProject(pid) {
 
 // ขั้นนี้เป็นงานของคน/เลขา → เตือนคุณปาล์มว่าถึงคิวแล้ว (ไม่งั้นโปรเจกต์จะค้าง)
 function notifyHumanStep(ref, detail) {
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   if (!owner) return;
   linePush(owner, '👤 ถึงคิวงานที่ต้องให้คนทำแล้วค่ะ\n'
     + '#' + ref + ' — ' + (detail || '') + '\n\n'
@@ -8244,7 +8248,7 @@ function advanceProject(pid) {
       for (let k = 1; k < data.length; k++) if (String(data[k][14]) === pid) return String(data[k][16] || pid);
       return pid;
     })();
-    const owner = cfg('OWNER_LINE_USER_ID');
+    const owner = cfg_('OWNER_LINE_USER_ID');
     if (owner) linePush(owner, '🎉 โปรเจกต์เสร็จครบทุกขั้นแล้วค่ะ\n📁 ' + title + ' (' + pid + ')');
   }
 }
@@ -8262,7 +8266,7 @@ function qSheet() {
 
 // ทีม AI เรียกผ่าน endpoint: ขอให้เลขาไปถามข้อมูลที่ขาด
 function handleAskInfo(body) {
-  if (body.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+  if (!ownerKeyOk_(body.key)) return jsonOut({ ok: false, error: 'unauthorized' });
   const s = qSheet(); if (!s) return jsonOut({ ok: false, error: 'no sheet' });
   const target = String(body.target || 'owner');
   const chatId = resolveChatTarget(target);
@@ -8292,11 +8296,11 @@ function handleAskInfo(body) {
 
 function resolveChatTarget(target) {
   const t = String(target).trim();
-  if (t === 'owner' || t === 'เจ้าของ' || t === 'คุณปาล์ม') return cfg('OWNER_LINE_USER_ID');
+  if (t === 'owner' || t === 'เจ้าของ' || t === 'คุณปาล์ม') return cfg_('OWNER_LINE_USER_ID');
   const map = { cafe:'GROUP_CAFE_ID', 'คาเฟ่':'GROUP_CAFE_ID', sales:'GROUP_SALES_ID', 'เซลล์':'GROUP_SALES_ID', 'ทีมเซลล์':'GROUP_SALES_ID' };
-  if (map[t]) return cfg(map[t]);
+  if (map[t]) return cfg_(map[t]);
   if (/^[CRU][0-9a-fA-F]{20,}$/.test(t)) return t;
-  return cfg(t) || '';
+  return cfg_(t) || '';
 }
 
 // มีคำถามค้างในห้องนี้ไหม → รับเป็น "คำตอบ" เฉพาะเมื่อผู้ใช้ระบุชัดว่าตอบ
@@ -8350,7 +8354,7 @@ function tryAnswerPendingQuestion(chatId, senderId, text, replyToken) {
         }
       }
       lineReply(replyToken, 'ได้รับข้อมูลแล้วค่ะ ขอบคุณมากนะคะ 🙏\nเดี๋ยวส่งต่อให้ทีมทำงาน ' + ref + ' ต่อเลยค่ะ');
-      const owner = cfg('OWNER_LINE_USER_ID');
+      const owner = cfg_('OWNER_LINE_USER_ID');
       if (owner && String(chatId) !== String(owner)) {
         linePush(owner, '✅ ได้คำตอบสำหรับงาน ' + ref + ' แล้วค่ะ\n"' + answer.slice(0, 300) + '"');
       }
@@ -8366,7 +8370,7 @@ function tryAnswerPendingQuestion(chatId, senderId, text, replyToken) {
 const CHAT_KEEP = 1000; // แถวล่าสุดในแท็บ GroupChat (เกินนี้ย้ายเข้าคลังรายเดือน GroupChat_yyyy-MM — ไม่ลบ)
 
 function logGroupChat(chatId, ev, text) {
-  if (cfg('LOG_GROUP_CHAT') === 'off') return;
+  if (cfg_('LOG_GROUP_CHAT') === 'off') return;
   try {
     const id = boardSheetId(); if (!id) return;
     const ss = ssById(id);
@@ -8382,7 +8386,7 @@ function logGroupChat(chatId, ev, text) {
         name = cache.get(ck) || '';
         if (!name) {
           const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/group/' + chatId + '/member/' + uid, {
-            headers: { Authorization: 'Bearer ' + cfg('LINE_TOKEN') }, muteHttpExceptions: true
+            headers: { Authorization: 'Bearer ' + cfg_('LINE_TOKEN') }, muteHttpExceptions: true
           });
           if (res.getResponseCode() === 200) {
             name = JSON.parse(res.getContentText()).displayName || '';
@@ -8551,7 +8555,7 @@ function normalizeLearnResult(j) {
 
 // โหมดสำรอง (LEARN_MODE=api): ระบบเลขาเรียกสมองเองแบบคิดเงินรายครั้ง
 function learnOneGroup(gName, oldProfile, msgs, ideaTopics) {
-  const apiKey = cfg('ANTHROPIC_API_KEY'); if (!apiKey) return null;
+  const apiKey = cfg_('ANTHROPIC_API_KEY'); if (!apiKey) return null;
   const user = learnUserText(gName, oldProfile, msgs, ideaTopics);
   AI_TAG = 'เรียนรู้แชทกลุ่ม';
   try {
@@ -8671,9 +8675,9 @@ function learnFromGroupChats(force) {
 //               → สรุปตาม instructions → POST action=learnSave (key, chatId, upTo, count, result=JSON) ทีละกลุ่ม
 //               → มี more=true ให้ขอ feed ใหม่ → จบด้วย POST action=learnDone
 //  LEARN_KEY = รหัสเฉพาะงานนี้ (อ่านแชท/เขียนแฟ้มได้อย่างเดียว ไม่ใช่รหัสบอร์ด) สร้างเองครั้งแรก — คุณปาล์มพิมพ์ "รหัสเรียนรู้" ในไลน์ดูได้
-function learnMode() { return cfg('LEARN_MODE') === 'api' ? 'api' : 'routine'; }
-function learnKey() {
-  let k = cfg('LEARN_KEY');
+function learnMode() { return cfg_('LEARN_MODE') === 'api' ? 'api' : 'routine'; }
+function learnKey_() {
+  let k = cfg_('LEARN_KEY');
   if (!k) {
     k = 'L' + Utilities.getUuid().replace(/-/g, '').slice(0, 23);
     PropertiesService.getScriptProperties().setProperty('LEARN_KEY', k);
@@ -8681,7 +8685,7 @@ function learnKey() {
   }
   return k;
 }
-function learnKeyOk(key) { return !!key && (key === learnKey() || key === cfg('QUEUE_KEY')); }
+function learnKeyOk(key) { return !!key && (key === learnKey_() || ownerKeyOk_(key)); }
 
 // โหมดเก็บนิสัยย้อนหลัง: อ่านแชททั้งหมดของแต่ละกลุ่มทีละก้อน ด้วย "เรียนนิสัยถึง" แยก (PEOPLE_CURSOR) ไม่แตะ "เรียนถึง" ปกติ
 function peopleCursors() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('PEOPLE_CURSOR') || '{}'); } catch (e) { return {}; } }
@@ -8769,7 +8773,7 @@ function learnDone(p) {
   // คุณปาล์มสั่งเรียนเอง → รายงานทันที · รอบกลางคืนปกติ → ไม่ส่ง (ดูได้ที่ "แฟ้มกลุ่ม" / "จุดต่อระบบ")
   if (P.getProperty('LEARN_NOW') === '1') {
     P.deleteProperty('LEARN_NOW');
-    const owner = cfg('OWNER_LINE_USER_ID');
+    const owner = cfg_('OWNER_LINE_USER_ID');
     if (owner) linePush(owner, '📚 เรียนรู้แชทกลุ่มเสร็จแล้วค่ะ\n'
       + ((night.d === today && night.done.length) ? '✅ ' + night.done.join('\n✅ ') : 'ไม่มีแชทใหม่ให้เรียน')
       + (fail ? '\n⚠️ ยังเรียนไม่สำเร็จ: ' + fail + ' (รอบหน้าลองใหม่เอง)' : '')
@@ -8833,7 +8837,7 @@ function maybeLearnTick() {
       P.setProperty('LEARN_DONE', today);
       if (forced) {
         P.deleteProperty('LEARN_NOW');
-        const owner = cfg('OWNER_LINE_USER_ID');
+        const owner = cfg_('OWNER_LINE_USER_ID');
         if (owner) linePush(owner, '📚 เรียนรู้แชทกลุ่มเสร็จแล้วค่ะ\n'
           + (r.done.length ? '✅ ' + r.done.join('\n✅ ') : 'ไม่มีแชทใหม่ให้เรียน')
           + (r.failed.length ? '\n⚠️ ยังเรียนไม่สำเร็จ: ' + r.failed.join(', ') + ' (รอบหน้าลองใหม่เอง)' : '')
@@ -8880,15 +8884,15 @@ function handleKnowledgeCommand(text, replyToken) {
       return true;
     }
     // โหมด Routine: ปลุก Routine เรียนรู้ทันที ถ้าตั้ง LEARN_ROUTINE_FIRE_URL/TOKEN ไว้ — ไม่งั้นรอรอบคืนนี้
-    const fired = (cfg('LEARN_ROUTINE_FIRE_URL') && cfg('LEARN_ROUTINE_TOKEN'))
-      ? fireRoutine('คุณปาล์มสั่งเรียนรู้แชทกลุ่มตอนนี้ — อ่านย้อนทั้งหมด (force=1)', cfg('LEARN_ROUTINE_FIRE_URL'), cfg('LEARN_ROUTINE_TOKEN')) : null;
+    const fired = (cfg_('LEARN_ROUTINE_FIRE_URL') && cfg_('LEARN_ROUTINE_TOKEN'))
+      ? fireRoutine('คุณปาล์มสั่งเรียนรู้แชทกลุ่มตอนนี้ — อ่านย้อนทั้งหมด (force=1)', cfg_('LEARN_ROUTINE_FIRE_URL'), cfg_('LEARN_ROUTINE_TOKEN')) : null;
     lineReply(replyToken, fired && fired.ok
       ? '📚 รับทราบค่ะ ปลุกตัวเรียนรู้แล้ว เสร็จแล้วรายงานสรุปให้นะคะ (ปกติไม่เกินครึ่งชั่วโมง)'
       : '📚 รับทราบค่ะ ดิฉันจะเรียนรอบคืนนี้ (ตี 2) แล้วรายงานให้ตอนเสร็จนะคะ');
     return true;
   }
   if (/^รหัสเรียนรู้$/.test(t)) {
-    lineReply(replyToken, '🔑 รหัสสำหรับตัวเรียนรู้แชทกลุ่มค่ะ (อ่านแชท/เขียนแฟ้มได้อย่างเดียว เปิดบอร์ดไม่ได้):\n' + learnKey()
+    lineReply(replyToken, '🔑 รหัสสำหรับตัวเรียนรู้แชทกลุ่มค่ะ (อ่านแชท/เขียนแฟ้มได้อย่างเดียว เปิดบอร์ดไม่ได้):\n' + learnKey_()
       + '\n\nเอาไปใส่เป็นตัวแปร PALM_LEARN_KEY ในหน้าตั้งค่า environment ของ Claude Code (ห้ามวางในแชทกับ Claude)'
       + '\nอยากเปลี่ยนรหัส: ลบ LEARN_KEY ใน Script Properties แล้วพิมพ์คำนี้ใหม่ค่ะ');
     return true;
@@ -8981,7 +8985,7 @@ function aiCostUsd(u, price) {
   const P = price || AI_PRICE;
   return (u.in * P.in + u.cw * P.cw + u.cr * P.cr + u.out * P.out) / 1e6;
 }
-function usdThb() { return Number(cfg('USD_THB')) || 35; }
+function usdThb() { return Number(cfg_('USD_THB')) || 35; }
 
 function trackUsage(data) {
   try {
@@ -9184,7 +9188,7 @@ function ensureTimeCols(sheet) {
 
 // ทีม AI "เช็คอิน" ก่อนเริ่มทำงาน → สถานะ "กำลังทำ (AI)" + บันทึกแผนก (บอร์ดเห็นสดๆ)
 function handleStartTask(body) {
-  if (body.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+  if (!ownerKeyOk_(body.key)) return jsonOut({ ok: false, error: 'unauthorized' });
   const id = boardSheetId();
   if (!id) return jsonOut({ ok: false, error: 'no sheet' });
   const ss = ssById(id);
@@ -9201,7 +9205,7 @@ function handleStartTask(body) {
 
 // ทีม AI ส่งผลงานกลับมาปิดงาน → อัปเดตสถานะ + แจ้งคุณปาล์ม
 function handleCompleteTask(body) {
-  if (body.key !== cfg('QUEUE_KEY')) return jsonOut({ ok: false, error: 'unauthorized' });
+  if (!ownerKeyOk_(body.key)) return jsonOut({ ok: false, error: 'unauthorized' });
   const id = boardSheetId();
   if (!id) return jsonOut({ ok: false, error: 'no sheet' });
   const ss = ssById(id);
@@ -9215,7 +9219,7 @@ function handleCompleteTask(body) {
   sheet.getRange(row, 13).setValue(String(body.result || '').slice(0, 5000));
   sheet.getRange(row, 21).setValue(new Date());       // ⏱️ เสร็จเมื่อ
   const pid = String(sheet.getRange(row, 15).getValue() || '');
-  const owner = cfg('OWNER_LINE_USER_ID');
+  const owner = cfg_('OWNER_LINE_USER_ID');
   // งานเดี่ยว → แจ้งทันที / งานย่อยในโปรเจกต์ → ไม่เด้งรายชิ้น (กันสแปม)
   // ความคืบหน้าดูในหน้า Workflow และจะแจ้งรวมตอนถึงขั้นของคน/จบโปรเจกต์
   if (owner && !pid) linePush(owner, '✅ ทีม AI ทำงาน #' + body.ref + ' เสร็จแล้วค่ะ\n' + String(body.result || '').slice(0, 500));
@@ -9312,7 +9316,7 @@ function speedTest() {
   const board = readBoardAll();  mark('อ่านบอร์ด ' + board.length + ' งาน');
   getAIQueue();                  mark('อ่านคิวทีม AI');
   memGet('speedtest-user');      mark('อ่านความจำ');
-  boardHtml(cfg('QUEUE_KEY'));   mark('สร้างหน้าบอร์ด HTML');
+  boardHtml(cfg_('QUEUE_KEY'));   mark('สร้างหน้าบอร์ด HTML');
   askClaude('ทดสอบความเร็ว ตอบสั้นๆ ว่า ok'); mark('เรียก Claude API');
 
   const out = t.join('\n');

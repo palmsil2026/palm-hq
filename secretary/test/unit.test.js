@@ -105,8 +105,8 @@ t('สติกเกอร์ในกลุ่มบิล → ไม่ส่
 
 t('FINANCE_CHAT_TOKEN / FINANCE_APP_URL ใน Script Properties ใช้แทนค่าตั้งต้นได้', () => {
   const { ctx } = makeEnv({ props: { FINANCE_CHAT_TOKEN: 'own-token-1234567890' } });
-  assert.strictEqual(ctx.financeChatToken(), 'own-token-1234567890');
-  assert.strictEqual(makeEnv({ props: { PRODUCTION_CHAT_TOKEN: 'prod-only' } }).ctx.financeChatToken(), expectToken, 'รหัสแอปทีมผลิตแยก ไม่ปนกัน');
+  assert.strictEqual(ctx.financeChatToken_(), 'own-token-1234567890');
+  assert.strictEqual(makeEnv({ props: { PRODUCTION_CHAT_TOKEN: 'prod-only' } }).ctx.financeChatToken_(), expectToken, 'รหัสแอปทีมผลิตแยก ไม่ปนกัน');
 });
 
 t('expenseDue: ช่วง 8–11 โมง เรียกวันละครั้ง → notice หาคุณปาล์ม · ไม่ส่ง reply ลงกลุ่ม', () => {
@@ -932,3 +932,6 @@ require('./fuel.test.js');
 
 // 🧠 สมองหลัก + คำสั่ง orders + โน้ตพ่วงใบงาน (10/11) — ไฟล์แยก รันต่อท้าย
 require('./brain.test.js');
+
+// 🔐 ประตูหน้าเว็บ (หน้า HtmlService + ตัวอ่านค่าลับ) — ไฟล์แยก รันต่อท้าย
+require('./gate.test.js');
